@@ -50,13 +50,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Importar arquivos
-        run: godot --headless --path . --import
+        run: HOME=/root godot --headless --path . --import
       - name: Exportar APK de depuração
         shell: bash
         run: |
           set -eo pipefail
           mkdir -p build
-          godot --headless --path . --export-debug "Android" build/Legado-das-Eras-debug.apk 2>&1 | tee godot-export.log
+          HOME=/root godot --headless --path . --export-debug "Android" build/Legado-das-Eras-debug.apk 2>&1 | tee godot-export.log
           test -s build/Legado-das-Eras-debug.apk
       - name: Guardar APK para testes
         uses: actions/upload-artifact@v4
