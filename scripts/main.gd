@@ -2,9 +2,9 @@ extends Node2D
 ## Legado das Eras — tela jogavel. A simulacao permanece em world.gd.
 const World = preload("res://scripts/world.gd")
 const Updates = preload("res://scripts/update_manager.gd")
-const TILE_SIZE := 28.0
-const MAP_ORIGIN := Vector2(80.0, 294.0)
-const MAP_AREA := Rect2(28.0, 276.0, 664.0, 595.0)
+const TILE_SIZE := 34.0
+const MAP_ORIGIN := Vector2(38.0, 115.0)
+const MAP_AREA := Rect2(17.0, 109.0, 870.0, 463.0)
 const AUTOSAVE_SECONDS := 20.0
 
 var world = World.new()
@@ -19,6 +19,9 @@ var drag_started := Vector2.ZERO
 var autosave_timer := 0.0
 var ui_timer := 0.0
 var last_news := ""
+var tile_textures: Dictionary = {}
+var actor_textures: Dictionary = {}
+var texture_missing := false
 var update_manager: Node
 
 var info_label: Label
@@ -36,6 +39,7 @@ func _ready() -> void:
 	if not world.load_world():
 		world.generate_world()
 	world.speed = 1.0
+	_load_art()
 	update_manager = Updates.new()
 	add_child(update_manager)
 	_build_ui()
@@ -60,47 +64,59 @@ func _notification(what: int) -> void:
 		if world != null and not world.tiles.is_empty():
 			world.save_world()
 
+func _load_art() -> void:
+	for tile in ["grass", "water", "sand", "forest", "snow", "mountain", "grass_autumn", "forest_autumn", "grass_spring"]:
+		var texture: Resource = load("res://assets/terrain/" + tile + ".svg")
+		if texture is Texture2D:
+			tile_textures[tile] = texture
+		else:
+			texture_missing = true
+	for actor in ["hut", "farm", "fire", "person_m", "person_f", "child", "wolf", "bear"]:
+		var texture: Resource = load("res://assets/sprites/" + actor + ".svg")
+		if texture is Texture2D:
+			actor_textures[actor] = texture
+		else:
+			texture_missing = true
+	if texture_missing:
+		push_warning("Alguns desenhos do mapa ainda nao foram carregados.")
+
 func _build_ui() -> void:
-	var background := Color("#101b28")
-	var top := ColorRect.new()
-	top.color = background
-	top.position = Vector2.ZERO
-	top.size = Vector2(720, 274)
-	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(top)
-
-	var title := _label("LEGADO DAS ERAS", Vector2(24, 20), Vector2(670, 55), 34, Color("#f3d993"))
-	title.add_theme_color_override("font_shadow_color", Color("#17222a"))
-	title.add_theme_constant_override("shadow_offset_x", 1)
+	var background := Color("#141d1c")
+	var entire := ColorRect.new()
+	entire.color = background
+	entire.position = Vector2.ZERO
+	entire.size = Vector2(1280, 720)
+	entire.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(entire)
+	var title := _label("LEGADO DAS ERAS", Vector2(26, 13), Vector2(315, 42), 30, Color("#f1d99b"))
+	title.add_theme_color_override("font_shadow_color", Color("#0e1411"))
 	title.add_theme_constant_override("shadow_offset_y", 2)
-	stats_label = _label("", Vector2(24, 81), Vector2(672, 70), 21, Color("#e5e9e6"))
-	news_label = _label("", Vector2(24, 158), Vector2(672, 36), 18, Color("#eac889"))
+	stats_label = _label("", Vector2(340, 15), Vector2(390, 32), 17, Color("#e1e5ce"))
+	news_label = _label("", Vector2(27, 77), Vector2(856, 29), 17, Color("#efd59b"))
 	news_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-
-	pause_button = _button("Pausar", Vector2(24, 211), Vector2(159, 55), Callable(self, "_toggle_pause"))
-	speed_button = _button("Velocidade 1x", Vector2(195, 211), Vector2(184, 55), Callable(self, "_change_speed"))
-	_button("Zoom -", Vector2(391, 211), Vector2(139, 55), Callable(self, "_zoom_out"))
-	_button("Zoom +", Vector2(542, 211), Vector2(154, 55), Callable(self, "_zoom_in"))
-
-	var below := ColorRect.new()
-	below.position = Vector2(0, 878)
-	below.size = Vector2(720, 402)
-	below.color = background
-	below.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(below)
-
-	info_label = _label("", Vector2(24, 891), Vector2(666, 98), 20, Color("#f4f5ed"))
+	pause_button = _button("Pausar", Vector2(501, 53), Vector2(100, 47), Callable(self, "_toggle_pause"))
+	speed_button = _button("1x", Vector2(610, 53), Vector2(87, 47), Callable(self, "_change_speed"))
+	_button("Zoom -", Vector2(707, 53), Vector2(88, 47), Callable(self, "_zoom_out"))
+	_button("Zoom +", Vector2(802, 53), Vector2(86, 47), Callable(self, "_zoom_in"))
+	_label("PERSONAGEM / TRIBO", Vector2(916, 16), Vector2(338, 36), 24, Color("#f0d69b"))
+	info_label = _label("", Vector2(911, 152), Vector2(350, 174), 19, Color("#f3e4c9"))
 	info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	control_button = _button("Controlar pessoa", Vector2(24, 996), Vector2(216, 55), Callable(self, "_toggle_control"))
-	war_button = _button("Guerras: nao", Vector2(252, 996), Vector2(210, 55), Callable(self, "_toggle_war"))
-	_button("Salvar", Vector2(474, 996), Vector2(220, 55), Callable(self, "_save_now"))
-	rival_button = _button("Rivais: nao", Vector2(24, 1065), Vector2(215, 55), Callable(self, "_toggle_rivals"))
-	predator_button = _button("Feras: nao", Vector2(251, 1065), Vector2(211, 55), Callable(self, "_toggle_predators"))
-	_button("Novo mundo", Vector2(474, 1065), Vector2(220, 55), Callable(self, "_new_world"))
-	_button("Diplomacia", Vector2(474, 1134), Vector2(220, 55), Callable(self, "_show_diplomacy"))
-	_button("Atualizacoes", Vector2(474, 1202), Vector2(220, 55), Callable(self, "_check_updates"))
-	var tip := _label("Toque nas aldeias para negociar. Assuma personagens e animais para explorar.", Vector2(24, 1134), Vector2(438, 100), 18, Color("#a8c1c5"))
-	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	control_button = _button("Controlar", Vector2(906, 332), Vector2(170, 47), Callable(self, "_toggle_control"))
+	war_button = _button("Guerras", Vector2(1081, 332), Vector2(172, 47), Callable(self, "_toggle_war"))
+	rival_button = _button("Rivais", Vector2(906, 390), Vector2(170, 47), Callable(self, "_toggle_rivals"))
+	predator_button = _button("Animais", Vector2(1081, 390), Vector2(172, 47), Callable(self, "_toggle_predators"))
+	_button("Diplomacia", Vector2(906, 449), Vector2(170, 47), Callable(self, "_show_diplomacy"))
+	_button("Salvar", Vector2(1081, 449), Vector2(172, 47), Callable(self, "_save_now"))
+	_button("Atualizar", Vector2(906, 509), Vector2(170, 47), Callable(self, "_check_updates"))
+	_button("Novo mundo", Vector2(1081, 509), Vector2(172, 47), Callable(self, "_new_world"))
+	_label("BIOMAS E ESTACOES", Vector2(26, 585), Vector2(520, 26), 20, Color("#f0dbad"))
+	_label("FLORESTA", Vector2(110, 660), Vector2(132, 28), 17, Color("#e6d4ac"))
+	_label("DESERTO", Vector2(316, 660), Vector2(132, 28), 17, Color("#e6d4ac"))
+	_label("NEVE", Vector2(532, 660), Vector2(132, 28), 17, Color("#e6d4ac"))
+	_label("MONTANHAS", Vector2(738, 660), Vector2(132, 28), 17, Color("#e6d4ac"))
+	_label("MUNDO VIVO", Vector2(909, 583), Vector2(335, 29), 21, Color("#f0d69b"))
+	_label("Aldeias • Familias • Estacoes • Evolucao", Vector2(908, 615), Vector2(352, 26), 16, Color("#e4d1b0"))
+	_label("Toque nos habitantes e explore o mapa.", Vector2(908, 650), Vector2(352, 44), 15, Color("#a5b9a2"))
 
 func _label(value: String, pos: Vector2, dimensions: Vector2, font_size: int, color: Color) -> Label:
 	var l := Label.new()
@@ -122,19 +138,19 @@ func _button(value: String, pos: Vector2, dimensions: Vector2, callback: Callabl
 	b.add_theme_font_size_override("font_size", 18)
 	b.add_theme_color_override("font_color", Color("#f0f5f2"))
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color("#274a51")
-	style.corner_radius_top_left = 13
-	style.corner_radius_top_right = 13
-	style.corner_radius_bottom_left = 13
-	style.corner_radius_bottom_right = 13
+	style.bg_color = Color("#493b2a")
+	style.corner_radius_top_left = 7
+	style.corner_radius_top_right = 7
+	style.corner_radius_bottom_left = 7
+	style.corner_radius_bottom_right = 7
 	style.border_width_bottom = 2
-	style.border_color = Color("#6c948a")
+	style.border_color = Color("#a78656")
 	b.add_theme_stylebox_override("normal", style)
 	var hover := style.duplicate()
-	hover.bg_color = Color("#356b67")
+	hover.bg_color = Color("#6a4e2c")
 	b.add_theme_stylebox_override("hover", hover)
 	var pressed_style := style.duplicate()
-	pressed_style.bg_color = Color("#183e40")
+	pressed_style.bg_color = Color("#2a2118")
 	b.add_theme_stylebox_override("pressed", pressed_style)
 	b.pressed.connect(callback)
 	add_child(b)
@@ -147,15 +163,15 @@ func _refresh_ui() -> void:
 	for p in world.people:
 		if bool(p["alive"]):
 			living += 1
-	stats_label.text = "Ano %d • Dia %d    |    %d habitantes    |    %d aldeias" % [years + 1, day_of_year, living, world.towns.size()]
+	stats_label.text = "Ano %d · Dia %d · %s · %d moradores" % [years + 1, day_of_year, _season_name(), living]
 	last_news = world.news
 	news_label.text = "Crônica: " + world.news
 	pause_button.text = "Retomar" if world.speed == 0.0 else "Pausar"
 	speed_button.text = "Velocidade %dx" % int(maxf(1.0, world.speed))
 	war_button.text = "Guerras: sim" if world.wars else "Guerras: nao"
 	rival_button.text = "Rivais: sim" if world.rivals else "Rivais: nao"
-	predator_button.text = "Feras: sim" if world.predators else "Feras: nao"
-	control_button.text = "Soltar controle" if controlled_id > 0 else "Controlar personagem"
+	predator_button.text = "Animais: sim" if world.predators else "Animais: nao"
+	control_button.text = "Soltar controle" if controlled_id > 0 else "Controlar"
 	if selected_beast_id > 0:
 		var beast: Dictionary = world.get_beast(selected_beast_id)
 		if not beast.is_empty():
@@ -187,64 +203,110 @@ func _refresh_ui() -> void:
 			return
 	info_label.text = "Mundo vivo: observe aldeias, linhagens, sucessoes, crescimento e disputas.\nSelecione uma pessoa ou uma aldeia no mapa para descobrir sua historia."
 
+func _season_name() -> String:
+	var index := int(world.day / 90.0) % 4
+	return ["Primavera", "Verao", "Outono", "Inverno"][index]
+
+func _terrain_type(tile: String) -> String:
+	var season := int(world.day / 90.0) % 4
+	if season == 2 and tile == "grass":
+		return "grass_autumn"
+	if season == 2 and tile == "forest":
+		return "forest_autumn"
+	if season == 0 and tile == "grass":
+		return "grass_spring"
+	if season == 3 and tile == "grass":
+		return "snow"
+	return tile
+
+func _draw_sprite(key: String, center: Vector2, dimensions: Vector2) -> void:
+	if not actor_textures.has(key):
+		return
+	var texture: Texture2D = actor_textures[key]
+	draw_texture_rect(texture, Rect2(center - dimensions * 0.5, dimensions), false)
+
 func _draw() -> void:
-	draw_rect(MAP_AREA, Color("#112b36"), true)
-	draw_rect(MAP_AREA, Color("#50726a"), false, 3.0)
-	var palette := {
-		"grass": Color("#53966d"), "water": Color("#2a7a9c"),
-		"sand": Color("#d4be83"), "forest": Color("#285d45"),
-		"snow": Color("#d5e6de"), "mountain": Color("#687d83")
-	}
+	# Quadro principal e moldura em tons de madeira, inspirados no estilo pixel art aprovado.
+	draw_rect(Rect2(9, 104, 889, 478), Color("#9b773e"), true)
+	draw_rect(MAP_AREA, Color("#325b3e"), true)
+	draw_rect(Rect2(901, 7, 369, 567), Color("#2c251d"), true)
+	draw_rect(Rect2(905, 10, 359, 560), Color("#765a37"), false, 4.0)
+	draw_rect(Rect2(904, 48, 362, 106), Color("#382f24"), true)
+	draw_rect(Rect2(900, 577, 368, 133), Color("#262a22"), true)
+	draw_rect(Rect2(9, 577, 889, 133), Color("#242b23"), true)
+	draw_rect(Rect2(12, 580, 883, 126), Color("#876d46"), false, 3.0)
 	var scale_size := TILE_SIZE * zoom
 	for y in range(world.tiles.size()):
 		var row: Array = world.tiles[y]
 		for x in range(row.size()):
 			var position := _world_to_screen(Vector2(x, y))
-			var tile_rect := Rect2(position, Vector2(scale_size + 0.6, scale_size + 0.6))
+			var tile_rect := Rect2(position, Vector2(scale_size + 0.5, scale_size + 0.5))
 			if not tile_rect.intersects(MAP_AREA):
 				continue
-			draw_rect(tile_rect, palette.get(str(row[x]), palette["grass"]), true)
-			if str(row[x]) == "forest":
-				draw_circle(position + Vector2.ONE * scale_size * 0.5, 2.6 * zoom, Color("#17392d"))
-			elif str(row[x]) == "mountain":
-				var peak := position + Vector2(scale_size * 0.5, scale_size * 0.23)
-				draw_line(position + Vector2(2, scale_size - 3), peak, Color("#334d59"), 2.0)
-				draw_line(peak, position + Vector2(scale_size - 2, scale_size - 3), Color("#334d59"), 2.0)
-	for t in world.towns:
-		var center := _world_to_screen(Vector2(float(t["x"]) + 0.5, float(t["y"]) + 0.5))
-		if not MAP_AREA.has_point(center):
+			var tile: String = _terrain_type(str(row[x]))
+			if tile_textures.has(tile):
+				draw_texture_rect(tile_textures[tile] as Texture2D, tile_rect, false)
+			else:
+				draw_rect(tile_rect, Color("#528c55"), true)
+	# Vilarejos construidos com cabanas, hortas e fogueiras visiveis.
+	for town in world.towns:
+		var center := _world_to_screen(Vector2(float(town["x"]) + 0.5, float(town["y"]) + 0.5))
+		if center.x < MAP_AREA.position.x - 100 or center.x > MAP_AREA.end.x + 100:
 			continue
-		var color := Color("#d18d75") if bool(t["hostile"]) else Color("#f9dc8c")
-		draw_circle(center, 10 * zoom, Color("#18333c"))
-		draw_rect(Rect2(center - Vector2(6, 7) * zoom, Vector2(12, 14) * zoom), color, true)
-		draw_line(center + Vector2(-8, -7) * zoom, center + Vector2(0, -15) * zoom, color, 4.0 * zoom)
-		draw_line(center + Vector2(0, -15) * zoom, center + Vector2(8, -7) * zoom, color, 4.0 * zoom)
-		if int(t["id"]) == selected_town_id:
-			draw_arc(center, 17 * zoom, 0, TAU, 24, Color.YELLOW, 3.0)
+		if center.y < MAP_AREA.position.y - 100 or center.y > MAP_AREA.end.y + 100:
+			continue
+		var unit := TILE_SIZE * zoom
+		_draw_sprite("farm", center + Vector2(-1.4, 1.15) * unit, Vector2(1.5, 1.5) * unit)
+		_draw_sprite("hut", center + Vector2(0.0, -0.35) * unit, Vector2(1.85, 1.85) * unit)
+		if int(town.get("houses", 2)) >= 2:
+			_draw_sprite("hut", center + Vector2(1.6, 0.35) * unit, Vector2(1.45, 1.45) * unit)
+		if int(town.get("houses", 2)) >= 3:
+			_draw_sprite("hut", center + Vector2(-1.25, -0.75) * unit, Vector2(1.35, 1.35) * unit)
+		_draw_sprite("fire", center + Vector2(0.7, 1.0) * unit, Vector2(1.2, 1.2) * unit)
+		if int(town["id"]) == selected_town_id:
+			draw_arc(center, 35.0 * zoom, 0, TAU, 32, Color("#fff0a0"), 3.0)
+	# Personagens separados visualmente por idade e aparencia.
 	for p in world.people:
 		if not bool(p["alive"]):
 			continue
 		var center := _world_to_screen(Vector2(float(p["x"]) + 0.5, float(p["y"]) + 0.5))
 		if not MAP_AREA.has_point(center):
 			continue
-		var skin := Color("#f4d6b1") if int(p["gender"]) == 0 else Color("#f3bcd2")
-		var radius := maxf(2.5, 4.0 * zoom)
-		draw_circle(center, radius + 1.0, Color("#253039"))
-		draw_circle(center, radius, skin)
+		var key := "child" if float(p["age"]) < 16.0 else ("person_m" if int(p["gender"]) == 0 else "person_f")
+		_draw_sprite(key, center, Vector2(30, 30) * zoom)
 		if int(p["id"]) == selected_person_id:
-			draw_arc(center, 9 * zoom, 0, TAU, 20, Color.YELLOW, 2.0)
+			draw_arc(center, 14.0 * zoom, 0, TAU, 20, Color("#ffe890"), 2.0)
 		if int(p["id"]) == controlled_id:
-			draw_arc(center, 13 * zoom, 0, TAU, 20, Color("#88f5e8"), 3.0)
+			draw_arc(center, 18.0 * zoom, 0, TAU, 20, Color("#6cffda"), 3.0)
 	for b in world.beasts:
 		if not bool(b["alive"]):
 			continue
 		var center := _world_to_screen(Vector2(float(b["x"]) + 0.5, float(b["y"]) + 0.5))
-		if MAP_AREA.has_point(center):
-			draw_circle(center, (7 if b["species"] == "Urso" else 5) * zoom, Color("#543633"))
-			if int(b["id"]) == selected_beast_id:
-				draw_arc(center, 10 * zoom, 0, TAU, 20, Color.YELLOW, 2.0)
-			if int(b["id"]) == controlled_id:
-				draw_arc(center, 14 * zoom, 0, TAU, 20, Color("#88f5e8"), 3.0)
+		if not MAP_AREA.has_point(center):
+			continue
+		var key := "bear" if str(b["species"]) == "Urso" else "wolf"
+		_draw_sprite(key, center, Vector2(38, 38) * zoom)
+		if int(b["id"]) == selected_beast_id:
+			draw_arc(center, 15.0 * zoom, 0, TAU, 20, Color("#ffe890"), 2.0)
+		if int(b["id"]) == controlled_id:
+			draw_arc(center, 19.0 * zoom, 0, TAU, 20, Color("#6cffda"), 3.0)
+	# Quatro miniaturas de biomas geradas a partir da mesma arte do mundo.
+	var biome_keys := ["forest", "sand", "snow", "mountain"]
+	for i in range(biome_keys.size()):
+		var x := 22 + i * 212
+		draw_rect(Rect2(x, 613, 190, 85), Color("#6d5638"), true)
+		var key: String = biome_keys[i]
+		if tile_textures.has(key):
+			draw_texture_rect(tile_textures[key] as Texture2D, Rect2(x + 5, 618, 180, 38), false)
+	# Retrato do personagem ou aldeia selecionados, usando sprites reais.
+	var portrait_key := "hut"
+	if selected_beast_id > 0:
+		portrait_key = "bear" if str(world.get_beast(selected_beast_id).get("species", "")) == "Urso" else "wolf"
+	elif selected_person_id > 0:
+		var person: Dictionary = world.get_person(selected_person_id)
+		if not person.is_empty():
+			portrait_key = "child" if float(person["age"]) < 16.0 else ("person_m" if int(person["gender"]) == 0 else "person_f")
+	_draw_sprite(portrait_key, Vector2(1063, 100), Vector2(86, 86))
 
 func _world_to_screen(world_pos: Vector2) -> Vector2:
 	return MAP_ORIGIN + map_offset + world_pos * TILE_SIZE * zoom
@@ -338,8 +400,8 @@ func _move_controlled(delta: float) -> void:
 
 func _clamp_map() -> void:
 	var map_size := World.SIZE * TILE_SIZE * zoom
-	map_offset.x = clampf(map_offset.x, -map_size + 120.0, 530.0)
-	map_offset.y = clampf(map_offset.y, -map_size + 100.0, 540.0)
+	map_offset.x = clampf(map_offset.x, -map_size + 150.0, 790.0)
+	map_offset.y = clampf(map_offset.y, -map_size + 90.0, 500.0)
 
 func _toggle_pause() -> void:
 	world.speed = 1.0 if world.speed == 0.0 else 0.0
