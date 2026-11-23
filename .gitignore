@@ -1,0 +1,5 @@
+# Godot caches and builds
+.godot/
+build/
+*.tmp
+.DS_Store
