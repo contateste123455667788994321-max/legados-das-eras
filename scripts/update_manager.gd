@@ -53,7 +53,7 @@ func _offer_update(next_name: String, download_url: String, required: bool) -> v
 	dialog.title = "Nova versao do Legado das Eras"
 	dialog.dialog_text = "Versao %s disponivel. Instale para receber melhorias sem perder o seu mundo salvo." % next_name
 	if required:
-		dialog.dialog_text += "\nEsta atualizacao e necessaria para continuar jogando online."
+		dialog.dialog_text += "\nEsta versao foi marcada pelo criador como uma atualizacao importante."
 		dialog.cancel_button_text = "Agora nao"
 	else:
 		dialog.cancel_button_text = "Depois"
