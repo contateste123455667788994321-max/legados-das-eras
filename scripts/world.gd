@@ -2,10 +2,12 @@ extends RefCounted
 class_name WorldSim
 
 const AgentAI = preload("res://scripts/ai.gd")
+const Politics = preload("res://scripts/politics.gd")
 const SIZE := 20
 const NAMES := ["Ari", "Nara", "Taro", "Lia", "Breno", "Iara", "Dara", "Enzo", "Kira", "Suri", "Davi", "Maya", "Ravi", "Luna", "Rael", "Yara", "Cael", "Tina", "Eron", "Ayla"]
 var rng := RandomNumberGenerator.new()
 var agent_ai = AgentAI.new()
+var politics = Politics.new()
 var tiles: Array = []
 var towns: Array = []
 var people: Array = []
@@ -27,6 +29,7 @@ func new_id() -> int:
 
 func generate_world() -> void:
 	agent_ai.elapsed = 0.0
+	politics.elapsed = 0.0
 	rng.randomize()
 	tiles.clear()
 	towns.clear()
@@ -59,6 +62,7 @@ func generate_world() -> void:
 	make_town("Vale Verde", 5, 5, false)
 	make_town("Pedra Alta", 14, 7, false)
 	make_town("Campo do Sol", 9, 15, false)
+	politics.prepare(self)
 	news = "Tres aldeias vivem em paz. Voce decide o futuro."
 
 func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
@@ -131,6 +135,7 @@ func toggle_rivals() -> void:
 				any_hostile = true
 		if not any_hostile:
 			make_town("Clã das Cinzas", 15, 14, true)
+		politics.prepare(self)
 		news = "A tribo rival esta ativa e tambem evolui."
 	else:
 		news = "Tribos rivais desativadas: nao atacarao."
@@ -180,8 +185,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 	if day >= next_birth:
 		next_birth += 120.0
 		_new_children()
-	if wars:
-		_battle(dt)
+	politics.advance(self, dt)
 	if predators:
 		_predator_attacks(dt)
 	# IA local atualiza necessidades, trabalhos, relacionamentos e aldeias.
@@ -304,6 +308,7 @@ func save_world() -> bool:
 
 func load_world() -> bool:
 	agent_ai.elapsed = 0.0
+	politics.elapsed = 0.0
 	if not FileAccess.file_exists("user://world.json"):
 		return false
 	var file := FileAccess.open("user://world.json", FileAccess.READ)
@@ -325,4 +330,7 @@ func load_world() -> bool:
 	rivals = bool(value.get("rivals", false))
 	predators = bool(value.get("predators", false))
 	news = "Mundo salvo carregado."
-	return tiles.size() == SIZE
+	if tiles.size() == SIZE:
+		politics.prepare(self)
+		return true
+	return false
