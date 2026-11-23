@@ -1,9 +1,11 @@
 extends RefCounted
 class_name WorldSim
 
+const AgentAI = preload("res://scripts/ai.gd")
 const SIZE := 20
 const NAMES := ["Ari", "Nara", "Taro", "Lia", "Breno", "Iara", "Dara", "Enzo", "Kira", "Suri", "Davi", "Maya", "Ravi", "Luna", "Rael", "Yara", "Cael", "Tina", "Eron", "Ayla"]
 var rng := RandomNumberGenerator.new()
+var agent_ai = AgentAI.new()
 var tiles: Array = []
 var towns: Array = []
 var people: Array = []
@@ -24,6 +26,7 @@ func new_id() -> int:
 	return value
 
 func generate_world() -> void:
+	agent_ai.elapsed = 0.0
 	rng.randomize()
 	tiles.clear()
 	towns.clear()
@@ -181,6 +184,9 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 		_battle(dt)
 	if predators:
 		_predator_attacks(dt)
+	# IA local atualiza necessidades, trabalhos, relacionamentos e aldeias.
+	# Usa tempo da simulacao: pausa impede progresso e fechar o app nao avanca o mundo.
+	agent_ai.advance(self, dt)
 
 func _wander(actor: Dictionary, dt: float, pace: float) -> void:
 	actor["wander"] = float(actor["wander"]) - dt
@@ -235,6 +241,7 @@ func kill_person(person: Dictionary) -> void:
 	if not bool(person["alive"]):
 		return
 	person["alive"] = false
+	agent_ai.on_death(self, person)
 	var town: Dictionary = get_town(int(person["town"]))
 	if not town.is_empty() and int(town["leader"]) == int(person["id"]):
 		choose_successor(town, int(person["id"]))
@@ -296,6 +303,7 @@ func save_world() -> bool:
 	return true
 
 func load_world() -> bool:
+	agent_ai.elapsed = 0.0
 	if not FileAccess.file_exists("user://world.json"):
 		return false
 	var file := FileAccess.open("user://world.json", FileAccess.READ)
