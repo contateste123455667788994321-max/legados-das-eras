@@ -2,6 +2,7 @@ extends Node2D
 ## Cenografia procedural: aldeias e biomas desenhados em camadas.
 ## Sem imagens externas, funciona offline e escala em aparelhos mais simples.
 var game
+var preview_mode := false
 
 const INK := Color("#182725")
 const GOLD := Color("#eed08b")
@@ -11,6 +12,12 @@ func _draw() -> void:
 	if game == null or game.world.tiles.is_empty():
 		return
 	var season_id: int = int(game.world.day / 90.0) % 4
+	if preview_mode:
+		var panel: Rect2 = game.RIGHT_VIEW
+		_draw_eyes_view(panel, season_id)
+		draw_rect(panel, Color("#d6b376"), false, 3.0)
+		draw_rect(Rect2(panel.position.x + 7, panel.position.y + 7, panel.size.x - 14, 24), Color("#1c1b14", 0.77), true)
+		return
 	var area: Rect2 = game.MAP_AREA
 	draw_rect(area, Color("#1a2929"), true)
 	if game.character_view:
