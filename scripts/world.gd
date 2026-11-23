@@ -93,7 +93,8 @@ func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
 		"wood": 12.0, "knowledge": 0.0, "level": 1,
 		"law": "primogenitura", "water": 18.0,
 		"home_biome": founding_biome,
-		"clothing": 0.0, "drought_preparation": false
+		"clothing": 0.0, "drought_preparation": false,
+		"houses": 2, "farms": 1, "construction": {}, "historical_events": []
 	}
 	towns.append(town)
 	tiles[y][x] = "grass"
@@ -225,6 +226,67 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 	# IA local atualiza necessidades, trabalhos, relacionamentos e aldeias.
 	# Usa tempo da simulacao: pausa impede progresso e fechar o app nao avanca o mundo.
 	agent_ai.advance(self, dt, controlled_id)
+	for town in towns:
+		progress_construction(town, dt)
+
+func construction_cost(kind: String) -> float:
+	match kind:
+		"house": return 14.0
+		"farm": return 18.0
+	return -1.0
+
+func start_construction(town_id: int, kind: String) -> bool:
+	var town: Dictionary = get_town(town_id)
+	if town.is_empty():
+		news = "Selecione uma aldeia primeiro."
+		return false
+	var cost: float = construction_cost(kind)
+	if cost < 0.0:
+		news = "Construcao desconhecida."
+		return false
+	if not town.get("construction", {}).is_empty():
+		news = str(town["name"]) + " ja esta construindo."
+		return false
+	if kind == "house" and int(town.get("houses", 2)) >= 8:
+		news = "Esta aldeia atingiu o limite de casas."
+		return false
+	if kind == "farm" and int(town.get("farms", 1)) >= 6:
+		news = "Esta aldeia atingiu o limite de fazendas."
+		return false
+	if float(town["wood"]) < cost:
+		news = "Madeira insuficiente: precisa de %d, tem %d." % [int(cost), int(float(town["wood"]))]
+		return false
+	town["wood"] = float(town["wood"]) - cost
+	var label: String = "casa" if kind == "house" else "fazenda"
+	town["construction"] = {"kind": kind, "progress": 0.0, "duration": 12.0 if kind == "house" else 15.0}
+	news = str(town["name"]) + " iniciou uma " + label + "."
+	return true
+
+func progress_construction(town: Dictionary, dt: float) -> void:
+	var site: Dictionary = town.get("construction", {})
+	if site.is_empty() or dt <= 0.0:
+		return
+	var helpers := 0
+	for person in people:
+		if not bool(person["alive"]) or int(person["town"]) != int(town["id"]):
+			continue
+		if str(person.get("profession", "")) == "Construtor" and str(person.get("task", "")) == "Construindo":
+			helpers += 1
+	site["progress"] = float(site.get("progress", 0.0)) + dt * (1.0 + minf(float(helpers) * 0.3, 0.9))
+	if float(site["progress"]) < float(site.get("duration", 12.0)):
+		return
+	var kind: String = str(site["kind"])
+	if kind == "house":
+		town["houses"] = int(town.get("houses", 2)) + 1
+	else:
+		town["farms"] = int(town.get("farms", 1)) + 1
+	town["construction"] = {}
+	var label: String = "Casa pronta" if kind == "house" else "Fazenda pronta"
+	var history: Array = town.get("historical_events", [])
+	history.append({"day": int(day), "event": label + "."})
+	if history.size() > 12:
+		history.pop_front()
+	news = str(town["name"]) + ": " + label + "!"
 
 func _wander(actor: Dictionary, dt: float, pace: float) -> void:
 	actor["wander"] = float(actor["wander"]) - dt
