@@ -399,7 +399,7 @@ func _screen_to_world(screen_pos: Vector2) -> Vector2:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
-		if event.pressed and MAP_AREA.has_point(event.position):
+		if event.pressed and (MAP_AREA.has_point(event.position) or RIGHT_VIEW.has_point(event.position)):
 			drag_started = event.position
 			dragging = true
 		elif not event.pressed and dragging:
@@ -412,7 +412,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				map_offset += event.relative
 				_clamp_map()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		if event.pressed and MAP_AREA.has_point(event.position):
+		if event.pressed and (MAP_AREA.has_point(event.position) or RIGHT_VIEW.has_point(event.position)):
 			drag_started = event.position
 			dragging = true
 		elif not event.pressed and dragging:
