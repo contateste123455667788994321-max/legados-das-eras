@@ -151,6 +151,43 @@ func _run_tests() -> void:
 		if child is Button and child.text == "Atualizar":
 			update_button_found = true
 	_check(update_button_found, "Botao Atualizar acessivel diretamente no jogo")
+
+	# Valida o fluxo real do atualizador ZIP -> PCK, sem rede e sem trocar o APK.
+	var updates_dir := ProjectSettings.globalize_path("user://updates")
+	_check(DirAccess.make_dir_recursive_absolute(updates_dir) == OK, "Pasta para atualizacoes disponivel")
+	var downloaded_zip := "user://updates/download.bin"
+	var writer := ZIPPacker.new()
+	var open_result: Error = writer.open(downloaded_zip)
+	_check(open_result == OK, "Criar pacote ZIP de teste")
+	if open_result == OK:
+		var zip_entry := "Legado-das-Eras-conteudo.pck"
+		_check(writer.start_file(zip_entry) == OK, "Criar entrada PCK no ZIP")
+		var stub := "PACOTE-DE-TESTE-LEGADO".to_utf8_buffer()
+		_check(writer.write_file(stub) == OK, "Gravar conteudo do ZIP")
+		writer.close_file()
+		writer.close()
+		var size_file := FileAccess.open(downloaded_zip, FileAccess.READ)
+		var compressed_size: int = size_file.get_length()
+		size_file.close()
+		game.update_manager._next_patch = {
+			"pack_format": "zip",
+			"pack_sha256": FileAccess.get_sha256(downloaded_zip),
+			"pack_pck_sha256": "",
+			"pack_bytes": compressed_size,
+			"version_code": 5,
+			"version_name": "0.5.0-teste",
+			"min_apk_code": 4
+		}
+		game.update_manager._on_patch_received(HTTPRequest.RESULT_SUCCESS, 200, PackedStringArray(), PackedByteArray())
+		var local_pack := "user://updates/active.pck"
+		_check(FileAccess.file_exists(local_pack), "ZIP extraido e ativado dentro do jogo")
+		var installed_meta := FileAccess.get_file_as_string("user://updates/active.json")
+		var parsed = JSON.parse_string(installed_meta)
+		_check(typeof(parsed) == TYPE_DICTIONARY and int(parsed.get("version_code", 0)) == 5, "Atualizacao interna registra versao instalada")
+		_check(typeof(parsed) == TYPE_DICTIONARY and str(parsed.get("sha256", "")) == FileAccess.get_sha256(local_pack), "Pacote interno recebe hash correto")
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(local_pack))
+		DirAccess.remove_absolute(ProjectSettings.globalize_path("user://updates/active.json"))
+
 	game.queue_free()
 
 	if failures == 0:
