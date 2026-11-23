@@ -19,6 +19,7 @@ var drag_started := Vector2.ZERO
 var autosave_timer := 0.0
 var ui_timer := 0.0
 var last_news := ""
+var update_manager: Node
 
 var info_label: Label
 var stats_label: Label
@@ -35,8 +36,9 @@ func _ready() -> void:
 	if not world.load_world():
 		world.generate_world()
 	world.speed = 1.0
+	update_manager = Updates.new()
+	add_child(update_manager)
 	_build_ui()
-	add_child(Updates.new())
 	_refresh_ui()
 	queue_redraw()
 
@@ -96,6 +98,7 @@ func _build_ui() -> void:
 	predator_button = _button("Feras: nao", Vector2(251, 1065), Vector2(211, 55), Callable(self, "_toggle_predators"))
 	_button("Novo mundo", Vector2(474, 1065), Vector2(220, 55), Callable(self, "_new_world"))
 	_button("Diplomacia", Vector2(474, 1134), Vector2(220, 55), Callable(self, "_show_diplomacy"))
+	_button("Atualizacoes", Vector2(474, 1202), Vector2(220, 55), Callable(self, "_check_updates"))
 	var tip := _label("Toque nas aldeias para negociar. Assuma personagens e animais para explorar.", Vector2(24, 1134), Vector2(438, 100), 18, Color("#a8c1c5"))
 	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
@@ -442,6 +445,10 @@ func _show_diplomacy() -> void:
 	dialog.canceled.connect(dialog.queue_free)
 	add_child(dialog)
 	dialog.popup_centered(Vector2i(600, 580))
+
+func _check_updates() -> void:
+	if is_instance_valid(update_manager):
+		update_manager.check_now()
 
 func _save_now() -> void:
 	world.news = "Mundo salvo no aparelho." if world.save_world() else "Falha ao salvar o mundo."
