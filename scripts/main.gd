@@ -2,6 +2,7 @@ extends Node2D
 ## Legado das Eras — tela jogavel. A simulacao permanece em world.gd.
 const World = preload("res://scripts/world.gd")
 const Updates = preload("res://scripts/update_manager.gd")
+const WorldVisual = preload("res://scripts/world_visual.gd")
 const TILE_SIZE := 34.0
 const MAP_ORIGIN := Vector2(38.0, 115.0)
 const MAP_AREA := Rect2(17.0, 109.0, 870.0, 463.0)
@@ -23,6 +24,10 @@ var tile_textures: Dictionary = {}
 var actor_textures: Dictionary = {}
 var texture_missing := false
 var update_manager: Node
+var world_visual: Node2D
+var character_clip: Control
+var character_view := false
+var view_button: Button
 
 var info_label: Label
 var stats_label: Label
@@ -42,6 +47,17 @@ func _ready() -> void:
 	_load_art()
 	update_manager = Updates.new()
 	add_child(update_manager)
+	character_clip = Control.new()
+	character_clip.position = MAP_AREA.position
+	character_clip.size = MAP_AREA.size
+	character_clip.clip_contents = true
+	character_clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(character_clip)
+	world_visual = WorldVisual.new()
+	world_visual.game = self
+	world_visual.position = -MAP_AREA.position
+	character_clip.add_child(world_visual)
+	character_clip.visible = false
 	_build_ui()
 	_refresh_ui()
 	queue_redraw()
@@ -58,6 +74,8 @@ func _process(delta: float) -> void:
 		ui_timer = 0.0
 		_refresh_ui()
 	queue_redraw()
+	if character_view and is_instance_valid(world_visual):
+		world_visual.queue_redraw()
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST:
