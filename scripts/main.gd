@@ -224,7 +224,8 @@ func _refresh_ui() -> void:
 	last_news = world.news
 	news_label.text = "Crônica: " + world.news
 	pause_button.text = "Retomar" if world.speed == 0.0 else "Pausar"
-	speed_button.text = "%.0fx" % (resume_speed if world.speed == 0.0 else world.speed)
+	var display_speed: float = resume_speed if world.speed == 0.0 else world.speed
+	speed_button.text = "0.5x" if display_speed == 0.5 else "%.0fx" % display_speed
 	war_button.text = "Guerras: sim" if world.wars else "Guerras: nao"
 	rival_button.text = "Rivais: sim" if world.rivals else "Rivais: nao"
 	predator_button.text = "Animais: sim" if world.predators else "Animais: nao"
@@ -601,12 +602,14 @@ func _toggle_pause() -> void:
 
 func _change_speed() -> void:
 	var current_speed: float = resume_speed if world.speed == 0.0 else world.speed
-	if current_speed <= 1.0:
-		current_speed = 2.0
-	elif current_speed <= 2.0:
-		current_speed = 5.0
-	else:
+	if current_speed < 1.0:
 		current_speed = 1.0
+	elif current_speed < 2.0:
+		current_speed = 2.0
+	elif current_speed < 4.0:
+		current_speed = 4.0
+	else:
+		current_speed = 0.5
 	resume_speed = current_speed
 	if world.speed > 0.0:
 		world.speed = current_speed
