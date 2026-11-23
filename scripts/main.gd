@@ -134,6 +134,7 @@ func _build_ui() -> void:
 	speed_button = _button("1x", Vector2(604, 43), Vector2(80, 34), Callable(self, "_change_speed"))
 	_button("Zoom -", Vector2(689, 43), Vector2(79, 34), Callable(self, "_zoom_out"))
 	_button("Zoom +", Vector2(773, 43), Vector2(80, 34), Callable(self, "_zoom_in"))
+	_button("Atualizar", Vector2(1134, 43), Vector2(120, 34), Callable(self, "_check_updates"))
 	_label("VISAO DO PERSONAGEM", Vector2(885, 89), Vector2(330, 28), 17, Color("#f8df9c"))
 	_label("Toque aqui para explorar", Vector2(883, 270), Vector2(341, 27), 15, Color("#f3e2bb"))
 	_label("PERSONAGEM / TRIBO", Vector2(880, 310), Vector2(370, 27), 19, Color("#f3d293"))
