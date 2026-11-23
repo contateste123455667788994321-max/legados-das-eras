@@ -30,6 +30,18 @@ func _run_tests() -> void:
 	_check(world.people[0].has("mind"), "IA inicializa personalidade")
 	_check(world.people[0].has("needs"), "IA inicializa necessidades")
 	_check(world.people[0].has("profession"), "IA define profissoes")
+	_check(world.towns[0].has("diplomacy"), "Diplomacia inicializada")
+	var first_town: int = world.towns[0]["id"]
+	var second_town: int = world.towns[1]["id"]
+	_check(world.politics.get_status(world, first_town, second_town) == "neutral", "Diplomacia comeca neutra")
+	_check(world.politics.set_treaty(world, first_town, second_town, "alliance"), "Aliança pode ser formada")
+	_check(world.politics.get_status(world, second_town, first_town) == "alliance", "Acordo bilateral")
+	_check(world.politics.set_treaty(world, first_town, second_town, "war"), "Guerra declarada manualmente")
+	_check(world.politics.get_status(world, first_town, second_town) == "war", "Guerra registrada")
+	_check(world.politics.set_treaty(world, first_town, second_town, "peace"), "Paz negociada")
+	_check(world.politics.get_status(world, second_town, first_town) == "peace", "Tratado reconhecido pelos dois lados")
+	_check(not world.politics.set_treaty(world, first_town, first_town, "war"), "Nao permite guerra contra si mesmo")
+
 	var paused_day: float = world.day
 	world.speed = 0.0
 	world.update_world(1.0)
@@ -52,6 +64,9 @@ func _run_tests() -> void:
 	_check(loaded.people.size() == world.people.size(), "Familias persistem entre sessoes")
 	_check(is_equal_approx(loaded.day, world.day), "Tempo salvo corretamente")
 	_check(loaded.rivals == world.rivals, "Preferencias salvas")
+	_check(loaded.politics.get_status(loaded, first_town, second_town) == "peace", "Tratados persistem entre sessoes")
+	_check(loaded.towns[0].has("historical_events"), "Eventos historicos persistem")
+
 	var leader_id: int = loaded.towns[0]["leader"]
 	var leader: Dictionary = loaded.get_person(leader_id)
 	loaded.kill_person(leader)
