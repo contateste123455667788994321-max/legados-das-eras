@@ -42,36 +42,50 @@ func generate_world() -> void:
 	wars = false
 	rivals = false
 	predators = false
+	# Biomas agrupados em regioes naturais, com um rio sinuoso.
+	# Antes eram quadrados aleatorios; agora o territorio influencia a historia.
+	var noise := FastNoiseLite.new()
+	noise.seed = rng.randi_range(1000, 900000)
+	noise.frequency = 0.115
 	for y in range(SIZE):
 		var row: Array = []
 		for x in range(SIZE):
-			var r := rng.randf()
+			var variation: float = noise.get_noise_2d(float(x), float(y))
+			var river_center: float = 3.0 + 0.55 * float(y) + sin(float(y) * 0.55) * 1.15
+			var from_river: float = absf(float(x) - river_center)
 			var biome := "grass"
-			if x <= 1 or y <= 1 or x >= SIZE - 2 or y >= SIZE - 2:
-				biome = "water" if r < 0.52 else "sand"
-			elif r < 0.10:
-				biome = "forest"
-			elif r < 0.17:
+			if from_river < 0.72:
+				biome = "water"
+			elif from_river < 1.45:
 				biome = "sand"
-			elif r < 0.22:
-				biome = "snow"
-			elif r < 0.27:
-				biome = "mountain"
+			elif x >= 13 and y <= 9:
+				biome = "snow" if y <= 4 or variation > -0.02 else "mountain"
+			elif x >= 13 and y >= 11:
+				biome = "sand" if variation < 0.34 else "mountain"
+			elif x <= 10 and y <= 12:
+				biome = "forest" if variation > -0.43 else "grass"
+			elif x <= 6 and y >= 13:
+				biome = "forest" if variation > -0.17 else "grass"
+			elif variation > 0.55:
+				biome = "forest"
 			row.append(biome)
 		tiles.append(row)
 	make_town("Vale Verde", 5, 5, false)
-	make_town("Pedra Alta", 14, 7, false)
-	make_town("Campo do Sol", 9, 15, false)
+	make_town("Pedra Alta", 15, 5, false)
+	make_town("Campo do Sol", 16, 15, false)
 	politics.prepare(self)
 	news = "Tres aldeias vivem em paz. Voce decide o futuro."
 
 func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
 	var town_id := new_id()
+	var home_biome: String = str(tiles[y][x])
+	var wood_start: float = 18.0 if home_biome == "forest" else (7.0 if home_biome == "sand" else 12.0)
+	var food_start: float = 17.0 if home_biome == "sand" or home_biome == "snow" else 25.0
 	var town := {
 		"id": town_id, "name": town_name, "x": x, "y": y,
-		"hostile": hostile, "leader": 0, "food": 25.0,
-		"wood": 12.0, "knowledge": 0.0, "level": 1,
-		"law": "primogenitura"
+		"hostile": hostile, "leader": 0, "food": food_start,
+		"wood": wood_start, "knowledge": 0.0, "level": 1,
+		"home_biome": home_biome, "law": "primogenitura"
 	}
 	towns.append(town)
 	tiles[y][x] = "grass"
@@ -226,11 +240,27 @@ func _wander(actor: Dictionary, dt: float, pace: float) -> void:
 
 func _grow_economies() -> void:
 	for town in towns:
-		var population := active_population(int(town["id"]))
-		town["food"] = float(town["food"]) + float(population) * 0.8 + 2.0
-		town["wood"] = float(town["wood"]) + 4.0
-		if float(town["food"]) < 0:
-			news = str(town["name"]) + " passa fome."
+		var population: int = active_population(int(town["id"]))
+		var biome: String = str(town.get("home_biome", "grass"))
+		var food_factor: float = 1.0
+		var wood_factor: float = 1.0
+		match biome:
+			"forest":
+				food_factor = 0.95
+				wood_factor = 2.0
+			"sand":
+				food_factor = 0.43
+				wood_factor = 0.30
+			"snow":
+				food_factor = 0.34
+				wood_factor = 0.65
+			"mountain":
+				food_factor = 0.65
+				wood_factor = 0.55
+		town["food"] = float(town["food"]) + (float(population) * 0.8 + 2.0) * food_factor
+		town["wood"] = float(town["wood"]) + 4.0 * wood_factor
+		if float(town["food"]) < float(population) * 0.6:
+			news = str(town["name"]) + " enfrenta dificuldades com alimentos."
 
 func _new_children() -> void:
 	for town in towns:
