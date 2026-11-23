@@ -92,6 +92,10 @@ func _run_tests() -> void:
 	# Exercita a janela de diplomacia em modo headless para verificar controles reais.
 	var game: Node2D = Main.new()
 	root.add_child(game)
+	_check(not game.texture_missing, "Todos os desenhos de pixel art foram importados")
+	_check(game.tile_textures.size() == 9, "Nove imagens de terrenos e estacoes carregadas")
+	_check(game.actor_textures.size() == 8, "Oito sprites de pessoas, aldeias e animais carregados")
+	_check(int(ProjectSettings.get_setting("display/window/size/viewport_width")) == 1280, "Tela horizontal configurada")
 	game.call("_show_diplomacy")
 	var found_window := false
 	for child in game.get_children():
