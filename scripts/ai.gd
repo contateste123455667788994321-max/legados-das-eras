@@ -61,7 +61,7 @@ func _init_town(t: Dictionary) -> void:
 		t["political_tension"] = 0.0
 
 func _manage_town(sim, town: Dictionary, step: float) -> void:
-	var pop := sim.active_population(int(town["id"]))
+	var pop: int = sim.active_population(int(town["id"]))
 	# Construcoes efetivamente consomem materiais e aumentam capacidade produtiva.
 	if pop > int(town["houses"]) * 5 and float(town["wood"]) >= 14.0:
 		town["wood"] = float(town["wood"]) - 14.0
