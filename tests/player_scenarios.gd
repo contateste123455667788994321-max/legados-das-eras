@@ -174,6 +174,113 @@ func _chaos() -> void:
 		_check_world(w, "Caos final %d" % session)
 		_assert(w.day < 150.0, "Caos: nenhum mundo envelhece anos em segundos")
 
+func _historian() -> void:
+	var w = _new_world(50)
+	var child: Dictionary = w.people[3]
+	_assert(float(child["age"]) < 16.0, "Historiador: aldeias nascem com criancas")
+	_assert(int(child["father"]) > 0 and int(child["mother"]) > 0, "Historiador: crianca tem dois progenitores registrados")
+	_assert(not w.get_person(int(child["father"])).is_empty(), "Historiador: pai existe")
+	_assert(not w.get_person(int(child["mother"])).is_empty(), "Historiador: mae existe")
+	var town: Dictionary = w.towns[0]
+	var leader_id: int = int(town["leader"])
+	var leader: Dictionary = w.get_person(leader_id)
+	w.kill_person(leader)
+	_assert(not bool(leader["alive"]), "Historiador: morte de governante registrada")
+	_assert(int(town["leader"]) != leader_id, "Historiador: sucessao muda lider")
+	_assert(int(town["leader"]) > 0, "Historiador: aldeia nao fica sem governante quando ha adultos")
+	var successor: Dictionary = w.get_person(int(town["leader"]))
+	_assert(str(successor["role"]) == "Rei" or str(successor["role"]) == "Rainha", "Historiador: herdeiro recebe titulo")
+	_check_world(w, "Historiador")
+
+func _diplomat() -> void:
+	var w = _new_world(60)
+	var a: int = int(w.towns[0]["id"])
+	var b: int = int(w.towns[1]["id"])
+	for kind in ["alliance", "war", "peace"]:
+		_assert(w.politics.set_treaty(w, a, b, kind), "Diplomata: consegue estabelecer " + kind)
+		_assert(w.politics.get_status(w, a, b) == kind, "Diplomata: acordo ativo de um lado")
+		_assert(w.politics.get_status(w, b, a) == kind, "Diplomata: acordo ativo do outro lado")
+	_assert(not w.politics.set_treaty(w, a, a, "war"), "Diplomata: impede guerra contra si mesmo")
+	_assert(not w.politics.set_treaty(w, a, 999999, "war"), "Diplomata: ignora reino inexistente")
+	_assert(w.towns[0].get("historical_events", []).size() >= 3, "Diplomata: registra historico politico")
+	_check_world(w, "Diplomata")
+
+func _ecologist() -> void:
+	var w = _new_world(70)
+	var counts := {"forest": 0, "sand": 0, "snow": 0, "water": 0}
+	for row in w.tiles:
+		for tile in row:
+			if counts.has(str(tile)):
+				counts[str(tile)] = int(counts[str(tile)]) + 1
+	for key in counts.keys():
+		_assert(int(counts[key]) >= 10, "Ecologista: bioma " + str(key) + " forma regiao visivel")
+	var town: Dictionary = w.towns[0]
+	var old_food: float = float(town["food"])
+	w._grow_economies()
+	_assert(float(town["food"]) >= old_food, "Ecologista: alimentos aumentam na colheita")
+	for i in range(160):
+		w.update_world(0.1)
+	_check_world(w, "Ecologista")
+
+func _survivor() -> void:
+	var w = _new_world(80)
+	_assert(not w.predators, "Sobrevivente: animais perigosos comecam desligados")
+	w.toggle_predators()
+	_assert(w.predators and w.beasts.size() == 8, "Sobrevivente: predadores so aparecem quando ativados")
+	var beast: Dictionary = w.beasts[0]
+	var id: int = int(beast["id"])
+	_assert(not w.get_beast(id).is_empty(), "Sobrevivente: animais mantem identidade")
+	w.toggle_predators()
+	_assert(not w.predators, "Sobrevivente: ataques desativados ao desligar opcao")
+	w.toggle_rivals()
+	_assert(w.rivals and w.towns.size() == 4, "Sobrevivente: povo rival pode surgir")
+	w.wars = true
+	for i in range(180):
+		w.update_world(0.1)
+	_check_world(w, "Sobrevivente")
+
+func _artist() -> void:
+	var game = Main.new()
+	root.add_child(game)
+	game.set_process(false)
+	_assert(game.tile_textures.size() >= 9, "Artista: terrenos e estacoes possuem imagens reais")
+	_assert(game.actor_textures.size() >= 8, "Artista: personagens, construcoes e bichos possuem sprites")
+	_assert(not game.texture_missing, "Artista: recursos visuais nao faltam")
+	_assert(game.MAP_AREA.size.x > 650.0 and game.MAP_AREA.size.y > 350.0, "Artista: mapa tem espaco suficiente")
+	_assert(game.RIGHT_VIEW.position.x > game.MAP_AREA.end.x, "Artista: personagem e mundo nao se sobrepoem")
+	_assert(game.preview_visual.preview_mode, "Artista: visao de primeira pessoa se apresenta na lateral")
+	for filename in ["person_m", "person_f", "child"]:
+		var file: FileAccess = FileAccess.open("res://assets/sprites/" + filename + ".svg", FileAccess.READ)
+		_assert(file != null, "Artista: sprite " + filename + " esta presente")
+		if file != null:
+			_assert(file.get_length() >= 900, "Artista: sprite " + filename + " tem desenho detalhado e camadas")
+			file.close()
+	game.queue_free()
+
+func _impatient() -> void:
+	var game = Main.new()
+	root.add_child(game)
+	game.set_process(false)
+	game.world.generate_world()
+	var start: float = game.world.day
+	for i in range(25):
+		game._zoom_around(game.MAP_AREA.get_center(), 0.1 if i % 2 == 0 else 30.0)
+		_assert(game.zoom >= 0.55 and game.zoom <= 3.5, "Impaciente: zoom repetido sem travar")
+	game._toggle_pause()
+	var paused: float = game.world.day
+	for i in range(80):
+		game.world.update_world(0.1)
+	_assert(is_equal_approx(game.world.day, paused), "Impaciente: tempo parado mesmo apos varias entradas")
+	game._change_speed()
+	game._toggle_pause()
+	for i in range(100):
+		game.world.update_world(0.1)
+	_assert(game.world.day > start, "Impaciente: simulacao retoma")
+	_assert(game.world.day < start + 30.0, "Impaciente: fast-forward nao pula anos")
+	_assert(game.world.save_world(), "Impaciente: jogo continua salvando")
+	_check_world(game.world, "Impaciente")
+	game.queue_free()
+
 func _run() -> void:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	var profile := str(args[0]) if args.size() > 0 else "all"
@@ -183,11 +290,23 @@ func _run() -> void:
 		"builder": _builder()
 		"explorer": _explorer()
 		"chaos": _chaos()
+		"historian": _historian()
+		"diplomat": _diplomat()
+		"ecologist": _ecologist()
+		"survivor": _survivor()
+		"artist": _artist()
+		"impatient": _impatient()
 		"all":
 			_observer()
 			_builder()
 			_explorer()
 			_chaos()
+			_historian()
+			_diplomat()
+			_ecologist()
+			_survivor()
+			_artist()
+			_impatient()
 		_:
 			_assert(false, "Perfil desconhecido: " + profile)
 	if failures == 0:
