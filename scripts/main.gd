@@ -8,6 +8,7 @@ const AUTOSAVE_SECONDS := 20.0
 
 var world = World.new()
 var selected_person_id := 0
+var selected_beast_id := 0
 var selected_town_id := 0
 var controlled_id := 0
 var map_offset := Vector2.ZERO
@@ -148,7 +149,12 @@ func _refresh_ui() -> void:
 	war_button.text = "Guerras: sim" if world.wars else "Guerras: nao"
 	rival_button.text = "Rivais: sim" if world.rivals else "Rivais: nao"
 	predator_button.text = "Feras: sim" if world.predators else "Feras: nao"
-	control_button.text = "Soltar controle" if controlled_id > 0 else "Controlar pessoa"
+	control_button.text = "Soltar controle" if controlled_id > 0 else "Controlar personagem"
+	if selected_beast_id > 0:
+		var beast: Dictionary = world.get_beast(selected_beast_id)
+		if not beast.is_empty():
+			info_label.text = "%s | %s | Vida: %d\nToque em Controlar para assumir este animal." % [str(beast["name"]), str(beast["species"]), int(float(beast["health"]))]
+			return
 	if selected_person_id > 0:
 		var p: Dictionary = world.get_person(selected_person_id)
 		if not p.is_empty():
@@ -229,6 +235,10 @@ func _draw() -> void:
 		var center := _world_to_screen(Vector2(float(b["x"]) + 0.5, float(b["y"]) + 0.5))
 		if MAP_AREA.has_point(center):
 			draw_circle(center, (7 if b["species"] == "Urso" else 5) * zoom, Color("#543633"))
+			if int(b["id"]) == selected_beast_id:
+				draw_arc(center, 10 * zoom, 0, TAU, 20, Color.YELLOW, 2.0)
+			if int(b["id"]) == controlled_id:
+				draw_arc(center, 14 * zoom, 0, TAU, 20, Color("#88f5e8"), 3.0)
 
 func _world_to_screen(world_pos: Vector2) -> Vector2:
 	return MAP_ORIGIN + map_offset + world_pos * TILE_SIZE * zoom
@@ -266,6 +276,7 @@ func _touch_map(position: Vector2) -> void:
 	if point.x < -0.5 or point.y < -0.5 or point.x > World.SIZE or point.y > World.SIZE:
 		return
 	var nearest_id := 0
+	var nearest_beast_id := 0
 	var min_dist := 0.46
 	for p in world.people:
 		if not bool(p["alive"]):
@@ -274,16 +285,31 @@ func _touch_map(position: Vector2) -> void:
 		if d < min_dist:
 			min_dist = d
 			nearest_id = int(p["id"])
+			nearest_beast_id = 0
+	for b in world.beasts:
+		if not bool(b["alive"]):
+			continue
+		var d := Vector2(float(b["x"]) + 0.5, float(b["y"]) + 0.5).distance_to(point)
+		if d < min_dist:
+			min_dist = d
+			nearest_id = 0
+			nearest_beast_id = int(b["id"])
 	if nearest_id > 0:
 		selected_person_id = nearest_id
+		selected_beast_id = 0
+		selected_town_id = 0
+	elif nearest_beast_id > 0:
+		selected_beast_id = nearest_beast_id
+		selected_person_id = 0
 		selected_town_id = 0
 	elif controlled_id > 0:
-		var actor: Dictionary = world.get_person(controlled_id)
+		var actor: Dictionary = world.get_actor(controlled_id)
 		if not actor.is_empty():
 			actor["target_x"] = clampf(point.x - 0.5, 1.0, World.SIZE - 2.0)
 			actor["target_y"] = clampf(point.y - 0.5, 1.0, World.SIZE - 2.0)
 	else:
 		selected_person_id = 0
+		selected_beast_id = 0
 		selected_town_id = 0
 		for t in world.towns:
 			if Vector2(float(t["x"]) + 0.5, float(t["y"]) + 0.5).distance_to(point) < 1.1:
@@ -294,7 +320,7 @@ func _touch_map(position: Vector2) -> void:
 func _move_controlled(delta: float) -> void:
 	if controlled_id <= 0 or world.speed <= 0.0:
 		return
-	var p: Dictionary = world.get_person(controlled_id)
+	var p: Dictionary = world.get_actor(controlled_id)
 	if p.is_empty() or not bool(p["alive"]):
 		controlled_id = 0
 		return
@@ -334,11 +360,12 @@ func _toggle_control() -> void:
 	if controlled_id > 0:
 		controlled_id = 0
 		world.news = "Voce voltou a observar o mundo."
-	elif selected_person_id > 0:
-		var p: Dictionary = world.get_person(selected_person_id)
-		if not p.is_empty() and bool(p["alive"]):
-			controlled_id = selected_person_id
-			world.news = "Agora voce controla " + str(p["name"]) + ". Toque no mapa para andar."
+	elif selected_person_id > 0 or selected_beast_id > 0:
+		var target_id := selected_person_id if selected_person_id > 0 else selected_beast_id
+		var actor: Dictionary = world.get_actor(target_id)
+		if not actor.is_empty() and bool(actor["alive"]):
+			controlled_id = target_id
+			world.news = "Agora voce controla " + str(actor["name"]) + ". Toque no mapa para andar."
 	_refresh_ui()
 
 func _toggle_war() -> void:
@@ -369,6 +396,7 @@ func _new_world() -> void:
 	dialog.confirmed.connect(func() -> void:
 		world.generate_world()
 		selected_person_id = 0
+		selected_beast_id = 0
 		selected_town_id = 0
 		controlled_id = 0
 		map_offset = Vector2.ZERO
