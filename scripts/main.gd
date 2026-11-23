@@ -384,6 +384,7 @@ func _draw() -> void:
 			if MAP_AREA.encloses(tag):
 				draw_rect(tag, Color("#201f16", 0.92), true)
 				draw_rect(tag, Color("#f7d890"), false, 1.0)
+				draw_string(ThemeDB.fallback_font, tag.position + Vector2(3.0, 13.0) * zoom, task_name, HORIZONTAL_ALIGNMENT_CENTER, tag.size.x - 6.0, maxi(10, int(11.0 * zoom)), Color("#ffe1a2"))
 		if int(p["id"]) == controlled_id:
 			draw_arc(center, 18.0 * zoom, 0, TAU, 20, Color("#6cffda"), 3.0)
 	for b in world.beasts:
@@ -797,7 +798,7 @@ func _show_construction() -> void:
 	body.add_child(build_picker)
 	var stock_label := Label.new()
 	body.add_child(stock_label)
-	var refresh_stock := func(_unused = -1) -> void:
+	var refresh_stock := func(_index: int) -> void:
 		var t: Dictionary = world.get_town(town_picker.get_selected_id())
 		if t.is_empty():
 			return
@@ -805,7 +806,7 @@ func _show_construction() -> void:
 		var status: String = " | Obra em andamento" if not site.is_empty() else ""
 		stock_label.text = "Madeira: %d | Casas: %d | Fazendas: %d%s" % [int(float(t["wood"])), int(t.get("houses", 2)), int(t.get("farms", 1)), status]
 	town_picker.item_selected.connect(refresh_stock)
-	refresh_stock.call()
+	refresh_stock.call(0)
 	dialog.confirmed.connect(func() -> void:
 		var kind: String = "farm" if build_picker.get_selected_id() == 1 else "house"
 		var target: int = town_picker.get_selected_id()
