@@ -4,8 +4,9 @@ const World = preload("res://scripts/world.gd")
 const Updates = preload("res://scripts/update_manager.gd")
 const WorldVisual = preload("res://scripts/world_visual.gd")
 const TILE_SIZE := 34.0
-const MAP_ORIGIN := Vector2(38.0, 115.0)
-const MAP_AREA := Rect2(17.0, 109.0, 870.0, 463.0)
+const MAP_ORIGIN := Vector2(38.0, 90.0)
+const MAP_AREA := Rect2(17.0, 82.0, 838.0, 443.0)
+const RIGHT_VIEW := Rect2(870.0, 80.0, 395.0, 221.0)
 const AUTOSAVE_SECONDS := 20.0
 
 var world = World.new()
@@ -25,6 +26,7 @@ var actor_textures: Dictionary = {}
 var texture_missing := false
 var update_manager: Node
 var world_visual: Node2D
+var preview_visual: Node2D
 var character_clip: Control
 var character_view := false
 var view_button: Button
@@ -58,7 +60,14 @@ func _ready() -> void:
 	world_visual.position = -MAP_AREA.position
 	character_clip.add_child(world_visual)
 	character_clip.visible = false
+	preview_visual = WorldVisual.new()
+	preview_visual.game = self
+	preview_visual.preview_mode = true
+	add_child(preview_visual)
 	_build_ui()
+	if not world.towns.is_empty():
+		var first_town: Dictionary = world.towns[0]
+		_focus_at(Vector2(float(first_town["x"]) + 0.5, float(first_town["y"]) + 0.5))
 	_refresh_ui()
 	queue_redraw()
 
@@ -76,6 +85,8 @@ func _process(delta: float) -> void:
 	queue_redraw()
 	if character_view and is_instance_valid(world_visual):
 		world_visual.queue_redraw()
+	if is_instance_valid(preview_visual) and ui_timer == 0.0:
+		preview_visual.queue_redraw()
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST:
@@ -99,45 +110,50 @@ func _load_art() -> void:
 		push_warning("Alguns desenhos do mapa ainda nao foram carregados.")
 
 func _build_ui() -> void:
-	var title := _label("LEGADO DAS ERAS", Vector2(26, 13), Vector2(315, 42), 30, Color("#f1d99b"))
-	title.add_theme_color_override("font_shadow_color", Color("#0e1411"))
+	# Interface da primeira referencia: mapa grande, visao pessoal, ficha e quadros do mundo.
+	var title := _label("LEGADO DAS ERAS", Vector2(25, 9), Vector2(315, 44), 29, Color("#f4d78d"))
+	title.add_theme_color_override("font_shadow_color", Color("#121812"))
 	title.add_theme_constant_override("shadow_offset_y", 2)
-	stats_label = _label("", Vector2(340, 15), Vector2(390, 32), 17, Color("#e1e5ce"))
-	news_label = _label("", Vector2(27, 77), Vector2(856, 29), 17, Color("#efd59b"))
+	stats_label = _label("", Vector2(315, 14), Vector2(420, 25), 16, Color("#e8dec1"))
+	news_label = _label("", Vector2(26, 49), Vector2(478, 30), 16, Color("#f2c979"))
 	news_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	pause_button = _button("Pausar", Vector2(501, 53), Vector2(100, 47), Callable(self, "_toggle_pause"))
-	speed_button = _button("1x", Vector2(610, 53), Vector2(87, 47), Callable(self, "_change_speed"))
-	_button("Zoom -", Vector2(707, 53), Vector2(88, 47), Callable(self, "_zoom_out"))
-	_button("Zoom +", Vector2(802, 53), Vector2(86, 47), Callable(self, "_zoom_in"))
-	_label("PERSONAGEM / TRIBO", Vector2(916, 16), Vector2(338, 36), 24, Color("#f0d69b"))
-	info_label = _label("", Vector2(911, 152), Vector2(350, 174), 19, Color("#f3e4c9"))
+	pause_button = _button("Pausar", Vector2(515, 43), Vector2(84, 34), Callable(self, "_toggle_pause"))
+	speed_button = _button("1x", Vector2(604, 43), Vector2(80, 34), Callable(self, "_change_speed"))
+	_button("Zoom -", Vector2(689, 43), Vector2(79, 34), Callable(self, "_zoom_out"))
+	_button("Zoom +", Vector2(773, 43), Vector2(80, 34), Callable(self, "_zoom_in"))
+	_label("VISAO DO PERSONAGEM", Vector2(885, 89), Vector2(330, 28), 17, Color("#f8df9c"))
+	_label("Toque aqui para explorar", Vector2(883, 270), Vector2(341, 27), 15, Color("#f3e2bb"))
+	_label("PERSONAGEM / TRIBO", Vector2(880, 310), Vector2(370, 27), 19, Color("#f3d293"))
+	info_label = _label("", Vector2(881, 341), Vector2(376, 61), 16, Color("#f1e8cf"))
 	info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	control_button = _button("Controlar", Vector2(906, 332), Vector2(170, 47), Callable(self, "_toggle_control"))
-	war_button = _button("Guerras", Vector2(1081, 332), Vector2(172, 47), Callable(self, "_toggle_war"))
-	rival_button = _button("Rivais", Vector2(906, 390), Vector2(170, 47), Callable(self, "_toggle_rivals"))
-	predator_button = _button("Animais", Vector2(1081, 390), Vector2(172, 47), Callable(self, "_toggle_predators"))
-	_button("Diplomacia", Vector2(906, 449), Vector2(170, 47), Callable(self, "_show_diplomacy"))
-	_button("Salvar", Vector2(1081, 449), Vector2(172, 47), Callable(self, "_save_now"))
-	_button("Atualizar", Vector2(906, 509), Vector2(170, 47), Callable(self, "_check_updates"))
-	_button("Novo mundo", Vector2(1081, 509), Vector2(172, 47), Callable(self, "_new_world"))
-	_label("BIOMAS E ESTACOES", Vector2(26, 585), Vector2(520, 26), 20, Color("#f0dbad"))
-	_label("FLORESTA", Vector2(110, 660), Vector2(132, 28), 17, Color("#e6d4ac"))
-	_label("DESERTO", Vector2(316, 660), Vector2(132, 28), 17, Color("#e6d4ac"))
-	_label("NEVE", Vector2(532, 660), Vector2(132, 28), 17, Color("#e6d4ac"))
-	_label("MONTANHAS", Vector2(738, 660), Vector2(132, 28), 17, Color("#e6d4ac"))
-	_label("MUNDO VIVO", Vector2(909, 583), Vector2(335, 29), 21, Color("#f0d69b"))
-	_label("Aldeias • Familias • Estacoes • Evolucao", Vector2(908, 615), Vector2(352, 26), 16, Color("#e4d1b0"))
-	view_button = _button("Visao do personagem", Vector2(906, 653), Vector2(350, 44), Callable(self, "_toggle_view"))
-	for i in range(4):
-		var kinds := ["forest", "sand", "snow", "mountain"]
-		_add_biome_touch(kinds[i], Vector2(22 + i * 212, 613))
+	control_button = _button("Controlar", Vector2(881, 405), Vector2(174, 40), Callable(self, "_toggle_control"))
+	view_button = _button("Entrar no mundo", Vector2(1061, 405), Vector2(193, 40), Callable(self, "_toggle_view"))
+	war_button = _button("Guerras", Vector2(881, 450), Vector2(119, 40), Callable(self, "_toggle_war"))
+	rival_button = _button("Rivais", Vector2(1007, 450), Vector2(116, 40), Callable(self, "_toggle_rivals"))
+	predator_button = _button("Animais", Vector2(1130, 450), Vector2(124, 40), Callable(self, "_toggle_predators"))
+	_button("Diplomacia", Vector2(881, 496), Vector2(139, 36), Callable(self, "_show_diplomacy"))
+	_button("Salvar", Vector2(1027, 496), Vector2(97, 36), Callable(self, "_save_now"))
+	_button("Opcoes", Vector2(1131, 496), Vector2(123, 36), Callable(self, "_show_options"))
+	_label("BIOMAS DO MUNDO", Vector2(30, 542), Vector2(286, 31), 19, Color("#f4d68f"))
+	_label("ESTACOES DO ANO", Vector2(340, 542), Vector2(280, 31), 19, Color("#f4d68f"))
+	_label("CICLO DA VIDA", Vector2(640, 542), Vector2(286, 31), 19, Color("#f4d68f"))
+	_label("EVOLUCAO DAS ALDEIAS", Vector2(959, 542), Vector2(307, 31), 18, Color("#f4d68f"))
+	for i in range(3):
+		var kinds := ["sand", "forest", "snow"]
+		_add_biome_touch(kinds[i], Vector2(34.0 + float(i) * 96.0, 578.0))
+	_label("Deserto          Floresta          Neve", Vector2(25, 654), Vector2(298, 25), 14, Color("#e8d9b7"))
+	_label("Primavera  Verao  Outono  Inverno", Vector2(327, 654), Vector2(306, 25), 14, Color("#e8d9b7"))
+	_label("Nascer   Crescer   Adulto   Velhice", Vector2(627, 654), Vector2(315, 25), 14, Color("#e8d9b7"))
+	_label("Tribo    Ferramentas    Cidade", Vector2(953, 654), Vector2(310, 25), 14, Color("#e8d9b7"))
+	_label("Construir  •  Sobreviver  •  Evoluir", Vector2(24, 686), Vector2(460, 24), 15, Color("#d4c09a"))
+	_label("Familias  •  Clima  •  Reinos  •  Geracoes", Vector2(576, 686), Vector2(680, 24), 15, Color("#d4c09a"))
 
 func _add_biome_touch(kind: String, pos: Vector2) -> void:
 	var btn := Button.new()
 	btn.text = ""
 	btn.flat = true
 	btn.position = pos
-	btn.size = Vector2(190, 85)
+	btn.size = Vector2(86, 75)
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	btn.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
@@ -201,7 +217,7 @@ func _refresh_ui() -> void:
 	predator_button.text = "Animais: sim" if world.predators else "Animais: nao"
 	control_button.text = "Soltar controle" if controlled_id > 0 else "Controlar"
 	if is_instance_valid(view_button):
-		view_button.text = "Voltar ao mundo" if character_view else "Visao do personagem"
+		view_button.text = "Voltar ao mapa" if character_view else "Entrar no mundo"
 	if selected_beast_id > 0:
 		var beast: Dictionary = world.get_beast(selected_beast_id)
 		if not beast.is_empty():
