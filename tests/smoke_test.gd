@@ -98,6 +98,12 @@ func _run_tests() -> void:
 		if child is ConfirmationDialog and child.title == "Diplomacia entre aldeias":
 			found_window = true
 	_check(found_window, "Janela de diplomacia abre com controles reais")
+	game.call("_check_updates")
+	var found_update_dialog := false
+	for child in game.update_manager.get_children():
+		if child is AcceptDialog and child.title == "Atualizacoes em preparacao":
+			found_update_dialog = true
+	_check(found_update_dialog, "Botao de atualizar informa quando falta servidor de versoes")
 	game.queue_free()
 
 	if failures == 0:
