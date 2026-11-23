@@ -5,6 +5,7 @@ const VERSION_FILE := "res://config/version.json"
 const UPDATES_DIR := "user://updates"
 const ACTIVE_PACK := UPDATES_DIR + "/active.pck"
 const PENDING_PACK := UPDATES_DIR + "/pending.pck"
+const PENDING_DOWNLOAD := UPDATES_DIR + "/download.bin"
 const BACKUP_PACK := UPDATES_DIR + "/previous.pck"
 const ACTIVE_META := UPDATES_DIR + "/active.json"
 const PACK_LIMIT_BYTES := 157286400
@@ -122,11 +123,13 @@ func _download_patch() -> void:
 		return
 	if FileAccess.file_exists(PENDING_PACK):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(PENDING_PACK))
+	if FileAccess.file_exists(PENDING_DOWNLOAD):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(PENDING_DOWNLOAD))
 	if _pack_request == null:
 		_pack_request = HTTPRequest.new()
 		_pack_request.timeout = 120.0
 		_pack_request.body_size_limit = PACK_LIMIT_BYTES
-		_pack_request.download_file = PENDING_PACK
+		_pack_request.download_file = PENDING_DOWNLOAD
 		add_child(_pack_request)
 		_pack_request.request_completed.connect(_on_patch_received)
 	_busy = true
@@ -136,22 +139,60 @@ func _download_patch() -> void:
 
 func _on_patch_received(result: int, code: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
 	_busy = false
-	if result != HTTPRequest.RESULT_SUCCESS or code != 200 or not FileAccess.file_exists(PENDING_PACK):
+	if result != HTTPRequest.RESULT_SUCCESS or code != 200 or not FileAccess.file_exists(PENDING_DOWNLOAD):
 		_notice("Download interrompido", "Nao foi possivel baixar o pacote. Tenta novamente.")
 		return
-	var file := FileAccess.open(PENDING_PACK, FileAccess.READ)
+	var file := FileAccess.open(PENDING_DOWNLOAD, FileAccess.READ)
 	if file == null:
 		_notice("Falha", "Nao foi possivel ler o pacote baixado.")
 		return
 	var actual_bytes: int = file.get_length()
 	file.close()
-	var sha256: String = str(_next_patch["pack_sha256"]).to_lower()
-	if actual_bytes != int(_next_patch["pack_bytes"]) or FileAccess.get_sha256(PENDING_PACK).to_lower() != sha256:
-		DirAccess.remove_absolute(ProjectSettings.globalize_path(PENDING_PACK))
+	var download_sha256: String = str(_next_patch["pack_sha256"]).to_lower()
+	if actual_bytes != int(_next_patch["pack_bytes"]) or FileAccess.get_sha256(PENDING_DOWNLOAD).to_lower() != download_sha256:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(PENDING_DOWNLOAD))
 		_notice("Arquivo invalido", "A atualizacao nao passou na verificacao de integridade.")
 		return
-	var active_path: String = ProjectSettings.globalize_path(ACTIVE_PACK)
+	var format: String = str(_next_patch.get("pack_format", "pck")).to_lower()
+	var download_path: String = ProjectSettings.globalize_path(PENDING_DOWNLOAD)
 	var pending_path: String = ProjectSettings.globalize_path(PENDING_PACK)
+	if format == "zip":
+		# O CI exporta um ZIP; extrair SOMENTE o PCK conhecido, sem caminhos arbitrarios.
+		var zip := ZIPReader.new()
+		if zip.open(PENDING_DOWNLOAD) != OK:
+			_notice("Arquivo invalido", "O pacote compactado nao pode ser aberto.")
+			return
+		const ENTRY := "Legado-das-Eras-conteudo.pck"
+		if not zip.get_files().has(ENTRY):
+			zip.close()
+			_notice("Arquivo invalido", "O pacote nao contem os arquivos do jogo.")
+			return
+		var unpacked: PackedByteArray = zip.read_file(ENTRY)
+		zip.close()
+		if unpacked.is_empty() or unpacked.size() > PACK_LIMIT_BYTES:
+			_notice("Arquivo invalido", "O pacote compactado ultrapassa os limites permitidos.")
+			return
+		var output_pack := FileAccess.open(PENDING_PACK, FileAccess.WRITE)
+		if output_pack == null:
+			_notice("Falha", "Nao foi possivel salvar os arquivos do jogo.")
+			return
+		output_pack.store_buffer(unpacked)
+		output_pack.close()
+		DirAccess.remove_absolute(download_path)
+	elif format == "pck":
+		if DirAccess.rename_absolute(download_path, pending_path) != OK:
+			_notice("Falha", "Nao foi possivel preparar o pacote de atualizacao.")
+			return
+	else:
+		_notice("Arquivo invalido", "O formato desta atualizacao nao e suportado.")
+		return
+	var installed_sha256: String = FileAccess.get_sha256(PENDING_PACK).to_lower()
+	var expected_pck_hash: String = str(_next_patch.get("pack_pck_sha256", "")).to_lower()
+	if not expected_pck_hash.is_empty() and installed_sha256 != expected_pck_hash:
+		DirAccess.remove_absolute(pending_path)
+		_notice("Arquivo invalido", "O conteudo extraido falhou na verificacao de integridade.")
+		return
+	var active_path: String = ProjectSettings.globalize_path(ACTIVE_PACK)
 	var backup_path: String = ProjectSettings.globalize_path(BACKUP_PACK)
 	if FileAccess.file_exists(BACKUP_PACK):
 		DirAccess.remove_absolute(backup_path)
@@ -168,7 +209,7 @@ func _on_patch_received(result: int, code: int, _headers: PackedStringArray, _bo
 		"version_code": int(_next_patch["version_code"]),
 		"version_name": str(_next_patch.get("version_name", "nova")),
 		"min_apk_code": int(_next_patch.get("min_apk_code", 0)),
-		"sha256": sha256
+		"sha256": installed_sha256
 	}
 	var output := FileAccess.open(ACTIVE_META, FileAccess.WRITE)
 	if output == null:
