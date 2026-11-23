@@ -131,7 +131,7 @@ func _build_ui() -> void:
 	_label("VISAO DO PERSONAGEM", Vector2(885, 89), Vector2(330, 28), 17, Color("#f8df9c"))
 	_label("Toque aqui para explorar", Vector2(883, 270), Vector2(341, 27), 15, Color("#f3e2bb"))
 	_label("PERSONAGEM / TRIBO", Vector2(880, 310), Vector2(370, 27), 19, Color("#f3d293"))
-	info_label = _label("", Vector2(881, 341), Vector2(376, 61), 16, Color("#f1e8cf"))
+	info_label = _label("", Vector2(947, 340), Vector2(309, 65), 16, Color("#f1e8cf"))
 	info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	control_button = _button("Controlar", Vector2(881, 405), Vector2(174, 40), Callable(self, "_toggle_control"))
 	view_button = _button("Entrar no mundo", Vector2(1061, 405), Vector2(193, 40), Callable(self, "_toggle_view"))
@@ -228,7 +228,7 @@ func _refresh_ui() -> void:
 	if selected_beast_id > 0:
 		var beast: Dictionary = world.get_beast(selected_beast_id)
 		if not beast.is_empty():
-			info_label.text = "%s | %s | Vida: %d\nToque em Controlar para assumir este animal." % [str(beast["name"]), str(beast["species"]), int(float(beast["health"]))]
+			info_label.text = "%s • %s\nVida: %d\nAbra a ficha para detalhes." % [str(beast["name"]), str(beast["species"]), int(float(beast["health"]))]
 			return
 	if selected_person_id > 0:
 		var p: Dictionary = world.get_person(selected_person_id)
@@ -246,13 +246,13 @@ func _refresh_ui() -> void:
 			var latest_event := "Nenhuma lembranca registrada"
 			if not memories.is_empty():
 				latest_event = str(memories.back().get("event", latest_event))
-			info_label.text = "%s, %d anos (%s)\n%s • %s • %s%s\nMemoria: %s" % [str(p["name"]), int(float(p["age"])), state, home, str(p["role"]), profession, family, latest_event]
+			info_label.text = "%s • %d anos\n%s | %s\n%s" % [str(p["name"]), int(float(p["age"])), home, profession, str(p["role"])]
 			return
 	if selected_town_id > 0:
 		var t: Dictionary = world.get_town(selected_town_id)
 		if not t.is_empty():
 			var ruler: Dictionary = world.get_person(int(t["leader"]))
-			info_label.text = "%s | Era %d | %d habitantes\nLider: %s • Comida: %d • Madeira: %d" % [str(t["name"]), int(t["level"]), world.active_population(int(t["id"])), str(ruler.get("name", "Sem lider")), int(float(t["food"])), int(float(t["wood"]))]
+			info_label.text = "%s • Era %d\n%d habitantes | %s\nComida %d • Madeira %d" % [str(t["name"]), int(t["level"]), world.active_population(int(t["id"])), str(ruler.get("name", "Sem lider")), int(float(t["food"])), int(float(t["wood"]))]
 			return
 	info_label.text = "Mundo vivo: observe aldeias, linhagens, sucessoes, crescimento e disputas.\nSelecione uma pessoa ou uma aldeia no mapa para descobrir sua historia."
 
@@ -367,6 +367,15 @@ func _draw() -> void:
 		if i < 2:
 			draw_line(p + Vector2(39, 0), p + Vector2(51, 0), Color("#f4d588"), 2.0)
 	draw_line(Vector2(15, 680), Vector2(1265, 680), Color("#9c824b"), 2.0)
+	var portrait := "hut"
+	if selected_beast_id > 0:
+		var chosen_beast: Dictionary = world.get_beast(selected_beast_id)
+		portrait = "bear" if str(chosen_beast.get("species", "")) == "Urso" else "wolf"
+	elif selected_person_id > 0:
+		var chosen_person: Dictionary = world.get_person(selected_person_id)
+		if not chosen_person.is_empty():
+			portrait = "child" if float(chosen_person["age"]) < 16.0 else ("person_m" if int(chosen_person["gender"]) == 0 else "person_f")
+	_draw_sprite(portrait, Vector2(913, 370), Vector2(60, 60))
 
 func _draw_panel(rect: Rect2, fill: Color) -> void:
 	draw_rect(rect, Color("#12130f"), true)
@@ -655,6 +664,7 @@ func _show_options() -> void:
 	popup.add_item("Criar novo mundo", 1)
 	popup.add_item("Salvar mundo", 2)
 	popup.add_item("Ir para primeira vila", 3)
+	popup.add_item("Ver ficha completa", 4)
 	popup.id_pressed.connect(func(which: int) -> void:
 		match which:
 			0: _check_updates()
@@ -667,10 +677,46 @@ func _show_options() -> void:
 					if is_instance_valid(character_clip):
 						character_clip.visible = false
 					_focus_at(Vector2(float(t["x"]) + 0.5, float(t["y"]) + 0.5))
+					4: _show_details()
 		popup.queue_free()
 	)
 	add_child(popup)
 	popup.popup_centered(Vector2i(350, 260))
+
+func _show_details() -> void:
+	var lines: Array[String] = []
+	if selected_person_id > 0:
+		var p: Dictionary = world.get_person(selected_person_id)
+		if not p.is_empty():
+			var home: Dictionary = world.get_town(int(p["town"]))
+			lines.append("%s • %d anos" % [p["name"], int(float(p["age"]))])
+			lines.append("Aldeia: %s  |  Profissao: %s" % [home.get("name", "?"), p.get("profession", "?")])
+			lines.append("Vida: %d  |  Funcao: %s" % [int(float(p["health"])), p["role"]])
+			var father: Dictionary = world.get_person(int(p["father"]))
+			var mother: Dictionary = world.get_person(int(p["mother"]))
+			lines.append("Pai: %s  |  Mae: %s" % [father.get("name", "?"), mother.get("name", "?")])
+			var mind: Dictionary = p.get("mind", {})
+			if not mind.is_empty():
+				lines.append("Coragem %d%%  |  Curiosidade %d%%  |  Lealdade %d%%" % [int(float(mind.get("bravery", 0.0)) * 100.0), int(float(mind.get("curiosity", 0.0)) * 100.0), int(float(mind.get("loyalty", 0.0)) * 100.0)])
+			var memories: Array = p.get("memories", [])
+			for m in memories.slice(maxi(memories.size() - 3, 0)):
+				lines.append("• " + str(m.get("event", "")))
+	elif selected_town_id > 0:
+		var town: Dictionary = world.get_town(selected_town_id)
+		if not town.is_empty():
+			lines.append(str(town["name"]) + " • Era " + str(town["level"]))
+			lines.append("Populacao: %d" % world.active_population(selected_town_id))
+			lines.append("Alimentos %d  |  Madeira %d" % [int(float(town["food"])), int(float(town["wood"]))])
+			for event in town.get("historical_events", []):
+				lines.append("• " + str(event.get("event", "")))
+	else:
+		lines.append("Toque em um habitante ou aldeia para ver suas informacoes.")
+	var dialog := AcceptDialog.new()
+	dialog.title = "Cronicas do Legado"
+	dialog.dialog_text = "\n".join(lines)
+	dialog.confirmed.connect(dialog.queue_free)
+	add_child(dialog)
+	dialog.popup_centered(Vector2i(620, 390))
 
 func _check_updates() -> void:
 	if is_instance_valid(update_manager):
