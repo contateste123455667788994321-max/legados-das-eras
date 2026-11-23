@@ -3,7 +3,7 @@ extends Node2D
 const World = preload("res://scripts/world.gd")
 const Updates = preload("res://scripts/update_manager.gd")
 const WorldVisual = preload("res://scripts/world_visual.gd")
-const TILE_SIZE := 34.0
+const TILE_SIZE := 44.0
 const MAP_ORIGIN := Vector2(38.0, 90.0)
 const MAP_AREA := Rect2(17.0, 82.0, 838.0, 443.0)
 const RIGHT_VIEW := Rect2(870.0, 80.0, 395.0, 221.0)
@@ -279,11 +279,19 @@ func _terrain_type(tile: String) -> String:
 		return "snow"
 	return tile
 
-func _draw_sprite(key: String, center: Vector2, dimensions: Vector2) -> void:
+func _draw_sprite(key: String, center: Vector2, dimensions: Vector2, clip_to_map: bool = false) -> void:
 	if not actor_textures.has(key):
 		return
 	var texture: Texture2D = actor_textures[key]
-	draw_texture_rect(texture, Rect2(center - dimensions * 0.5, dimensions), false)
+	var dest := Rect2(center - dimensions * 0.5, dimensions)
+	if clip_to_map:
+		var clipped: Rect2 = dest.intersection(MAP_AREA)
+		if clipped.size.x <= 0.0 or clipped.size.y <= 0.0:
+			return
+		var source := Rect2((clipped.position - dest.position) / dest.size * texture.get_size(), clipped.size / dest.size * texture.get_size())
+		draw_texture_rect_region(texture, clipped, source)
+	else:
+		draw_texture_rect(texture, dest, false)
 
 func _draw() -> void:
 	draw_rect(Rect2(0, 0, 1280, 720), Color("#151c18"), true)
@@ -305,11 +313,16 @@ func _draw() -> void:
 			var tile_rect := Rect2(position, Vector2(scale_size + 0.5, scale_size + 0.5))
 			if not tile_rect.intersects(MAP_AREA):
 				continue
+			var clipped_tile: Rect2 = tile_rect.intersection(MAP_AREA)
+			if clipped_tile.size.x <= 0.0 or clipped_tile.size.y <= 0.0:
+				continue
 			var tile: String = _terrain_type(str(row[x]))
 			if tile_textures.has(tile):
-				draw_texture_rect(tile_textures[tile] as Texture2D, tile_rect, false)
+				var tile_texture: Texture2D = tile_textures[tile]
+				var region := Rect2((clipped_tile.position - tile_rect.position) / tile_rect.size * tile_texture.get_size(), clipped_tile.size / tile_rect.size * tile_texture.get_size())
+				draw_texture_rect_region(tile_texture, clipped_tile, region)
 			else:
-				draw_rect(tile_rect, Color("#528c55"), true)
+				draw_rect(clipped_tile, Color("#528c55"), true)
 	# Vilarejos construidos com cabanas, hortas e fogueiras visiveis.
 	for town in world.towns:
 		var center := _world_to_screen(Vector2(float(town["x"]) + 0.5, float(town["y"]) + 0.5))
@@ -318,13 +331,13 @@ func _draw() -> void:
 		if center.y < MAP_AREA.position.y - 100 or center.y > MAP_AREA.end.y + 100:
 			continue
 		var unit := TILE_SIZE * zoom
-		_draw_sprite("farm", center + Vector2(-1.4, 1.15) * unit, Vector2(1.5, 1.5) * unit)
-		_draw_sprite("hut", center + Vector2(0.0, -0.35) * unit, Vector2(1.85, 1.85) * unit)
+		_draw_sprite("farm", center + Vector2(-1.4, 1.15) * unit, Vector2(1.5, 1.5) * unit, true)
+		_draw_sprite("hut", center + Vector2(0.0, -0.35) * unit, Vector2(1.85, 1.85) * unit, true)
 		if int(town.get("houses", 2)) >= 2:
-			_draw_sprite("hut", center + Vector2(1.6, 0.35) * unit, Vector2(1.45, 1.45) * unit)
+			_draw_sprite("hut", center + Vector2(1.6, 0.35) * unit, Vector2(1.45, 1.45) * unit, true)
 		if int(town.get("houses", 2)) >= 3:
-			_draw_sprite("hut", center + Vector2(-1.25, -0.75) * unit, Vector2(1.35, 1.35) * unit)
-		_draw_sprite("fire", center + Vector2(0.7, 1.0) * unit, Vector2(1.2, 1.2) * unit)
+			_draw_sprite("hut", center + Vector2(-1.25, -0.75) * unit, Vector2(1.35, 1.35) * unit, true)
+		_draw_sprite("fire", center + Vector2(0.7, 1.0) * unit, Vector2(1.2, 1.2) * unit, true)
 		if int(town["id"]) == selected_town_id:
 			draw_arc(center, 35.0 * zoom, 0, TAU, 32, Color("#fff0a0"), 3.0)
 	# Personagens separados visualmente por idade e aparencia.
@@ -335,7 +348,7 @@ func _draw() -> void:
 		if not MAP_AREA.has_point(center):
 			continue
 		var key := "child" if float(p["age"]) < 16.0 else ("person_m" if int(p["gender"]) == 0 else "person_f")
-		_draw_sprite(key, center, Vector2(30, 30) * zoom)
+		_draw_sprite(key, center, Vector2(30, 30) * zoom, true)
 		if int(p["id"]) == selected_person_id:
 			draw_arc(center, 14.0 * zoom, 0, TAU, 20, Color("#ffe890"), 2.0)
 		if int(p["id"]) == controlled_id:
@@ -347,7 +360,7 @@ func _draw() -> void:
 		if not MAP_AREA.has_point(center):
 			continue
 		var key := "bear" if str(b["species"]) == "Urso" else "wolf"
-		_draw_sprite(key, center, Vector2(38, 38) * zoom)
+		_draw_sprite(key, center, Vector2(38, 38) * zoom, true)
 		if int(b["id"]) == selected_beast_id:
 			draw_arc(center, 15.0 * zoom, 0, TAU, 20, Color("#ffe890"), 2.0)
 		if int(b["id"]) == controlled_id:
