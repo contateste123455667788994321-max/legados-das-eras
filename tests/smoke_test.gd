@@ -19,6 +19,30 @@ func _run_tests() -> void:
 	world.generate_world()
 	_check(world.tiles.size() == World.SIZE, "Mapa gerado")
 	_check(world.towns.size() == 3, "Tres aldeias iniciais")
+
+	# Um jogador deve poder mandar construir, ver o trabalho e manter os recursos.
+	var building_world = World.new()
+	building_world.generate_world()
+	var target_town: Dictionary = building_world.towns[0]
+	var target_id: int = int(target_town["id"])
+	var original_houses: int = int(target_town.get("houses", 2))
+	var original_wood: float = float(target_town["wood"])
+	_check(not building_world.start_construction(target_id, "bridge"), "Nao aceita construcoes desconhecidas")
+	_check(not building_world.start_construction(target_id, "house"), "Recusa obra sem madeira")
+	target_town["wood"] = 50.0
+	_check(building_world.start_construction(target_id, "house"), "Jogador inicia uma casa com recursos")
+	_check(float(target_town["wood"]) == 36.0, "Uma casa consome 14 madeiras")
+	_check(not building_world.start_construction(target_id, "farm"), "Uma vila so pode executar uma obra por vez")
+	_check(int(target_town["houses"]) == original_houses, "Casa nao surge magicamente antes da obra")
+	for i in range(150):
+		building_world.update_world(0.1)
+	_check(int(target_town["houses"]) == original_houses + 1, "A casa fica pronta depois do trabalho")
+	_check(target_town.get("construction", {}).is_empty(), "A obra pronta sai da fila")
+	_check(target_town.get("historical_events", []).size() > 0, "Obra entra na historia da aldeia")
+	var gardener: Dictionary = building_world.people[5]
+	_check(str(gardener.get("task", "")) != "", "Morador tem atividade visivel")
+	_check(float(gardener.get("work_timer", 0.0)) > 0.0, "Morador possui destino de trabalho")
+
 	var terrain_kinds := {}
 	for row in world.tiles:
 		for kind in row:
@@ -131,6 +155,13 @@ func _run_tests() -> void:
 	_check(game.character_view, "Visao de personagem pode ser ativada")
 	game.call("_toggle_view")
 	_check(not game.character_view, "Jogador pode retornar ao mapa")
+	game.call("_show_construction")
+	var construction_dialog_found := false
+	for popup in game.get_children():
+		if popup is ConfirmationDialog and popup.title == "Construir na aldeia":
+			construction_dialog_found = true
+	_check(construction_dialog_found, "Jogador consegue abrir escolha de casas e fazendas")
+	_check(game._preferred_town_id() > 0, "Botao construir encontra uma aldeia proxima")
 	game.call("_show_diplomacy")
 	var found_window := false
 	for child in game.get_children():
