@@ -1,12 +1,12 @@
 extends Node
 ## Monta o pacote de conteudo antes que as cenas ou scripts do jogo sejam carregados.
 ## O APK instalado permanece intacto; o progresso continua em user://world.json.
-const MIN_APK_VERSION_CODE := 3
+const MIN_APK_VERSION_CODE := 4
 const PATCH_DIR := "user://updates"
 const PATCH_PATH := PATCH_DIR + "/active.pck"
 const PATCH_META := PATCH_DIR + "/active.json"
 var active_version_code := MIN_APK_VERSION_CODE
-var active_version_name := "0.3.0"
+var active_version_name := "0.4.0"
 var last_error := ""
 
 func _init() -> void:
