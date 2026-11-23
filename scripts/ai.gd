@@ -35,6 +35,10 @@ func _init_person(sim, p: Dictionary) -> void:
 		p["relations"] = {}
 	if not p.has("memories"):
 		p["memories"] = []
+	if not p.has("task"):
+		p["task"] = "Observando"
+	if not p.has("work_timer"):
+		p["work_timer"] = 0.0
 	if not p.has("profession") or (str(p["profession"]) == "Crianca" and float(p["age"]) >= 16.0):
 		if float(p["age"]) < 16.0:
 			p["profession"] = "Crianca"
@@ -62,19 +66,19 @@ func _init_town(t: Dictionary) -> void:
 		t["historical_events"] = []
 	if not t.has("political_tension"):
 		t["political_tension"] = 0.0
+	if not t.has("construction"):
+		t["construction"] = {}
 
 func _manage_town(sim, town: Dictionary, step: float) -> void:
 	var pop: int = sim.active_population(int(town["id"]))
-	# Construcoes efetivamente consomem materiais e aumentam capacidade produtiva.
-	if pop > int(town["houses"]) * 5 and float(town["wood"]) >= 14.0:
-		town["wood"] = float(town["wood"]) - 14.0
-		town["houses"] = int(town["houses"]) + 1
-		_chronicle(town, "Novas casas acolhem familias.", sim)
-	if float(town["food"]) < float(pop) * 1.5 and float(town["wood"]) >= 18.0:
-		town["wood"] = float(town["wood"]) - 18.0
-		town["farms"] = int(town["farms"]) + 1
-		_chronicle(town, "Os moradores abriram uma nova fazenda.", sim)
-	town["food"] = maxf(0.0, float(town["food"]) + step * float(town["farms"]) * 0.15)
+	# Moradores levantam UMA obra de cada vez. Madeira e tempo tem custos reais.
+	if town.get("construction", {}).is_empty():
+		if pop > int(town["houses"]) * 5 and float(town["wood"]) >= 14.0 and int(town["houses"]) < 8:
+			sim.start_construction(int(town["id"]), "house")
+		elif float(town["food"]) < float(pop) * 1.5 and float(town["wood"]) >= 18.0 and int(town["farms"]) < 6:
+			sim.start_construction(int(town["id"]), "farm")
+	var harvest: float = step * float(town["farms"]) * 0.15
+	town["food"] = maxf(0.0, float(town["food"]) + harvest)
 	town["morale"] = clampf(float(town["morale"]) + (0.07 if float(town["food"]) > pop else -0.18) * step, 0.0, 100.0)
 	if sim.wars and sim.rivals:
 		var tension := float(town["political_tension"])
@@ -91,6 +95,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 	if home.is_empty():
 		return
 	if float(n["hunger"]) >= 55.0:
+		_set_task(sim, p, home, "Comendo", 0.25)
 		if float(home["food"]) >= 0.4:
 			home["food"] = float(home["food"]) - 0.4
 			n["hunger"] = maxf(0.0, float(n["hunger"]) - 45.0)
@@ -102,27 +107,31 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 		return
 	if float(n["energy"]) < 28.0:
 		n["energy"] = minf(100.0, float(n["energy"]) + step * 5.0)
-		p["target_x"] = float(home["x"])
-		p["target_y"] = float(home["y"])
+		_set_task(sim, p, home, "Descansando", 0.35)
 		return
 	if float(n["company"]) >= 53.0:
 		if _socialize(sim, p, home):
+			_set_task(sim, p, home, "Conversando", 0.75)
 			n["company"] = maxf(0.0, float(n["company"]) - 38.0)
 			return
 	# A personalidade altera os objetivos de trabalho e as exploracoes.
 	match str(p["profession"]):
 		"Construtor":
-			home["wood"] = float(home["wood"]) + step * (0.3 + float(m["ambition"]) * 0.6)
+			if not home.get("construction", {}).is_empty():
+				_set_task(sim, p, home, "Construindo", 0.65)
+			else:
+				_set_task(sim, p, home, "Coletando madeira", 2.4)
+				home["wood"] = float(home["wood"]) + step * (0.3 + float(m["ambition"]) * 0.6)
 		"Explorador":
+			_set_task(sim, p, home, "Explorando", 3.7)
 			home["knowledge"] = float(home["knowledge"]) + step * (0.08 + float(m["curiosity"]) * 0.3)
-			if sim.rng.randf() < 0.10:
-				p["target_x"] = clampf(float(p["x"]) + sim.rng.randf_range(-4, 4), 2.0, float(sim.SIZE - 3))
-				p["target_y"] = clampf(float(p["y"]) + sim.rng.randf_range(-4, 4), 2.0, float(sim.SIZE - 3))
 		"Guarda":
-			p["target_x"] = float(home["x"]) + sim.rng.randf_range(-1.5, 1.5)
-			p["target_y"] = float(home["y"]) + sim.rng.randf_range(-1.5, 1.5)
+			_set_task(sim, p, home, "Patrulhando", 1.8)
 			home["morale"] = minf(100.0, float(home["morale"]) + step * 0.1)
+		"Crianca":
+			_set_task(sim, p, home, "Brincando", 1.2)
 		_:
+			_set_task(sim, p, home, "Cultivando", 1.6)
 			home["food"] = float(home["food"]) + step * (0.25 + float(m["kindness"]) * 0.25)
 	# Laços familiares e rivalidades alteram a lealdade entre pessoas.
 	if float(m["ambition"]) > 0.88 and str(p["role"]) == "Aldeao":
@@ -131,6 +140,19 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 			_remember(p, "Sonha em liderar " + str(home["name"]) + ".", sim)
 	if sim.rng.randf() < 0.06:
 		_socialize(sim, p, home)
+
+func _set_task(sim, p: Dictionary, home: Dictionary, task: String, distance: float) -> void:
+	var old_task: String = str(p.get("task", ""))
+	p["work_timer"] = float(p.get("work_timer", 0.0)) - 0.75
+	if old_task == task and float(p["work_timer"]) > 0.0:
+		return
+	p["task"] = task
+	p["work_timer"] = sim.rng.randf_range(2.5, 5.0)
+	var angle: float = sim.rng.randf_range(-PI, PI)
+	var radius: float = sim.rng.randf_range(distance * 0.45, distance)
+	p["target_x"] = clampf(float(home["x"]) + cos(angle) * radius, 1.0, float(sim.SIZE - 2))
+	p["target_y"] = clampf(float(home["y"]) + sin(angle) * radius, 1.0, float(sim.SIZE - 2))
+	p["work_goal"] = true
 
 func _socialize(sim, p: Dictionary, home: Dictionary) -> bool:
 	var neighbors: Array = []
