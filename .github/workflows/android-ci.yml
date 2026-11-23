@@ -1,0 +1,74 @@
+name: Testar jogo e montar APK de teste
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validar:
+    name: Validar Godot e simulação
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.4.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Importar projeto e detectar erros
+        shell: bash
+        run: |
+          set -eo pipefail
+          godot --headless --path . --import 2>&1 | tee godot-import.log
+          if grep -E 'SCRIPT ERROR|Parse Error|ERROR:.*(Parse|script|Script)' godot-import.log; then
+            echo "Erros de script encontrados no projeto."
+            exit 1
+          fi
+      - name: Testar simulação e salvamento
+        shell: bash
+        run: |
+          set -eo pipefail
+          godot --headless --path . --script res://tests/smoke_test.gd 2>&1 | tee godot-test.log
+          grep -q 'SUCESSO: todos os testes basicos passaram.' godot-test.log
+      - name: Salvar logs se houver erro
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-godot
+          path: |
+            godot-import.log
+            godot-test.log
+          if-no-files-found: ignore
+
+  apk_teste:
+    name: Gerar APK Android (não é versão final)
+    needs: validar
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.4.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Importar arquivos
+        run: godot --headless --path . --import
+      - name: Exportar APK de depuração
+        shell: bash
+        run: |
+          set -eo pipefail
+          mkdir -p build
+          godot --headless --path . --export-debug "Android" build/Legado-das-Eras-debug.apk 2>&1 | tee godot-export.log
+          test -s build/Legado-das-Eras-debug.apk
+      - name: Guardar APK para testes
+        uses: actions/upload-artifact@v4
+        with:
+          name: legado-das-eras-apk-teste
+          path: build/Legado-das-Eras-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Guardar log se a exportação falhar
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-exportacao-android
+          path: godot-export.log
+          if-no-files-found: ignore
