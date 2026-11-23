@@ -279,7 +279,27 @@ func _draw_eyes_view(area: Rect2, season_id: int) -> void:
 	var pos: Vector2 = area.position
 	var w: float = area.size.x
 	var h: float = area.size.y
-	var sky: Color = Color("#9cd0d9") if season_id != 3 else Color("#b8d7e3")
+	var biome := "grass"
+	var camera_shift := 0.0
+	var subject: Dictionary = game.world.get_actor(game.controlled_id)
+	if subject.is_empty():
+		subject = game.world.get_actor(game.selected_person_id)
+	if not subject.is_empty():
+		var tile_x: int = clampi(int(float(subject["x"])), 0, game.world.SIZE - 1)
+		var tile_y: int = clampi(int(float(subject["y"])), 0, game.world.SIZE - 1)
+		var tile_row: Array = game.world.tiles[tile_y]
+		biome = str(tile_row[tile_x])
+		camera_shift = fmod(float(subject["x"]) * 15.0 + float(subject["y"]) * 9.0, 28.0)
+	var near_village := false
+	for town in game.world.towns:
+		if not subject.is_empty():
+			var distance := Vector2(float(town["x"]), float(town["y"])).distance_to(Vector2(float(subject["x"]), float(subject["y"])))
+			if distance < 3.5:
+				near_village = true
+				break
+	else:
+		near_village = true
+	var sky: Color = Color("#d9c18d") if biome == "sand" else (Color("#b8d7e3") if biome == "snow" or season_id == 3 else Color("#9cd0d9"))
 	draw_rect(area, sky, true)
 	for i in range(8):
 		var yy: float = pos.y + float(i) * h * 0.052
@@ -291,10 +311,10 @@ func _draw_eyes_view(area: Rect2, season_id: int) -> void:
 		_poly([Vector2(cx - w * 0.24, cy), Vector2(cx, cy - h * (0.32 + i * 0.018)), Vector2(cx + w * 0.29, cy)], Color("#788e87") if season_id != 3 else Color("#9fb8b8"))
 		_poly([Vector2(cx - 25, cy - h * 0.20), Vector2(cx, cy - h * (0.32 + i * 0.018)), Vector2(cx + 34, cy - h * 0.18)], Color("#dae8e0"))
 	draw_rect(Rect2(pos.x, pos.y + h * 0.42, w, h * 0.58), Color("#6b9b62") if season_id != 3 else Color("#cadbd6"))
-	var ground: Color = Color("#609361")
-	if season_id == 2:
+	var ground: Color = Color("#d7ba7b") if biome == "sand" else (Color("#c3d6d6") if biome == "snow" else Color("#609361"))
+	if biome != "sand" and biome != "snow" and season_id == 2:
 		ground = Color("#a18e56")
-	elif season_id == 3:
+	elif season_id == 3 or biome == "snow":
 		ground = Color("#b7cdca")
 	draw_rect(Rect2(pos.x, pos.y + h * 0.56, w, h * 0.44), ground)
 	_poly([Vector2(pos.x + w * 0.50, pos.y + h * 0.51), Vector2(pos.x + w * 0.57, pos.y + h * 0.51), Vector2(pos.x + w * 0.90, area.end.y), Vector2(pos.x + w * 0.08, area.end.y)], Color("#ad9b72"))
@@ -302,11 +322,22 @@ func _draw_eyes_view(area: Rect2, season_id: int) -> void:
 	for i in range(6):
 		var depth: float = float(i) / 6.0
 		var height: float = 40.0 + 65.0 * depth
-		_tree(Vector2(pos.x + 30.0 + i * 65.0, pos.y + h * (0.52 + depth * 0.14)), height, season_id, true)
-		_tree(Vector2(pos.x + w - 15.0 - i * 48.0, pos.y + h * (0.58 + depth * 0.14)), height * 0.73, season_id, i % 2 == 0)
-	_house(Vector2(pos.x + w * 0.74, pos.y + h * 0.58), w * 0.20, Color("#93673e"), 1)
-	_house(Vector2(pos.x + w * 0.20, pos.y + h * 0.57), w * 0.17, Color("#836039"), 1)
-	_fire(Vector2(pos.x + w * 0.47, pos.y + h * 0.68), 23)
+		var left: Vector2 = Vector2(pos.x + 30.0 + i * 65.0 - camera_shift, pos.y + h * (0.52 + depth * 0.14))
+		var right: Vector2 = Vector2(pos.x + w - 15.0 - i * 48.0 + camera_shift, pos.y + h * (0.58 + depth * 0.14))
+		if biome == "sand":
+			_cactus(left, height * 0.65)
+			_rock(right, height * 0.36, Color("#ac885e"))
+		elif biome == "mountain":
+			_mountain(left, height * 1.12, season_id)
+			_tree(right, height * 0.55, season_id, true)
+		else:
+			var local_season: int = 3 if biome == "snow" else season_id
+			_tree(left, height, local_season, true)
+			_tree(right, height * 0.73, local_season, i % 2 == 0)
+	if near_village:
+		_house(Vector2(pos.x + w * 0.74, pos.y + h * 0.58), w * 0.20, Color("#93673e"), 1)
+		_house(Vector2(pos.x + w * 0.20, pos.y + h * 0.57), w * 0.17, Color("#836039"), 1)
+		_fire(Vector2(pos.x + w * 0.47, pos.y + h * 0.68), 23)
 	# Primeiro plano: ferramenta vista pela mao do personagem.
 	var grip: Vector2 = Vector2(pos.x + w * 0.84, pos.y + h * 0.82)
 	draw_line(grip + Vector2(0, h * 0.32), grip - Vector2(60, 140), Color("#4a3225"), 22.0)
