@@ -60,10 +60,17 @@ func _ready() -> void:
 	world_visual.position = -MAP_AREA.position
 	character_clip.add_child(world_visual)
 	character_clip.visible = false
+	var preview_clip := Control.new()
+	preview_clip.position = RIGHT_VIEW.position
+	preview_clip.size = RIGHT_VIEW.size
+	preview_clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	preview_clip.clip_contents = true
+	add_child(preview_clip)
 	preview_visual = WorldVisual.new()
 	preview_visual.game = self
 	preview_visual.preview_mode = true
-	add_child(preview_visual)
+	preview_visual.position = -RIGHT_VIEW.position
+	preview_clip.add_child(preview_visual)
 	_build_ui()
 	if not world.towns.is_empty():
 		var first_town: Dictionary = world.towns[0]
@@ -272,16 +279,17 @@ func _draw_sprite(key: String, center: Vector2, dimensions: Vector2) -> void:
 	draw_texture_rect(texture, Rect2(center - dimensions * 0.5, dimensions), false)
 
 func _draw() -> void:
-	draw_rect(Rect2(0, 0, 1280, 720), Color("#141d1c"), true)
-	# Quadro principal e moldura em tons de madeira, inspirados no estilo pixel art aprovado.
-	draw_rect(Rect2(9, 104, 889, 478), Color("#9b773e"), true)
-	draw_rect(MAP_AREA, Color("#325b3e"), true)
-	draw_rect(Rect2(901, 7, 369, 567), Color("#2c251d"), true)
-	draw_rect(Rect2(905, 10, 359, 560), Color("#765a37"), false, 4.0)
-	draw_rect(Rect2(904, 48, 362, 106), Color("#382f24"), true)
-	draw_rect(Rect2(900, 577, 368, 133), Color("#262a22"), true)
-	draw_rect(Rect2(9, 577, 889, 133), Color("#242b23"), true)
-	draw_rect(Rect2(12, 580, 883, 126), Color("#876d46"), false, 3.0)
+	draw_rect(Rect2(0, 0, 1280, 720), Color("#151c18"), true)
+	# Molduras de madeira e ouro inspiradas na referencia, sem esconder o mapa jogavel.
+	_draw_panel(Rect2(9, 77, 853, 454), Color("#29362d"))
+	_draw_panel(Rect2(865, 74, 408, 232), Color("#2e3027"))
+	_draw_panel(Rect2(865, 305, 408, 231), Color("#33291e"))
+	_draw_panel(Rect2(9, 534, 1264, 181), Color("#231f1a"))
+	for rect in [Rect2(17, 539, 300, 139), Rect2(324, 539, 297, 139), Rect2(628, 539, 302, 139), Rect2(937, 539, 328, 139)]:
+		_draw_panel(rect, Color("#403425"))
+	draw_rect(MAP_AREA, Color("#426d47"), true)
+	draw_rect(Rect2(874, 336, 390, 61), Color("#262821"), true)
+	draw_rect(Rect2(874, 336, 390, 61), Color("#846b43"), false, 1.5)
 	var scale_size := TILE_SIZE * zoom
 	for y in range(world.tiles.size()):
 		var row: Array = world.tiles[y]
@@ -337,23 +345,42 @@ func _draw() -> void:
 			draw_arc(center, 15.0 * zoom, 0, TAU, 20, Color("#ffe890"), 2.0)
 		if int(b["id"]) == controlled_id:
 			draw_arc(center, 19.0 * zoom, 0, TAU, 20, Color("#6cffda"), 3.0)
-	# Quatro miniaturas de biomas geradas a partir da mesma arte do mundo.
-	var biome_keys := ["forest", "sand", "snow", "mountain"]
-	for i in range(biome_keys.size()):
-		var x := 22 + i * 212
-		draw_rect(Rect2(x, 613, 190, 85), Color("#6d5638"), true)
-		var key: String = biome_keys[i]
-		if tile_textures.has(key):
-			draw_texture_rect(tile_textures[key] as Texture2D, Rect2(x + 5, 618, 180, 38), false)
-	# Retrato do personagem ou aldeia selecionados, usando sprites reais.
-	var portrait_key := "hut"
-	if selected_beast_id > 0:
-		portrait_key = "bear" if str(world.get_beast(selected_beast_id).get("species", "")) == "Urso" else "wolf"
-	elif selected_person_id > 0:
-		var person: Dictionary = world.get_person(selected_person_id)
-		if not person.is_empty():
-			portrait_key = "child" if float(person["age"]) < 16.0 else ("person_m" if int(person["gender"]) == 0 else "person_f")
-	_draw_sprite(portrait_key, Vector2(1063, 100), Vector2(86, 86))
+	# Miniaturas com arte do proprio mundo, estacoes, geracoes e eras.
+	var biomes := ["sand", "forest", "snow"]
+	for i in range(biomes.size()):
+		_draw_tile_card(biomes[i], Rect2(31 + i * 96, 579, 86, 73))
+	var seasons := ["grass_spring", "grass", "grass_autumn", "snow"]
+	for i in range(seasons.size()):
+		_draw_tile_card(seasons[i], Rect2(337 + i * 70, 580, 62, 73))
+	var ages := ["child", "person_m", "person_f", "person_m"]
+	for i in range(ages.size()):
+		var p := Vector2(661 + i * 72, 619)
+		draw_rect(Rect2(p - Vector2(29, 37), Vector2(61, 75)), Color("#756344"), true)
+		_draw_sprite(ages[i], p, Vector2(43, 56))
+		if i < 3:
+			draw_line(p + Vector2(30, 0), p + Vector2(40, 0), Color("#f4d588"), 2.0)
+	var upgrades := ["hut", "farm", "hut"]
+	for i in range(upgrades.size()):
+		var p := Vector2(979 + i * 88, 617)
+		draw_rect(Rect2(p - Vector2(35, 36), Vector2(77, 73)), Color("#655136"), true)
+		_draw_sprite(upgrades[i], p, Vector2(72, 67))
+		if i < 2:
+			draw_line(p + Vector2(39, 0), p + Vector2(51, 0), Color("#f4d588"), 2.0)
+	draw_line(Vector2(15, 680), Vector2(1265, 680), Color("#9c824b"), 2.0)
+
+func _draw_panel(rect: Rect2, fill: Color) -> void:
+	draw_rect(rect, Color("#12130f"), true)
+	draw_rect(rect.grow(-3), fill, true)
+	draw_rect(rect, Color("#b9965a"), false, 3.0)
+	draw_line(rect.position + Vector2(7, 7), Vector2(rect.end.x - 7, rect.position.y + 7), Color("#e2bb75", 0.56), 1.0)
+
+func _draw_tile_card(key: String, rect: Rect2) -> void:
+	draw_rect(rect, Color("#171d17"), true)
+	if tile_textures.has(key):
+		draw_texture_rect(tile_textures[key] as Texture2D, rect.grow(-3), false)
+	else:
+		draw_rect(rect.grow(-3), Color("#4a7756"), true)
+	draw_rect(rect, Color("#b99a61"), false, 2.0)
 
 func _world_to_screen(world_pos: Vector2) -> Vector2:
 	return MAP_ORIGIN + map_offset + world_pos * TILE_SIZE * zoom
