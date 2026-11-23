@@ -93,10 +93,12 @@ func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
 	if men.is_empty():
 		var first_man: Dictionary = people[people.size() - 6]
 		first_man["gender"] = 0
+		women.erase(first_man)
 		men.append(first_man)
 	if women.is_empty():
 		var first_woman: Dictionary = people[people.size() - 5]
 		first_woman["gender"] = 1
+		men.erase(first_woman)
 		women.append(first_woman)
 	var father: Dictionary = men[0]
 	var mother: Dictionary = women[0]
