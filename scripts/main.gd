@@ -389,6 +389,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			_clamp_map()
 
 func _touch_map(position: Vector2) -> void:
+	if RIGHT_VIEW.has_point(position):
+		_toggle_view()
+		return
 	if character_view:
 		if controlled_id > 0:
 			var actor: Dictionary = world.get_actor(controlled_id)
@@ -427,19 +430,26 @@ func _touch_map(position: Vector2) -> void:
 		selected_beast_id = nearest_beast_id
 		selected_person_id = 0
 		selected_town_id = 0
-	elif controlled_id > 0:
-		var actor: Dictionary = world.get_actor(controlled_id)
-		if not actor.is_empty():
-			actor["target_x"] = clampf(point.x - 0.5, 1.0, World.SIZE - 2.0)
-			actor["target_y"] = clampf(point.y - 0.5, 1.0, World.SIZE - 2.0)
 	else:
-		selected_person_id = 0
-		selected_beast_id = 0
-		selected_town_id = 0
+		# Um toque na casa deve abrir sua ficha, mesmo quando um personagem ja esta sob controle.
+		var near_town: Dictionary = {}
 		for t in world.towns:
-			if Vector2(float(t["x"]) + 0.5, float(t["y"]) + 0.5).distance_to(point) < 1.1:
-				selected_town_id = int(t["id"])
+			if Vector2(float(t["x"]) + 0.5, float(t["y"]) + 0.5).distance_to(point) < 0.90:
+				near_town = t
 				break
+		if not near_town.is_empty():
+			selected_person_id = 0
+			selected_beast_id = 0
+			selected_town_id = int(near_town["id"])
+		elif controlled_id > 0:
+			var actor: Dictionary = world.get_actor(controlled_id)
+			if not actor.is_empty():
+				actor["target_x"] = clampf(point.x - 0.5, 1.0, World.SIZE - 2.0)
+				actor["target_y"] = clampf(point.y - 0.5, 1.0, World.SIZE - 2.0)
+		else:
+			selected_person_id = 0
+			selected_beast_id = 0
+			selected_town_id = 0
 	_refresh_ui()
 
 func _move_controlled(delta: float) -> void:
@@ -503,6 +513,10 @@ func _toggle_view() -> void:
 		character_clip.visible = character_view
 	_refresh_ui()
 
+func _focus_at(point: Vector2) -> void:
+	map_offset = MAP_AREA.get_center() - MAP_ORIGIN - point * TILE_SIZE * zoom
+	_clamp_map()
+
 func _focus_biome(kind: String) -> void:
 	character_view = false
 	if is_instance_valid(character_clip):
@@ -513,8 +527,7 @@ func _focus_biome(kind: String) -> void:
 		for x in range(row.size()):
 			if str(row[x]) == kind:
 				var point := Vector2(float(x) + 0.5, float(y) + 0.5)
-				map_offset = MAP_AREA.get_center() - MAP_ORIGIN - point * TILE_SIZE * zoom
-				_clamp_map()
+				_focus_at(point)
 				found = true
 				break
 		if found:
@@ -608,6 +621,29 @@ func _show_diplomacy() -> void:
 	dialog.canceled.connect(dialog.queue_free)
 	add_child(dialog)
 	dialog.popup_centered(Vector2i(600, 580))
+
+func _show_options() -> void:
+	var popup := PopupMenu.new()
+	popup.add_item("Verificar atualizacoes", 0)
+	popup.add_item("Criar novo mundo", 1)
+	popup.add_item("Salvar mundo", 2)
+	popup.add_item("Ir para primeira vila", 3)
+	popup.id_pressed.connect(func(which: int) -> void:
+		match which:
+			0: _check_updates()
+			1: _new_world()
+			2: _save_now()
+			3:
+				if not world.towns.is_empty():
+					var t: Dictionary = world.towns[0]
+					character_view = false
+					if is_instance_valid(character_clip):
+						character_clip.visible = false
+					_focus_at(Vector2(float(t["x"]) + 0.5, float(t["y"]) + 0.5))
+		popup.queue_free()
+	)
+	add_child(popup)
+	popup.popup_centered(Vector2i(350, 260))
 
 func _check_updates() -> void:
 	if is_instance_valid(update_manager):
