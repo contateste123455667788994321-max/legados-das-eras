@@ -84,11 +84,13 @@ func generate_world() -> void:
 
 func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
 	var town_id := new_id()
+	var founding_biome: String = str(tiles[y][x])
 	var town := {
 		"id": town_id, "name": town_name, "x": x, "y": y,
 		"hostile": hostile, "leader": 0, "food": 25.0,
 		"wood": 12.0, "knowledge": 0.0, "level": 1,
 		"law": "primogenitura", "water": 18.0,
+		"home_biome": founding_biome,
 		"clothing": 0.0, "drought_preparation": false
 	}
 	towns.append(town)
