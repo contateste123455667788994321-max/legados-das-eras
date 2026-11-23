@@ -8,6 +8,9 @@ run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.4", "GL Compatibility")
 config/description="Simulacao de civilizacoes com duas formas de jogar"
 
+[autoload]
+PatchLoader="*res://scripts/patch_loader.gd"
+
 [display]
 window/size/viewport_width=1280
 window/size/viewport_height=720
