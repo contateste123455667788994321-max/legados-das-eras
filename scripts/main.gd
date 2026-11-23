@@ -134,6 +134,7 @@ func _build_ui() -> void:
 	speed_button = _button("1x", Vector2(604, 43), Vector2(80, 34), Callable(self, "_change_speed"))
 	_button("Zoom -", Vector2(689, 43), Vector2(79, 34), Callable(self, "_zoom_out"))
 	_button("Zoom +", Vector2(773, 43), Vector2(80, 34), Callable(self, "_zoom_in"))
+	_button("Construir", Vector2(873, 43), Vector2(125, 34), Callable(self, "_show_construction"))
 	_button("Atualizar", Vector2(1134, 43), Vector2(120, 34), Callable(self, "_check_updates"))
 	_label("VISAO DO PERSONAGEM", Vector2(885, 89), Vector2(330, 28), 17, Color("#f8df9c"))
 	_label("Toque aqui para explorar", Vector2(883, 270), Vector2(341, 27), 15, Color("#f3e2bb"))
@@ -254,7 +255,7 @@ func _refresh_ui() -> void:
 			var latest_event := "Nenhuma lembranca registrada"
 			if not memories.is_empty():
 				latest_event = str(memories.back().get("event", latest_event))
-			info_label.text = "%s • %d anos\n%s | %s\n%s" % [str(p["name"]), int(float(p["age"])), home, profession, str(p["role"])]
+			info_label.text = "%s • %d anos\n%s | %s\n%s" % [str(p["name"]), int(float(p["age"])), home, profession, str(p.get("task", "Observando"))]
 			return
 	if selected_town_id > 0:
 		var t: Dictionary = world.get_town(selected_town_id)
@@ -324,23 +325,47 @@ func _draw() -> void:
 				draw_texture_rect_region(tile_texture, clipped_tile, region)
 			else:
 				draw_rect(clipped_tile, Color("#528c55"), true)
-	# Vilarejos construidos com cabanas, hortas e fogueiras visiveis.
+	# Quantidade real de casas e fazendas aparece no mapa, conforme o estoque da vila.
+	var house_spots: Array[Vector2] = [
+		Vector2(0.0, -0.35), Vector2(1.60, 0.35), Vector2(-1.25, -0.75),
+		Vector2(2.15, -0.85), Vector2(-2.4, 0.15), Vector2(0.95, -1.65),
+		Vector2(-1.35, 1.45), Vector2(2.9, 1.15)
+	]
+	var farm_spots: Array[Vector2] = [
+		Vector2(-1.4, 1.15), Vector2(-2.2, 2.20), Vector2(1.3, 1.85),
+		Vector2(2.9, 2.0), Vector2(-2.8, -1.1), Vector2(3.1, -1.4)
+	]
 	for town in world.towns:
 		var center := _world_to_screen(Vector2(float(town["x"]) + 0.5, float(town["y"]) + 0.5))
-		if center.x < MAP_AREA.position.x - 100 or center.x > MAP_AREA.end.x + 100:
-			continue
-		if center.y < MAP_AREA.position.y - 100 or center.y > MAP_AREA.end.y + 100:
+		if not MAP_AREA.grow(140.0).has_point(center):
 			continue
 		var unit := TILE_SIZE * zoom
-		_draw_sprite("farm", center + Vector2(-1.4, 1.15) * unit, Vector2(1.5, 1.5) * unit, true)
-		_draw_sprite("hut", center + Vector2(0.0, -0.35) * unit, Vector2(1.85, 1.85) * unit, true)
-		if int(town.get("houses", 2)) >= 2:
-			_draw_sprite("hut", center + Vector2(1.6, 0.35) * unit, Vector2(1.45, 1.45) * unit, true)
-		if int(town.get("houses", 2)) >= 3:
-			_draw_sprite("hut", center + Vector2(-1.25, -0.75) * unit, Vector2(1.35, 1.35) * unit, true)
+		# A terra cultivada cresce quando uma fazenda fica pronta.
+		for i in range(mini(int(town.get("farms", 1)), farm_spots.size())):
+			var spot: Vector2 = farm_spots[i]
+			_draw_sprite("farm", center + spot * unit, Vector2(1.32, 1.32) * unit, true)
+		for i in range(mini(int(town.get("houses", 2)), house_spots.size())):
+			var spot: Vector2 = house_spots[i]
+			var house_size: float = 1.62 if i == 0 else 1.35
+			_draw_sprite("hut", center + spot * unit, Vector2(house_size, house_size) * unit, true)
 		_draw_sprite("fire", center + Vector2(0.7, 1.0) * unit, Vector2(1.2, 1.2) * unit, true)
-		if int(town["id"]) == selected_town_id:
-			draw_arc(center, 35.0 * zoom, 0, TAU, 32, Color("#fff0a0"), 3.0)
+		var site: Dictionary = town.get("construction", {})
+		if not site.is_empty() and MAP_AREA.grow(-35.0).has_point(center):
+			var kind: String = str(site.get("kind", "house"))
+			var total: float = maxf(1.0, float(site.get("duration", 12.0)))
+			var progress: float = clampf(float(site.get("progress", 0.0)) / total, 0.0, 1.0)
+			var line_start: Vector2 = center + Vector2(-35.0, -58.0) * zoom
+			var size: Vector2 = Vector2(70.0, 7.0) * zoom
+			draw_rect(Rect2(line_start, size), Color("#392c20"), true)
+			draw_rect(Rect2(line_start, Vector2(size.x * progress, size.y)), Color("#e6bd72"), true)
+			draw_rect(Rect2(line_start, size), Color("#f4d8a1"), false, maxf(1.0, zoom))
+			var build_spot: Vector2 = house_spots[mini(int(town.get("houses", 2)), house_spots.size()-1)] if kind == "house" else farm_spots[mini(int(town.get("farms", 1)), farm_spots.size()-1)]
+			var scaffold: Vector2 = center + build_spot * unit
+			if MAP_AREA.has_point(scaffold):
+				draw_line(scaffold + Vector2(-15, 10) * zoom, scaffold + Vector2(15, -21) * zoom, Color("#ddbe7e"), maxf(1.0, 3.0 * zoom))
+				draw_line(scaffold + Vector2(15, 10) * zoom, scaffold + Vector2(-15, -21) * zoom, Color("#b78c5d"), maxf(1.0, 3.0 * zoom))
+		if int(town["id"]) == selected_town_id and MAP_AREA.has_point(center):
+			draw_arc(center, 35.0 * zoom, 0.0, TAU, 32, Color("#fff0a0"), 3.0)
 	# Personagens separados visualmente por idade e aparencia.
 	for p in world.people:
 		if not bool(p["alive"]):
@@ -706,6 +731,89 @@ func _toggle_rivals() -> void:
 func _toggle_predators() -> void:
 	world.toggle_predators()
 	_refresh_ui()
+
+func _preferred_town_id() -> int:
+	if selected_town_id > 0:
+		return selected_town_id
+	if selected_person_id > 0:
+		var person: Dictionary = world.get_person(selected_person_id)
+		if not person.is_empty():
+			return int(person["town"])
+	if controlled_id > 0:
+		var actor: Dictionary = world.get_person(controlled_id)
+		if not actor.is_empty():
+			return int(actor["town"])
+	if world.towns.is_empty():
+		return 0
+	# A aldeia que ocupa o centro da camera e o alvo padrao.
+	var focus: Vector2 = _screen_to_world(MAP_AREA.get_center())
+	var nearest_id: int = int(world.towns[0]["id"])
+	var best_distance: float = INF
+	for town in world.towns:
+		var distance: float = Vector2(float(town["x"]) + 0.5, float(town["y"]) + 0.5).distance_to(focus)
+		if distance < best_distance:
+			best_distance = distance
+			nearest_id = int(town["id"])
+	return nearest_id
+
+func _show_construction() -> void:
+	if world.towns.is_empty():
+		return
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Construir na aldeia"
+	dialog.dialog_text = "As construcoes usam madeira e demoram alguns segundos de jogo."
+	dialog.ok_button_text = "Iniciar obra"
+	dialog.cancel_button_text = "Voltar"
+	var body := VBoxContainer.new()
+	body.position = Vector2(20, 102)
+	body.size = Vector2(510, 192)
+	body.add_theme_constant_override("separation", 8)
+	dialog.add_child(body)
+	var town_picker := OptionButton.new()
+	var build_picker := OptionButton.new()
+	for town in world.towns:
+		town_picker.add_item(str(town["name"]), int(town["id"]))
+	build_picker.add_item("Casa (14 madeira)", 0)
+	build_picker.add_item("Fazenda (18 madeira)", 1)
+	var prefer_id := _preferred_town_id()
+	for i in range(town_picker.item_count):
+		if town_picker.get_item_id(i) == prefer_id:
+			town_picker.select(i)
+			break
+	var label := Label.new()
+	label.text = "Aldeia"
+	body.add_child(label)
+	body.add_child(town_picker)
+	var build_label := Label.new()
+	build_label.text = "Projeto"
+	body.add_child(build_label)
+	body.add_child(build_picker)
+	var stock_label := Label.new()
+	body.add_child(stock_label)
+	var refresh_stock := func(_unused = -1) -> void:
+		var t: Dictionary = world.get_town(town_picker.get_selected_id())
+		if t.is_empty():
+			return
+		var site: Dictionary = t.get("construction", {})
+		var status: String = " | Obra em andamento" if not site.is_empty() else ""
+		stock_label.text = "Madeira: %d | Casas: %d | Fazendas: %d%s" % [int(float(t["wood"])), int(t.get("houses", 2)), int(t.get("farms", 1)), status]
+	town_picker.item_selected.connect(refresh_stock)
+	refresh_stock.call()
+	dialog.confirmed.connect(func() -> void:
+		var kind: String = "farm" if build_picker.get_selected_id() == 1 else "house"
+		var target: int = town_picker.get_selected_id()
+		if world.start_construction(target, kind):
+			selected_town_id = target
+			selected_person_id = 0
+			selected_beast_id = 0
+			world.save_world()
+		_refresh_ui()
+		queue_redraw()
+		dialog.queue_free()
+	)
+	dialog.canceled.connect(dialog.queue_free)
+	add_child(dialog)
+	dialog.popup_centered(Vector2i(560, 430))
 
 func _show_diplomacy() -> void:
 	if world.towns.size() < 2:
