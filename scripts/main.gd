@@ -261,9 +261,11 @@ func _refresh_ui() -> void:
 		var t: Dictionary = world.get_town(selected_town_id)
 		if not t.is_empty():
 			var ruler: Dictionary = world.get_person(int(t["leader"]))
-			info_label.text = "%s • Era %d\n%d habitantes | %s\nComida %d • Madeira %d" % [str(t["name"]), int(t["level"]), world.active_population(int(t["id"])), str(ruler.get("name", "Sem lider")), int(float(t["food"])), int(float(t["wood"]))]
+			var building: String = str(t.get("construction", {}).get("kind", ""))
+			var status: String = " | Obra" if not building.is_empty() else ""
+			info_label.text = "%s • Era %d • %d pessoas\n%d casas | %d fazendas%s\nComida %d | Madeira %d" % [str(t["name"]), int(t["level"]), world.active_population(int(t["id"])), int(t.get("houses", 2)), int(t.get("farms", 1)), status, int(float(t["food"])), int(float(t["wood"]))]
 			return
-	info_label.text = "Mundo vivo: observe aldeias, linhagens, sucessoes, crescimento e disputas.\nSelecione uma pessoa ou uma aldeia no mapa para descobrir sua historia."
+	info_label.text = "Toque numa vila e aperte Construir.\nObserve os moradores trabalhando.\nUse dois dedos para ampliar o mapa."
 
 func _season_name() -> String:
 	var index := int(world.day / 90.0) % 4
@@ -377,6 +379,11 @@ func _draw() -> void:
 		_draw_sprite(key, center, Vector2(30, 30) * zoom, true)
 		if int(p["id"]) == selected_person_id:
 			draw_arc(center, 14.0 * zoom, 0, TAU, 20, Color("#ffe890"), 2.0)
+			var task_name: String = str(p.get("task", "Observando"))
+			var tag: Rect2 = Rect2(center + Vector2(-55, -41) * zoom, Vector2(110, 18) * zoom)
+			if MAP_AREA.encloses(tag):
+				draw_rect(tag, Color("#201f16", 0.92), true)
+				draw_rect(tag, Color("#f7d890"), false, 1.0)
 		if int(p["id"]) == controlled_id:
 			draw_arc(center, 18.0 * zoom, 0, TAU, 20, Color("#6cffda"), 3.0)
 	for b in world.beasts:
