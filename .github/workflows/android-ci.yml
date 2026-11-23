@@ -62,6 +62,23 @@ jobs:
           mkdir -p build
           HOME=/root godot --headless --path . --export-debug "Android" build/Legado-das-Eras-debug.apk 2>&1 | tee godot-export.log
           test -s build/Legado-das-Eras-debug.apk
+      - name: Gerar pacote de atualizacao interna (PCK)
+        shell: bash
+        run: |
+          set -eo pipefail
+          HOME=/root godot --headless --path . --export-pack "Android" build/Legado-das-Eras-conteudo.pck 2>&1 | tee godot-pack.log
+          test -s build/Legado-das-Eras-conteudo.pck
+          sha256sum build/Legado-das-Eras-conteudo.pck > build/sha256-conteudo.txt
+          stat -c '%s bytes' build/Legado-das-Eras-conteudo.pck >> build/sha256-conteudo.txt
+      - name: Guardar pacote de conteudo experimental
+        uses: actions/upload-artifact@v4
+        with:
+          name: legado-das-eras-pck-teste
+          path: |
+            build/Legado-das-Eras-conteudo.pck
+            build/sha256-conteudo.txt
+          if-no-files-found: error
+          retention-days: 30
       - name: Guardar APK para testes
         uses: actions/upload-artifact@v4
         with:
