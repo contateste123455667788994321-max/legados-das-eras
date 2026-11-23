@@ -290,15 +290,13 @@ func _draw_eyes_view(area: Rect2, season_id: int) -> void:
 		var tile_row: Array = game.world.tiles[tile_y]
 		biome = str(tile_row[tile_x])
 		camera_shift = fmod(float(subject["x"]) * 15.0 + float(subject["y"]) * 9.0, 28.0)
-	var near_village := false
+	var near_village := subject.is_empty()
 	for town in game.world.towns:
 		if not subject.is_empty():
 			var distance := Vector2(float(town["x"]), float(town["y"])).distance_to(Vector2(float(subject["x"]), float(subject["y"])))
 			if distance < 3.5:
 				near_village = true
 				break
-	else:
-		near_village = true
 	var sky: Color = Color("#d9c18d") if biome == "sand" else (Color("#b8d7e3") if biome == "snow" or season_id == 3 else Color("#9cd0d9"))
 	draw_rect(area, sky, true)
 	for i in range(8):
