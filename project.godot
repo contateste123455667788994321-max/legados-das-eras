@@ -9,10 +9,10 @@ config/features=PackedStringArray("4.4", "GL Compatibility")
 config/description="Simulacao de civilizacoes com duas formas de jogar"
 
 [display]
-window/size/viewport_width=720
-window/size/viewport_height=1280
+window/size/viewport_width=1280
+window/size/viewport_height=720
 window/stretch/mode="canvas_items"
-window/handheld/orientation=1
+window/handheld/orientation=0
 
 [rendering]
 textures/vram_compression/import_etc2_astc=true
