@@ -253,6 +253,7 @@ func _artist() -> void:
 	_assert(game.actor_textures.size() >= 8, "Artista: personagens, construcoes e bichos possuem sprites")
 	_assert(not game.texture_missing, "Artista: recursos visuais nao faltam")
 	_assert(game.MAP_AREA.size.x > 650.0 and game.MAP_AREA.size.y > 350.0, "Artista: mapa tem espaco suficiente")
+	_assert(float(World.SIZE) * game.TILE_SIZE >= game.MAP_AREA.size.x, "Artista: mapa preenche a moldura sem faixa verde vazia")
 	_assert(game.RIGHT_VIEW.position.x > game.MAP_AREA.end.x, "Artista: personagem e mundo nao se sobrepoem")
 	_assert(game.preview_visual.preview_mode, "Artista: visao de primeira pessoa se apresenta na lateral")
 	for filename in ["person_m", "person_f", "child"]:
