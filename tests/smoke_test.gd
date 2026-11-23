@@ -89,6 +89,17 @@ func _run_tests() -> void:
 	loaded.kill_person(leader)
 	_check(not bool(leader["alive"]), "Morte de lider")
 	_check(int(loaded.towns[0]["leader"]) != leader_id, "Sucessao de lideranca")
+	# Exercita a janela de diplomacia em modo headless para verificar controles reais.
+	var game: Node2D = Main.new()
+	root.add_child(game)
+	game.call("_show_diplomacy")
+	var found_window := false
+	for child in game.get_children():
+		if child is ConfirmationDialog and child.title == "Diplomacia entre aldeias":
+			found_window = true
+	_check(found_window, "Janela de diplomacia abre com controles reais")
+	game.queue_free()
+
 	if failures == 0:
 		print("SUCESSO: todos os testes basicos passaram.")
 	else:
