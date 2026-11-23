@@ -1,6 +1,7 @@
 extends Node2D
 ## Legado das Eras — tela jogavel. A simulacao permanece em world.gd.
 const World = preload("res://scripts/world.gd")
+const Updates = preload("res://scripts/update_manager.gd")
 const TILE_SIZE := 28.0
 const MAP_ORIGIN := Vector2(80.0, 294.0)
 const MAP_AREA := Rect2(28.0, 276.0, 664.0, 595.0)
@@ -35,6 +36,7 @@ func _ready() -> void:
 		world.generate_world()
 	world.speed = 1.0
 	_build_ui()
+	add_child(Updates.new())
 	_refresh_ui()
 	queue_redraw()
 
