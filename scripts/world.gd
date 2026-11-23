@@ -4,6 +4,8 @@ class_name WorldSim
 const AgentAI = preload("res://scripts/ai.gd")
 const Politics = preload("res://scripts/politics.gd")
 const SIZE := 20
+# Um ano leva aproximadamente 12 minutos a 1x (antes levava ~20 segundos).
+const DAYS_PER_REAL_SECOND := 0.5
 const NAMES := ["Ari", "Nara", "Taro", "Lia", "Breno", "Iara", "Dara", "Enzo", "Kira", "Suri", "Davi", "Maya", "Ravi", "Luna", "Rael", "Yara", "Cael", "Tina", "Eron", "Ayla"]
 var rng := RandomNumberGenerator.new()
 var agent_ai = AgentAI.new()
@@ -191,7 +193,8 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 	if speed <= 0:
 		return
 	var dt := minf(delta, 0.1) * speed
-	day += dt * 18.0
+	var elapsed_days := dt * DAYS_PER_REAL_SECOND
+	day += elapsed_days
 	for t in towns:
 		t["knowledge"] = float(t["knowledge"]) + dt * (0.024 + active_population(int(t["id"])) * 0.003)
 		var new_level := 1 + int(float(t["knowledge"]) / 15.0)
@@ -201,7 +204,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 	for p in people:
 		if not bool(p["alive"]):
 			continue
-		p["age"] = float(p["age"]) + dt * 18.0 / 365.0
+		p["age"] = float(p["age"]) + elapsed_days / 365.0
 		if float(p["age"]) > 79 and rng.randf() < dt * 0.015:
 			kill_person(p)
 			continue
