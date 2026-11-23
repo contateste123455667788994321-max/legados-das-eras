@@ -160,7 +160,12 @@ func _refresh_ui() -> void:
 			var family := ""
 			if not father.is_empty() or not mother.is_empty():
 				family = " | Familia: %s / %s" % [str(father.get("name", "?")), str(mother.get("name", "?"))]
-			info_label.text = "%s, %d anos (%s)\n%s • %s%s" % [str(p["name"]), int(float(p["age"])), state, home, str(p["role"]), family]
+			var profession := str(p.get("profession", "Ainda sem profissao"))
+			var memories: Array = p.get("memories", [])
+			var latest_event := "Nenhuma lembranca registrada"
+			if not memories.is_empty():
+				latest_event = str(memories.back().get("event", latest_event))
+			info_label.text = "%s, %d anos (%s)\n%s • %s • %s%s\nMemoria: %s" % [str(p["name"]), int(float(p["age"])), state, home, str(p["role"]), profession, family, latest_event]
 			return
 	if selected_town_id > 0:
 		var t: Dictionary = world.get_town(selected_town_id)
