@@ -99,13 +99,6 @@ func _load_art() -> void:
 		push_warning("Alguns desenhos do mapa ainda nao foram carregados.")
 
 func _build_ui() -> void:
-	var background := Color("#141d1c")
-	var entire := ColorRect.new()
-	entire.color = background
-	entire.position = Vector2.ZERO
-	entire.size = Vector2(1280, 720)
-	entire.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(entire)
 	var title := _label("LEGADO DAS ERAS", Vector2(26, 13), Vector2(315, 42), 30, Color("#f1d99b"))
 	title.add_theme_color_override("font_shadow_color", Color("#0e1411"))
 	title.add_theme_constant_override("shadow_offset_y", 2)
@@ -244,6 +237,7 @@ func _draw_sprite(key: String, center: Vector2, dimensions: Vector2) -> void:
 	draw_texture_rect(texture, Rect2(center - dimensions * 0.5, dimensions), false)
 
 func _draw() -> void:
+	draw_rect(Rect2(0, 0, 1280, 720), Color("#141d1c"), true)
 	# Quadro principal e moldura em tons de madeira, inspirados no estilo pixel art aprovado.
 	draw_rect(Rect2(9, 104, 889, 478), Color("#9b773e"), true)
 	draw_rect(MAP_AREA, Color("#325b3e"), true)
