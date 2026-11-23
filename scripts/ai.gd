@@ -5,7 +5,7 @@ var elapsed := 0.0
 const SOCIAL_DISTANCE := 2.7
 const MAX_MEMORIES := 8
 
-func advance(sim, delta: float) -> void:
+func advance(sim, delta: float, controlled_id: int = 0) -> void:
 	elapsed += delta
 	if elapsed < 0.75:
 		return
@@ -15,7 +15,7 @@ func advance(sim, delta: float) -> void:
 		_init_town(town)
 		_manage_town(sim, town, step)
 	for person in sim.people:
-		if not bool(person.get("alive", false)):
+		if not bool(person.get("alive", false)) or int(person["id"]) == controlled_id:
 			continue
 		_init_person(sim, person)
 		_decide(sim, person, step)
