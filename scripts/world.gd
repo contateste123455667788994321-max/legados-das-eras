@@ -291,9 +291,13 @@ func progress_construction(town: Dictionary, dt: float) -> void:
 func _wander(actor: Dictionary, dt: float, pace: float) -> void:
 	actor["wander"] = float(actor["wander"]) - dt
 	if float(actor["wander"]) <= 0.0:
-		actor["target_x"] = clampf(float(actor["x"]) + rng.randf_range(-2.0, 2.0), 2.0, float(SIZE - 3))
-		actor["target_y"] = clampf(float(actor["y"]) + rng.randf_range(-2.0, 2.0), 2.0, float(SIZE - 3))
-		actor["wander"] = rng.randf_range(1.5, 4.0)
+		# Trabalho e descanso mantem o destino ate o proximo objetivo da IA.
+		if bool(actor.get("work_goal", false)):
+			actor["wander"] = rng.randf_range(1.5, 4.0)
+		else:
+			actor["target_x"] = clampf(float(actor["x"]) + rng.randf_range(-2.0, 2.0), 2.0, float(SIZE - 3))
+			actor["target_y"] = clampf(float(actor["y"]) + rng.randf_range(-2.0, 2.0), 2.0, float(SIZE - 3))
+			actor["wander"] = rng.randf_range(1.5, 4.0)
 	var toward := Vector2(float(actor["target_x"]) - float(actor["x"]), float(actor["target_y"]) - float(actor["y"]))
 	if toward.length() > 0.06:
 		var step := toward.normalized() * pace * dt
