@@ -1,43 +1,60 @@
 extends Node
-## Atualizacoes opcionais. O mundo continua jogavel sem rede.
-## O APK nao instala automaticamente: o Android pede permissao.
+## Atualizador do Legado das Eras. Alteracoes do jogo podem vir num .pck,
+## preservando o APK instalado. Mudancas nativas ainda exigem APK e confirmacao do Android.
 const VERSION_FILE := "res://config/version.json"
-var _local_version_code := 0
-var _local_version_name := ""
+const UPDATES_DIR := "user://updates"
+const ACTIVE_PACK := UPDATES_DIR + "/active.pck"
+const PENDING_PACK := UPDATES_DIR + "/pending.pck"
+const BACKUP_PACK := UPDATES_DIR + "/previous.pck"
+const ACTIVE_META := UPDATES_DIR + "/active.json"
+const PACK_LIMIT_BYTES := 157286400
+var _base_version_code := 0
+var _installed_version_code := 0
+var _installed_version_name := ""
 var _manifest_url := ""
 var _request: HTTPRequest
+var _pack_request: HTTPRequest
 var _check_silent := false
 var _busy := false
+var _next_patch := {}
 
 func _ready() -> void:
 	var conf := _load_config()
-	_local_version_code = int(conf.get("version_code", 0))
-	_local_version_name = str(conf.get("version_name", "desconhecida"))
+	_base_version_code = int(conf.get("version_code", 0))
+	_installed_version_code = _base_version_code
+	_installed_version_name = str(conf.get("version_name", "desconhecida"))
+	var loader: Node = get_node_or_null("/root/PatchLoader")
+	if loader != null and int(loader.get("active_version_code")) > _installed_version_code:
+		_installed_version_code = int(loader.get("active_version_code"))
+		_installed_version_name = str(loader.get("active_version_name"))
 	_manifest_url = str(conf.get("update_manifest_url", ""))
-	if OS.get_name() == "Android" and _manifest_url.begins_with("https://"):
+	if OS.get_name() == "Android" and _is_https(_manifest_url):
 		check_now(true)
+
+func _is_https(url: String) -> bool:
+	return url.begins_with("https://") and not url.contains("@") and url.length() < 2048
 
 func check_now(silent: bool = false) -> void:
 	if _busy:
 		if not silent:
 			_notice("Atualizacoes", "Uma verificacao ja esta em andamento.")
 		return
-	if not _manifest_url.begins_with("https://"):
+	if not _is_https(_manifest_url):
 		if not silent:
-			_notice("Atualizacoes em preparacao", "Versao instalada: %s.\nAinda nao existe um endereco publico de atualizacoes configurado.\nO jogo pode continuar offline." % _local_version_name)
+			_notice("Atualizacoes em preparacao", "Versao instalada: %s.\nFalta publicar um servidor de atualizacoes oficial.\nO jogo pode continuar offline." % _installed_version_name)
 		return
 	if _request == null:
 		_request = HTTPRequest.new()
 		_request.timeout = 15.0
+		_request.body_size_limit = 32768
 		add_child(_request)
 		_request.request_completed.connect(_on_manifest_received)
 	_check_silent = silent
 	_busy = true
-	var error: Error = _request.request(_manifest_url)
-	if error != OK:
+	if _request.request(_manifest_url) != OK:
 		_busy = false
 		if not silent:
-			_notice("Sem conexao", "Nao foi possivel iniciar a verificacao.\nSeu mundo salvo continua seguro.")
+			_notice("Sem conexao", "Nao foi possivel iniciar a verificacao. O jogo continua offline.")
 
 func _load_config() -> Dictionary:
 	if not FileAccess.file_exists(VERSION_FILE):
@@ -46,46 +63,123 @@ func _load_config() -> Dictionary:
 	if file == null:
 		return {}
 	var parsed = JSON.parse_string(file.get_as_text())
-	if typeof(parsed) != TYPE_DICTIONARY:
-		return {}
-	return parsed
+	if typeof(parsed) == TYPE_DICTIONARY:
+		return parsed
+	return {}
 
-func _on_manifest_received(result: int, http_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+func _on_manifest_received(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	_busy = false
-	if result != HTTPRequest.RESULT_SUCCESS or http_code != 200:
+	if result != HTTPRequest.RESULT_SUCCESS or code != 200 or body.size() > 32768:
 		if not _check_silent:
-			_notice("Nao foi possivel verificar", "Confira a conexao e tente novamente.\nO jogo continua disponivel offline.")
-		return
-	if body.size() > 32768:
-		if not _check_silent:
-			_notice("Resposta invalida", "O servidor de atualizacoes enviou dados inesperados.")
+			_notice("Sem atualizacoes", "Nao foi possivel consultar o servidor.\nO mundo continua disponivel offline.")
 		return
 	var parsed = JSON.parse_string(body.get_string_from_utf8())
 	if typeof(parsed) != TYPE_DICTIONARY:
 		if not _check_silent:
-			_notice("Resposta invalida", "Nao foi possivel ler a versao do servidor.")
+			_notice("Resposta invalida", "O servidor enviou dados desconhecidos.")
 		return
 	var latest: Dictionary = parsed
-	var next_code := int(latest.get("version_code", 0))
-	var download_url := str(latest.get("apk_url", ""))
-	if next_code <= _local_version_code:
+	var version_code: int = int(latest.get("version_code", 0))
+	if version_code <= _installed_version_code:
 		if not _check_silent:
-			_notice("Jogo atualizado", "Voce ja tem a versao mais recente: %s." % _local_version_name)
+			_notice("Jogo atualizado", "Ja tens a versao mais recente: %s." % _installed_version_name)
 		return
-	if not download_url.begins_with("https://"):
-		if not _check_silent:
-			_notice("Atualizacao indisponivel", "Uma nova versao foi anunciada, mas o APK ainda nao possui um link HTTPS valido.")
+	var pack_url: String = str(latest.get("pack_url", ""))
+	var sha256: String = str(latest.get("pack_sha256", "")).to_lower()
+	var required_base: int = int(latest.get("min_apk_code", 0))
+	var pack_bytes: int = int(latest.get("pack_bytes", 0))
+	if _is_https(pack_url) and sha256.length() == 64 and sha256.is_valid_hex_number() and required_base > 0 and required_base <= _base_version_code and pack_bytes > 0 and pack_bytes <= PACK_LIMIT_BYTES:
+		_next_patch = latest
+		_offer_patch(str(latest.get("version_name", "nova")), pack_bytes)
 		return
-	var required := bool(latest.get("required", false))
-	var next_name := str(latest.get("version_name", "nova"))
-	_offer_update(next_name, download_url, required)
+	var apk_url: String = str(latest.get("apk_url", ""))
+	if _is_https(apk_url):
+		_offer_apk(str(latest.get("version_name", "nova")), apk_url)
+	elif not _check_silent:
+		_notice("Atualizacao indisponivel", "Esta versao exige uma nova base do jogo, mas o download oficial ainda nao foi publicado.")
 
-func _offer_update(next_name: String, download_url: String, required: bool) -> void:
+func _offer_patch(version_name: String, bytes: int) -> void:
 	var dialog := ConfirmationDialog.new()
-	dialog.title = "Atualizacao do Legado das Eras"
-	dialog.dialog_text = "Versao %s disponivel.\nDeseja abrir o download do APK?\nO Android pedira sua confirmacao para instalar." % next_name
-	if required:
-		dialog.dialog_text += "\nAtualizacao importante recomendada."
+	dialog.title = "Atualizacao dentro do jogo"
+	dialog.dialog_text = "Versao %s disponivel (%d MB).\nBaixar o pacote do jogo sem reinstalar o APK?\nO mundo salvo permanecera no aparelho." % [version_name, int(ceil(float(bytes) / 1048576.0))]
+	dialog.ok_button_text = "Atualizar"
+	dialog.cancel_button_text = "Depois"
+	dialog.confirmed.connect(func() -> void:
+		dialog.queue_free()
+		_download_patch()
+	)
+	dialog.canceled.connect(dialog.queue_free)
+	add_child(dialog)
+	dialog.popup_centered()
+
+func _download_patch() -> void:
+	if _busy or _next_patch.is_empty():
+		return
+	if DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(UPDATES_DIR)) != OK:
+		_notice("Falha", "Nao foi possivel criar a pasta de atualizacoes.")
+		return
+	if FileAccess.file_exists(PENDING_PACK):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(PENDING_PACK))
+	if _pack_request == null:
+		_pack_request = HTTPRequest.new()
+		_pack_request.timeout = 120.0
+		_pack_request.body_size_limit = PACK_LIMIT_BYTES
+		_pack_request.download_file = PENDING_PACK
+		add_child(_pack_request)
+		_pack_request.request_completed.connect(_on_patch_received)
+	_busy = true
+	if _pack_request.request(str(_next_patch["pack_url"])) != OK:
+		_busy = false
+		_notice("Falha na rede", "Nao foi possivel iniciar o download da atualizacao.")
+
+func _on_patch_received(result: int, code: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
+	_busy = false
+	if result != HTTPRequest.RESULT_SUCCESS or code != 200 or not FileAccess.file_exists(PENDING_PACK):
+		_notice("Download interrompido", "Nao foi possivel baixar o pacote. Tenta novamente.")
+		return
+	var file := FileAccess.open(PENDING_PACK, FileAccess.READ)
+	if file == null:
+		_notice("Falha", "Nao foi possivel ler o pacote baixado.")
+		return
+	var actual_bytes: int = file.get_length()
+	file.close()
+	var sha256: String = str(_next_patch["pack_sha256"]).to_lower()
+	if actual_bytes != int(_next_patch["pack_bytes"]) or FileAccess.get_sha256(PENDING_PACK).to_lower() != sha256:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(PENDING_PACK))
+		_notice("Arquivo invalido", "A atualizacao nao passou na verificacao de integridade.")
+		return
+	var active_path: String = ProjectSettings.globalize_path(ACTIVE_PACK)
+	var pending_path: String = ProjectSettings.globalize_path(PENDING_PACK)
+	var backup_path: String = ProjectSettings.globalize_path(BACKUP_PACK)
+	if FileAccess.file_exists(BACKUP_PACK):
+		DirAccess.remove_absolute(backup_path)
+	var had_previous: bool = FileAccess.file_exists(ACTIVE_PACK)
+	if had_previous and DirAccess.rename_absolute(active_path, backup_path) != OK:
+		_notice("Falha", "Nao foi possivel fazer a copia de seguranca.")
+		return
+	if DirAccess.rename_absolute(pending_path, active_path) != OK:
+		if had_previous:
+			DirAccess.rename_absolute(backup_path, active_path)
+		_notice("Falha", "Nao foi possivel instalar o pacote.")
+		return
+	var meta := {
+		"version_code": int(_next_patch["version_code"]),
+		"version_name": str(_next_patch.get("version_name", "nova")),
+		"min_apk_code": int(_next_patch.get("min_apk_code", 0)),
+		"sha256": sha256
+	}
+	var output := FileAccess.open(ACTIVE_META, FileAccess.WRITE)
+	if output == null:
+		_notice("Falha", "Nao foi possivel registrar a atualizacao.")
+		return
+	output.store_string(JSON.stringify(meta))
+	output.close()
+	_notice("Atualizacao baixada", "O pacote %s foi salvo.\nFeche e abra o jogo para carregar os novos graficos e mecanicas.\nNao precisa desinstalar o aplicativo." % str(meta["version_name"]))
+
+func _offer_apk(version_name: String, download_url: String) -> void:
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Nova versao do aplicativo"
+	dialog.dialog_text = "A versao %s altera o proprio Android e exige instalacao.\nO Android pedira confirmacao. Nao desinstale a versao atual." % version_name
 	dialog.ok_button_text = "Baixar APK"
 	dialog.cancel_button_text = "Depois"
 	dialog.confirmed.connect(func() -> void:
