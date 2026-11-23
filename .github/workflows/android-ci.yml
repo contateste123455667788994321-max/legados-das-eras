@@ -45,9 +45,43 @@ jobs:
             godot-test.log
           if-no-files-found: ignore
 
+  avaliar_jogadores:
+    name: "Jogador exigente: ${{ matrix.profile }}"
+    needs: validar
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.4.1
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        profile: [observer, builder, explorer, chaos, historian, diplomat, ecologist, survivor, artist, impatient]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Importar recursos e personagens
+        shell: bash
+        run: godot --headless --path . --import
+      - name: Simular jogador
+        shell: bash
+        run: |
+          set -eo pipefail
+          godot --headless --path . --script res://tests/player_scenarios.gd -- "${{ matrix.profile }}" 2>&1 | tee player-test.log
+          grep -q 'SUCESSO: jogador' player-test.log
+          if grep -E 'SCRIPT ERROR|Parse Error|FALHOU:|JOGADOR SIMULADO:|ERROR:.*Invalid' player-test.log; then
+            echo "Erro no perfil de jogador ${{ matrix.profile }}"
+            exit 1
+          fi
+      - name: Anexar erros para diagnostico
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "erros-jogador-${{ matrix.profile }}"
+          path: player-test.log
+          if-no-files-found: ignore
+
   apk_teste:
     name: Gerar APK Android (não é versão final)
-    needs: validar
+    needs: [validar, avaliar_jogadores]
     runs-on: ubuntu-24.04
     container:
       image: barichello/godot-ci:4.4.1
