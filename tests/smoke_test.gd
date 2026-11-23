@@ -143,12 +143,14 @@ func _run_tests() -> void:
 		if child is PopupMenu:
 			options_found = true
 	_check(options_found, "Menu de opcoes acessivel ao jogador")
-	game.call("_check_updates")
-	var found_update_dialog := false
-	for child in game.update_manager.get_children():
-		if child is AcceptDialog and child.title == "Atualizacoes em preparacao":
-			found_update_dialog = true
-	_check(found_update_dialog, "Botao de atualizar informa quando falta servidor de versoes")
+	_check(game.update_manager._manifest_url == "https://legado-das-eras.hatchable.site/manifest.json", "Atualizador usa canal HTTPS oficial")
+	_check(game.update_manager._is_https(game.update_manager._manifest_url), "Canal de atualizacao tem endereco seguro")
+	_check(game.update_manager._base_version_code == 4, "APK base suporta futuros pacotes internos")
+	var update_button_found := false
+	for child in game.get_children():
+		if child is Button and child.text == "Atualizar":
+			update_button_found = true
+	_check(update_button_found, "Botao Atualizar acessivel diretamente no jogo")
 	game.queue_free()
 
 	if failures == 0:
