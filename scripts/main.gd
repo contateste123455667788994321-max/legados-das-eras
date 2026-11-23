@@ -677,7 +677,7 @@ func _show_options() -> void:
 					if is_instance_valid(character_clip):
 						character_clip.visible = false
 					_focus_at(Vector2(float(t["x"]) + 0.5, float(t["y"]) + 0.5))
-					4: _show_details()
+			4: _show_details()
 		popup.queue_free()
 	)
 	add_child(popup)
