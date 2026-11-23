@@ -392,6 +392,11 @@ func _show_diplomacy() -> void:
 	dialog.dialog_text = "Escolha duas aldeias e o tipo de acordo:"
 	dialog.ok_button_text = "Confirmar"
 	dialog.cancel_button_text = "Cancelar"
+	var body := VBoxContainer.new()
+	body.position = Vector2(24, 116)
+	body.size = Vector2(540, 320)
+	body.add_theme_constant_override("separation", 9)
+	dialog.add_child(body)
 	var first_picker := OptionButton.new()
 	var second_picker := OptionButton.new()
 	var action_picker := OptionButton.new()
@@ -410,11 +415,11 @@ func _show_diplomacy() -> void:
 	for label_text in ["Aldeia de origem", "Aldeia de destino", "Acao diplomatica"]:
 		var label := Label.new()
 		label.text = label_text
-		dialog.get_vbox().add_child(label)
+		body.add_child(label)
 		match label_text:
-			"Aldeia de origem": dialog.get_vbox().add_child(first_picker)
-			"Aldeia de destino": dialog.get_vbox().add_child(second_picker)
-			"Acao diplomatica": dialog.get_vbox().add_child(action_picker)
+			"Aldeia de origem": body.add_child(first_picker)
+			"Aldeia de destino": body.add_child(second_picker)
+			"Acao diplomatica": body.add_child(action_picker)
 	dialog.confirmed.connect(func() -> void:
 		var from_id := first_picker.get_selected_id()
 		var to_id := second_picker.get_selected_id()
