@@ -19,6 +19,14 @@ func _run_tests() -> void:
 	world.generate_world()
 	_check(world.tiles.size() == World.SIZE, "Mapa gerado")
 	_check(world.towns.size() == 3, "Tres aldeias iniciais")
+	var terrain_kinds := {}
+	for row in world.tiles:
+		for kind in row:
+			terrain_kinds[str(kind)] = true
+	for biome in ["grass", "forest", "sand", "snow", "mountain", "water"]:
+		_check(terrain_kinds.has(biome), "Mapa tem bioma " + biome)
+	_check(str(world.towns[0].get("home_biome", "")) != "", "Aldeias guardam o bioma de origem")
+	_check(world.towns[0]["home_biome"] != world.towns[2]["home_biome"], "Regioes iniciais com climas diferentes")
 	_check(world.people.size() == 18, "Habitantes iniciais")
 	# Forca um casal adulto conhecido para testar nascimentos e linhagens.
 	var parent_a: Dictionary = world.people[0]
@@ -96,6 +104,12 @@ func _run_tests() -> void:
 	_check(game.tile_textures.size() == 9, "Nove imagens de terrenos e estacoes carregadas")
 	_check(game.actor_textures.size() == 8, "Oito sprites de pessoas, aldeias e animais carregados")
 	_check(int(ProjectSettings.get_setting("display/window/size/viewport_width")) == 1280, "Tela horizontal configurada")
+	_check(str(ProjectSettings.get_setting("autoload/PatchLoader", "")).contains("patch_loader.gd"), "Pacotes do jogo carregam antes da tela inicial")
+	_check(game.preview_visual != null, "Visao do personagem aparece junto do mapa")
+	game.call("_toggle_view")
+	_check(game.character_view, "Visao de personagem pode ser ativada")
+	game.call("_toggle_view")
+	_check(not game.character_view, "Jogador pode retornar ao mapa")
 	game.call("_show_diplomacy")
 	var found_window := false
 	for child in game.get_children():
