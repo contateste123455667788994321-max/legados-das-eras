@@ -127,7 +127,24 @@ func _build_ui() -> void:
 	_label("MONTANHAS", Vector2(738, 660), Vector2(132, 28), 17, Color("#e6d4ac"))
 	_label("MUNDO VIVO", Vector2(909, 583), Vector2(335, 29), 21, Color("#f0d69b"))
 	_label("Aldeias • Familias • Estacoes • Evolucao", Vector2(908, 615), Vector2(352, 26), 16, Color("#e4d1b0"))
-	_label("Toque nos habitantes e explore o mapa.", Vector2(908, 650), Vector2(352, 44), 15, Color("#a5b9a2"))
+	view_button = _button("Visao do personagem", Vector2(906, 653), Vector2(350, 44), Callable(self, "_toggle_view"))
+	for i in range(4):
+		var kinds := ["forest", "sand", "snow", "mountain"]
+		_add_biome_touch(kinds[i], Vector2(22 + i * 212, 613))
+
+func _add_biome_touch(kind: String, pos: Vector2) -> void:
+	var btn := Button.new()
+	btn.text = ""
+	btn.flat = true
+	btn.position = pos
+	btn.size = Vector2(190, 85)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	btn.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+	btn.add_theme_stylebox_override("hover", StyleBoxEmpty.new())
+	btn.add_theme_stylebox_override("pressed", StyleBoxEmpty.new())
+	btn.pressed.connect(func() -> void: _focus_biome(kind))
+	add_child(btn)
 
 func _label(value: String, pos: Vector2, dimensions: Vector2, font_size: int, color: Color) -> Label:
 	var l := Label.new()
@@ -183,6 +200,8 @@ func _refresh_ui() -> void:
 	rival_button.text = "Rivais: sim" if world.rivals else "Rivais: nao"
 	predator_button.text = "Animais: sim" if world.predators else "Animais: nao"
 	control_button.text = "Soltar controle" if controlled_id > 0 else "Controlar"
+	if is_instance_valid(view_button):
+		view_button.text = "Voltar ao mundo" if character_view else "Visao do personagem"
 	if selected_beast_id > 0:
 		var beast: Dictionary = world.get_beast(selected_beast_id)
 		if not beast.is_empty():
@@ -337,8 +356,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			dragging = false
 	elif event is InputEventScreenDrag and dragging:
 		if MAP_AREA.has_point(event.position):
-			map_offset += event.relative
-			_clamp_map()
+			if not character_view:
+				map_offset += event.relative
+				_clamp_map()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed and MAP_AREA.has_point(event.position):
 			drag_started = event.position
@@ -348,10 +368,19 @@ func _unhandled_input(event: InputEvent) -> void:
 				_touch_map(event.position)
 			dragging = false
 	elif event is InputEventMouseMotion and dragging and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
-		map_offset += event.relative
-		_clamp_map()
+		if not character_view:
+			map_offset += event.relative
+			_clamp_map()
 
 func _touch_map(position: Vector2) -> void:
+	if character_view:
+		if controlled_id > 0:
+			var actor: Dictionary = world.get_actor(controlled_id)
+			if not actor.is_empty():
+				var d: Vector2 = (position - MAP_AREA.get_center()).normalized()
+				actor["target_x"] = clampf(float(actor["x"]) + d.x * 2.4, 1.0, float(World.SIZE - 2))
+				actor["target_y"] = clampf(float(actor["y"]) + d.y * 2.4, 1.0, float(World.SIZE - 2))
+		return
 	var point := _screen_to_world(position)
 	if point.x < -0.5 or point.y < -0.5 or point.x > World.SIZE or point.y > World.SIZE:
 		return
@@ -436,9 +465,53 @@ func _zoom_out() -> void:
 	zoom = maxf(zoom - 0.25, 0.65)
 	_clamp_map()
 
+func _toggle_view() -> void:
+	if not character_view and controlled_id <= 0:
+		var candidate_id: int = selected_person_id if selected_person_id > 0 else selected_beast_id
+		if candidate_id <= 0:
+			for p in world.people:
+				if bool(p["alive"]) and float(p["age"]) >= 16.0:
+					candidate_id = int(p["id"])
+					selected_person_id = candidate_id
+					break
+		var actor: Dictionary = world.get_actor(candidate_id)
+		if not actor.is_empty() and bool(actor["alive"]):
+			controlled_id = candidate_id
+	if controlled_id <= 0:
+		world.news = "Escolha um habitante ou animal para entrar na visao de personagem."
+		character_view = false
+	else:
+		character_view = not character_view
+		world.news = "Toque na paisagem para caminhar." if character_view else "Observando a civilizacao."
+	if is_instance_valid(character_clip):
+		character_clip.visible = character_view
+	_refresh_ui()
+
+func _focus_biome(kind: String) -> void:
+	character_view = false
+	if is_instance_valid(character_clip):
+		character_clip.visible = false
+	var found := false
+	for y in range(world.tiles.size()):
+		var row: Array = world.tiles[y]
+		for x in range(row.size()):
+			if str(row[x]) == kind:
+				var point := Vector2(float(x) + 0.5, float(y) + 0.5)
+				map_offset = MAP_AREA.get_center() - MAP_ORIGIN - point * TILE_SIZE * zoom
+				_clamp_map()
+				found = true
+				break
+		if found:
+			break
+	world.news = "Explorando " + kind + "." if found else "Nenhum terreno deste tipo neste mundo."
+	_refresh_ui()
+
 func _toggle_control() -> void:
 	if controlled_id > 0:
 		controlled_id = 0
+		character_view = false
+		if is_instance_valid(character_clip):
+			character_clip.visible = false
 		world.news = "Voce voltou a observar o mundo."
 	elif selected_person_id > 0 or selected_beast_id > 0:
 		var target_id := selected_person_id if selected_person_id > 0 else selected_beast_id
@@ -542,6 +615,9 @@ func _new_world() -> void:
 		selected_beast_id = 0
 		selected_town_id = 0
 		controlled_id = 0
+		character_view = false
+		if is_instance_valid(character_clip):
+			character_clip.visible = false
 		map_offset = Vector2.ZERO
 		zoom = 1.0
 		world.save_world()
