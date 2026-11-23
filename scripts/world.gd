@@ -47,27 +47,33 @@ func generate_world() -> void:
 	var noise := FastNoiseLite.new()
 	noise.seed = rng.randi_range(1000, 900000)
 	noise.frequency = 0.115
+	# Continentes coerentes, floresta a oeste, deserto no sul e neve nas montanhas.
+	# Um rio sinuoso atravessa as regioes; pequenas variacoes preservam diversidade.
 	for y in range(SIZE):
 		var row: Array = []
+		var river_x: int = 9 + roundi(sin(float(y) * 0.49) * 2.8)
 		for x in range(SIZE):
-			var variation: float = noise.get_noise_2d(float(x), float(y))
-			var river_center: float = 3.0 + 0.55 * float(y) + sin(float(y) * 0.55) * 1.15
-			var from_river: float = absf(float(x) - river_center)
+			var r: float = rng.randf()
 			var biome := "grass"
-			if from_river < 0.72:
+			var river_distance: int = absi(x - river_x)
+			if river_distance == 0 and y >= 2 and y <= SIZE - 3:
 				biome = "water"
-			elif from_river < 1.45:
-				biome = "sand"
-			elif x >= 13 and y <= 9:
-				biome = "snow" if y <= 4 or variation > -0.02 else "mountain"
-			elif x >= 13 and y >= 11:
-				biome = "sand" if variation < 0.34 else "mountain"
-			elif x <= 10 and y <= 12:
-				biome = "forest" if variation > -0.43 else "grass"
-			elif x <= 6 and y >= 13:
-				biome = "forest" if variation > -0.17 else "grass"
-			elif variation > 0.55:
+			elif y < 3 and x > 13:
+				biome = "snow"
+			elif x > 12 and y < 8:
+				biome = "snow" if r < 0.74 else "mountain"
+			elif x < 7 and y > 11:
+				biome = "sand" if r < 0.82 else "grass"
+			elif x > 12 and y >= 8 and y <= 13:
+				biome = "mountain" if r < 0.63 else "forest"
+			elif x < 9 and y < 12:
+				biome = "forest" if r < 0.67 else "grass"
+			elif river_distance == 1:
+				biome = "sand" if r < 0.35 else "grass"
+			elif r < 0.11:
 				biome = "forest"
+			if (x <= 1 or y <= 1 or x >= SIZE - 2 or y >= SIZE - 2) and r < 0.34:
+				biome = "water"
 			row.append(biome)
 		tiles.append(row)
 	make_town("Vale Verde", 5, 5, false)
@@ -78,48 +84,37 @@ func generate_world() -> void:
 
 func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
 	var town_id := new_id()
-	var home_biome: String = str(tiles[y][x])
-	var wood_start: float = 18.0 if home_biome == "forest" else (7.0 if home_biome == "sand" else 12.0)
-	var food_start: float = 17.0 if home_biome == "sand" or home_biome == "snow" else 25.0
 	var town := {
 		"id": town_id, "name": town_name, "x": x, "y": y,
-		"hostile": hostile, "leader": 0, "food": food_start,
-		"wood": wood_start, "knowledge": 0.0, "level": 1,
-		"home_biome": home_biome, "law": "primogenitura"
+		"hostile": hostile, "leader": 0, "food": 25.0,
+		"wood": 12.0, "knowledge": 0.0, "level": 1,
+		"law": "primogenitura", "water": 18.0,
+		"clothing": 0.0, "drought_preparation": false
 	}
 	towns.append(town)
 	tiles[y][x] = "grass"
+	var original_count: int = people.size()
 	for i in range(6):
-		var person_id := make_person(town_id, float(x) + rng.randf_range(-1.0, 1.0), float(y) + rng.randf_range(-1.0, 1.0), rng.randi_range(17, 48))
+		var age: int = rng.randi_range(23, 44)
+		match i:
+			0: age = rng.randi_range(42, 66)
+			3: age = rng.randi_range(1, 7)
+			4: age = rng.randi_range(8, 15)
+		var person_id := make_person(town_id, float(x) + rng.randf_range(-1.0, 1.0), float(y) + rng.randf_range(-1.0, 1.0), age)
 		if i == 0:
 			town["leader"] = person_id
-			var ruler: Dictionary = get_person(person_id)
-			ruler["role"] = "Rei" if int(ruler["gender"]) == 0 else "Rainha"
-	# Cada aldeia nasce com um casal adulto e linhagens consistentes.
-	var men: Array = []
-	var women: Array = []
-	for i in range(people.size() - 6, people.size()):
-		var settler: Dictionary = people[i]
-		if int(settler["gender"]) == 0:
-			men.append(settler)
-		else:
-			women.append(settler)
-	if men.is_empty():
-		var first_man: Dictionary = people[people.size() - 6]
-		first_man["gender"] = 0
-		women.erase(first_man)
-		men.append(first_man)
-	if women.is_empty():
-		var first_woman: Dictionary = people[people.size() - 5]
-		first_woman["gender"] = 1
-		men.erase(first_woman)
-		women.append(first_woman)
-	var father: Dictionary = men[0]
-	var mother: Dictionary = women[0]
+	var ruler: Dictionary = people[original_count]
+	ruler["role"] = "Rei" if int(ruler["gender"]) == 0 else "Rainha"
+	var father: Dictionary = people[original_count + 1]
+	var mother: Dictionary = people[original_count + 2]
+	father["gender"] = 0
+	mother["gender"] = 1
 	father["partner"] = mother["id"]
 	mother["partner"] = father["id"]
-	var ruler: Dictionary = get_person(int(town["leader"]))
-	ruler["role"] = "Rei" if int(ruler["gender"]) == 0 else "Rainha"
+	for i in [3, 4]:
+		var child: Dictionary = people[original_count + i]
+		child["father"] = father["id"]
+		child["mother"] = mother["id"]
 
 func make_person(town_id: int, x: float, y: float, age: int = 20, father: int = 0, mother: int = 0) -> int:
 	var person_id := new_id()
