@@ -18,6 +18,12 @@ var map_offset := Vector2.ZERO
 var zoom := 1.0
 var dragging := false
 var drag_started := Vector2.ZERO
+var active_touches: Dictionary = {}
+var pinch_active := false
+var pinch_distance := 0.0
+var pinch_midpoint := Vector2.ZERO
+var drag_touch_id := -1
+var resume_speed := 1.0
 var autosave_timer := 0.0
 var ui_timer := 0.0
 var last_news := ""
@@ -218,7 +224,7 @@ func _refresh_ui() -> void:
 	last_news = world.news
 	news_label.text = "Crônica: " + world.news
 	pause_button.text = "Retomar" if world.speed == 0.0 else "Pausar"
-	speed_button.text = "Velocidade %dx" % int(maxf(1.0, world.speed))
+	speed_button.text = "%.0fx" % (resume_speed if world.speed == 0.0 else world.speed)
 	war_button.text = "Guerras: sim" if world.wars else "Guerras: nao"
 	rival_button.text = "Rivais: sim" if world.rivals else "Rivais: nao"
 	predator_button.text = "Animais: sim" if world.predators else "Animais: nao"
@@ -399,30 +405,99 @@ func _screen_to_world(screen_pos: Vector2) -> Vector2:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
-		if event.pressed and (MAP_AREA.has_point(event.position) or RIGHT_VIEW.has_point(event.position)):
-			drag_started = event.position
-			dragging = true
-		elif not event.pressed and dragging:
-			if drag_started.distance_to(event.position) < 12.0:
-				_touch_map(event.position)
-			dragging = false
-	elif event is InputEventScreenDrag and dragging:
-		if MAP_AREA.has_point(event.position):
-			if not character_view:
-				map_offset += event.relative
-				_clamp_map()
-	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		if event.pressed and (MAP_AREA.has_point(event.position) or RIGHT_VIEW.has_point(event.position)):
-			drag_started = event.position
-			dragging = true
-		elif not event.pressed and dragging:
-			if drag_started.distance_to(event.position) < 12.0:
-				_touch_map(event.position)
-			dragging = false
+		var touch: InputEventScreenTouch = event
+		if touch.pressed:
+			if MAP_AREA.has_point(touch.position):
+				active_touches[touch.index] = touch.position
+				if active_touches.size() == 1:
+					drag_touch_id = touch.index
+					drag_started = touch.position
+					dragging = true
+				else:
+					dragging = false
+					pinch_active = true
+					_reset_pinch()
+		else:
+			var belonged_to_map: bool = active_touches.has(touch.index)
+			active_touches.erase(touch.index)
+			if belonged_to_map:
+				if pinch_active:
+					# Nao selecionar habitantes acidentalmente ao soltar um gesto com dois dedos.
+					if active_touches.size() >= 2:
+						_reset_pinch()
+					else:
+						pinch_active = false
+						pinch_distance = 0.0
+						dragging = false
+						drag_touch_id = -1
+				elif dragging and drag_touch_id == touch.index:
+					if drag_started.distance_to(touch.position) < 14.0:
+						_touch_map(touch.position)
+					dragging = false
+					drag_touch_id = -1
+			elif RIGHT_VIEW.has_point(touch.position):
+				_toggle_view()
+	elif event is InputEventScreenDrag:
+		var motion: InputEventScreenDrag = event
+		if not active_touches.has(motion.index):
+			return
+		active_touches[motion.index] = motion.position
+		if active_touches.size() >= 2 and not character_view:
+			_update_pinch()
+		elif dragging and drag_touch_id == motion.index and not character_view:
+			map_offset += motion.relative
+			_clamp_map()
+	elif event is InputEventMouseButton:
+		var mouse: InputEventMouseButton = event
+		if mouse.button_index == MOUSE_BUTTON_WHEEL_UP and MAP_AREA.has_point(mouse.position):
+			_zoom_around(mouse.position, zoom * 1.13)
+		elif mouse.button_index == MOUSE_BUTTON_WHEEL_DOWN and MAP_AREA.has_point(mouse.position):
+			_zoom_around(mouse.position, zoom / 1.13)
+		elif mouse.button_index == MOUSE_BUTTON_LEFT:
+			if mouse.pressed and (MAP_AREA.has_point(mouse.position) or RIGHT_VIEW.has_point(mouse.position)):
+				drag_started = mouse.position
+				dragging = true
+			elif not mouse.pressed and dragging:
+				if drag_started.distance_to(mouse.position) < 12.0:
+					_touch_map(mouse.position)
+				dragging = false
 	elif event is InputEventMouseMotion and dragging and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 		if not character_view:
 			map_offset += event.relative
 			_clamp_map()
+
+func _reset_pinch() -> void:
+	if active_touches.size() < 2:
+		pinch_distance = 0.0
+		return
+	var fingers: Array = active_touches.keys()
+	var first: Vector2 = active_touches[fingers[0]]
+	var second: Vector2 = active_touches[fingers[1]]
+	pinch_distance = maxf(first.distance_to(second), 1.0)
+	pinch_midpoint = (first + second) * 0.5
+
+func _update_pinch() -> void:
+	if active_touches.size() < 2:
+		return
+	var fingers: Array = active_touches.keys()
+	var first: Vector2 = active_touches[fingers[0]]
+	var second: Vector2 = active_touches[fingers[1]]
+	var current_distance: float = maxf(first.distance_to(second), 1.0)
+	var center: Vector2 = (first + second) * 0.5
+	if pinch_distance > 2.0:
+		# O centro pode mudar durante a pinça: permitir zoom E deslocamento suave.
+		var anchor: Vector2 = _screen_to_world(pinch_midpoint)
+		zoom = clampf(zoom * (current_distance / pinch_distance), 0.55, 3.5)
+		map_offset = center - MAP_ORIGIN - anchor * TILE_SIZE * zoom
+		_clamp_map()
+	pinch_distance = current_distance
+	pinch_midpoint = center
+
+func _zoom_around(screen_point: Vector2, desired_zoom: float) -> void:
+	var anchor: Vector2 = _screen_to_world(screen_point)
+	zoom = clampf(desired_zoom, 0.55, 3.5)
+	map_offset = screen_point - MAP_ORIGIN - anchor * TILE_SIZE * zoom
+	_clamp_map()
 
 func _touch_map(position: Vector2) -> void:
 	if RIGHT_VIEW.has_point(position):
@@ -502,30 +577,46 @@ func _move_controlled(delta: float) -> void:
 		p["y"] = clampf(float(p["y"]) + step.y, 1.0, float(World.SIZE - 2))
 
 func _clamp_map() -> void:
-	var map_size := World.SIZE * TILE_SIZE * zoom
-	map_offset.x = clampf(map_offset.x, -map_size + 150.0, 790.0)
-	map_offset.y = clampf(map_offset.y, -map_size + 90.0, 500.0)
+	var side: float = float(World.SIZE) * TILE_SIZE * zoom
+	if side <= MAP_AREA.size.x:
+		map_offset.x = MAP_AREA.get_center().x - MAP_ORIGIN.x - side * 0.5
+	else:
+		var minimum_x: float = MAP_AREA.end.x - MAP_ORIGIN.x - side
+		var maximum_x: float = MAP_AREA.position.x - MAP_ORIGIN.x
+		map_offset.x = clampf(map_offset.x, minimum_x, maximum_x)
+	if side <= MAP_AREA.size.y:
+		map_offset.y = MAP_AREA.get_center().y - MAP_ORIGIN.y - side * 0.5
+	else:
+		var minimum_y: float = MAP_AREA.end.y - MAP_ORIGIN.y - side
+		var maximum_y: float = MAP_AREA.position.y - MAP_ORIGIN.y
+		map_offset.y = clampf(map_offset.y, minimum_y, maximum_y)
 
 func _toggle_pause() -> void:
-	world.speed = 1.0 if world.speed == 0.0 else 0.0
+	if world.speed == 0.0:
+		world.speed = resume_speed
+	else:
+		resume_speed = world.speed
+		world.speed = 0.0
 	_refresh_ui()
 
 func _change_speed() -> void:
-	if world.speed <= 1.0:
-		world.speed = 2.0
-	elif world.speed <= 2.0:
-		world.speed = 4.0
+	var current_speed: float = resume_speed if world.speed == 0.0 else world.speed
+	if current_speed <= 1.0:
+		current_speed = 2.0
+	elif current_speed <= 2.0:
+		current_speed = 5.0
 	else:
-		world.speed = 1.0
+		current_speed = 1.0
+	resume_speed = current_speed
+	if world.speed > 0.0:
+		world.speed = current_speed
 	_refresh_ui()
 
 func _zoom_in() -> void:
-	zoom = minf(zoom + 0.25, 2.0)
-	_clamp_map()
+	_zoom_around(MAP_AREA.get_center(), zoom * 1.25)
 
 func _zoom_out() -> void:
-	zoom = maxf(zoom - 0.25, 0.65)
-	_clamp_map()
+	_zoom_around(MAP_AREA.get_center(), zoom / 1.25)
 
 func _toggle_view() -> void:
 	if not character_view and controlled_id <= 0:
