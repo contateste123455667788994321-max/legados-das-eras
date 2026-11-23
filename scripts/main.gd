@@ -95,7 +95,8 @@ func _build_ui() -> void:
 	rival_button = _button("Rivais: nao", Vector2(24, 1065), Vector2(215, 55), Callable(self, "_toggle_rivals"))
 	predator_button = _button("Feras: nao", Vector2(251, 1065), Vector2(211, 55), Callable(self, "_toggle_predators"))
 	_button("Novo mundo", Vector2(474, 1065), Vector2(220, 55), Callable(self, "_new_world"))
-	var tip := _label("Toque em habitantes ou aldeias. Assuma um personagem e toque no mapa para caminhar.", Vector2(24, 1140), Vector2(674, 100), 19, Color("#a8c1c5"))
+	_button("Diplomacia", Vector2(474, 1134), Vector2(220, 55), Callable(self, "_show_diplomacy"))
+	var tip := _label("Toque nas aldeias para negociar. Assuma personagens e animais para explorar.", Vector2(24, 1134), Vector2(438, 100), 18, Color("#a8c1c5"))
 	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 func _label(value: String, pos: Vector2, dimensions: Vector2, font_size: int, color: Color) -> Label:
@@ -382,6 +383,60 @@ func _toggle_rivals() -> void:
 func _toggle_predators() -> void:
 	world.toggle_predators()
 	_refresh_ui()
+
+func _show_diplomacy() -> void:
+	if world.towns.size() < 2:
+		return
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Diplomacia entre aldeias"
+	dialog.dialog_text = "Escolha duas aldeias e o tipo de acordo:"
+	dialog.ok_button_text = "Confirmar"
+	dialog.cancel_button_text = "Cancelar"
+	var first_picker := OptionButton.new()
+	var second_picker := OptionButton.new()
+	var action_picker := OptionButton.new()
+	for town in world.towns:
+		first_picker.add_item(str(town["name"]), int(town["id"]))
+		second_picker.add_item(str(town["name"]), int(town["id"]))
+	if selected_town_id > 0:
+		for i in range(first_picker.item_count):
+			if first_picker.get_item_id(i) == selected_town_id:
+				first_picker.select(i)
+				break
+	second_picker.select(1 if first_picker.selected == 0 else 0)
+	action_picker.add_item("Propor paz", 0)
+	action_picker.add_item("Formar alianca", 1)
+	action_picker.add_item("Declarar guerra", 2)
+	for label_text in ["Aldeia de origem", "Aldeia de destino", "Acao diplomatica"]:
+		var label := Label.new()
+		label.text = label_text
+		dialog.get_vbox().add_child(label)
+		match label_text:
+			"Aldeia de origem": dialog.get_vbox().add_child(first_picker)
+			"Aldeia de destino": dialog.get_vbox().add_child(second_picker)
+			"Acao diplomatica": dialog.get_vbox().add_child(action_picker)
+	dialog.confirmed.connect(func() -> void:
+		var from_id := first_picker.get_selected_id()
+		var to_id := second_picker.get_selected_id()
+		if from_id == to_id:
+			world.news = "Escolha duas aldeias diferentes para negociar."
+		else:
+			var action := "peace"
+			match action_picker.get_selected_id():
+				1: action = "alliance"
+				2: action = "war"
+			if action == "war":
+				world.wars = true
+				if not world.rivals:
+					world.toggle_rivals()
+			world.politics.set_treaty(world, from_id, to_id, action)
+			world.save_world()
+		_refresh_ui()
+		dialog.queue_free()
+	)
+	dialog.canceled.connect(dialog.queue_free)
+	add_child(dialog)
+	dialog.popup_centered(Vector2i(600, 580))
 
 func _save_now() -> void:
 	world.news = "Mundo salvo no aparelho." if world.save_world() else "Falha ao salvar o mundo."
