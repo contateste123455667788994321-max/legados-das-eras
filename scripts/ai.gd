@@ -35,7 +35,10 @@ func _init_person(sim, p: Dictionary) -> void:
 		p["relations"] = {}
 	if not p.has("memories"):
 		p["memories"] = []
-	if not p.has("profession"):
+	if not p.has("profession") or (str(p["profession"]) == "Crianca" and float(p["age"]) >= 16.0):
+		if float(p["age"]) < 16.0:
+			p["profession"] = "Crianca"
+			return
 		var mind: Dictionary = p["mind"]
 		if float(mind["bravery"]) > 0.8:
 			p["profession"] = "Guarda"
@@ -153,7 +156,7 @@ func _socialize(sim, p: Dictionary, home: Dictionary) -> bool:
 		other["relations"] = {}
 	var reverse: Dictionary = other["relations"]
 	reverse[str(p["id"])] = clampf(float(reverse.get(str(p["id"]), 0.0)) + 3.0, -100.0, 100.0)
-	if friendship > 50.0 and int(p["partner"]) == 0 and int(other["partner"]) == 0:
+	if friendship > 50.0 and int(p["partner"]) == 0 and int(other["partner"]) == 0 and not _is_close_family(p, other):
 		if float(p["age"]) >= 18.0 and float(other["age"]) >= 18.0:
 			p["partner"] = other["id"]
 			other["partner"] = p["id"]
@@ -163,6 +166,21 @@ func _socialize(sim, p: Dictionary, home: Dictionary) -> bool:
 	elif friendship < -50.0:
 		_remember(p, "Desconfiou de " + str(other["name"]) + ".", sim)
 	return true
+
+func _is_close_family(first: Dictionary, second: Dictionary) -> bool:
+	var first_id: int = int(first["id"])
+	var second_id: int = int(second["id"])
+	if first_id == second_id:
+		return true
+	if int(first["father"]) == second_id or int(first["mother"]) == second_id:
+		return true
+	if int(second["father"]) == first_id or int(second["mother"]) == first_id:
+		return true
+	if int(first["father"]) > 0 and int(first["father"]) == int(second["father"]):
+		return true
+	if int(first["mother"]) > 0 and int(first["mother"]) == int(second["mother"]):
+		return true
+	return false
 
 func _remember(p: Dictionary, event: String, sim) -> void:
 	var memories: Array = p["memories"]
