@@ -24,6 +24,8 @@ func _ready() -> void:
 	_installed_version_code = _base_version_code
 	_installed_version_name = str(conf.get("version_name", "desconhecida"))
 	var loader: Node = get_node_or_null("/root/PatchLoader")
+	if loader != null and int(loader.get("base_version_code")) > 0:
+		_base_version_code = int(loader.get("base_version_code"))
 	if loader != null and int(loader.get("active_version_code")) > _installed_version_code:
 		_installed_version_code = int(loader.get("active_version_code"))
 		_installed_version_name = str(loader.get("active_version_name"))
