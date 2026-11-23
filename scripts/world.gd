@@ -186,7 +186,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 		_predator_attacks(dt)
 	# IA local atualiza necessidades, trabalhos, relacionamentos e aldeias.
 	# Usa tempo da simulacao: pausa impede progresso e fechar o app nao avanca o mundo.
-	agent_ai.advance(self, dt)
+	agent_ai.advance(self, dt, controlled_id)
 
 func _wander(actor: Dictionary, dt: float, pace: float) -> void:
 	actor["wander"] = float(actor["wander"]) - dt
