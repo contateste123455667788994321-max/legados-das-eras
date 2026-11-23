@@ -5,6 +5,7 @@ const MIN_APK_VERSION_CODE := 4
 const PATCH_DIR := "user://updates"
 const PATCH_PATH := PATCH_DIR + "/active.pck"
 const PATCH_META := PATCH_DIR + "/active.json"
+var base_version_code := MIN_APK_VERSION_CODE
 var active_version_code := MIN_APK_VERSION_CODE
 var active_version_name := "0.4.0"
 var last_error := ""
