@@ -20,6 +20,23 @@ func _run_tests() -> void:
 	_check(world.tiles.size() == World.SIZE, "Mapa gerado")
 	_check(world.towns.size() == 3, "Tres aldeias iniciais")
 	_check(world.people.size() == 18, "Habitantes iniciais")
+	# Forca um casal adulto conhecido para testar nascimentos e linhagens.
+	var parent_a: Dictionary = world.people[0]
+	var parent_b: Dictionary = world.people[1]
+	parent_a["gender"] = 0
+	parent_b["gender"] = 1
+	parent_a["age"] = 26.0
+	parent_b["age"] = 25.0
+	parent_a["partner"] = parent_b["id"]
+	parent_b["partner"] = parent_a["id"]
+	var count_before: int = world.people.size()
+	world._new_children()
+	_check(world.people.size() > count_before, "Casais podem ter filhos")
+	for i in range(count_before, world.people.size()):
+		var child: Dictionary = world.people[i]
+		_check(int(child["father"]) > 0 and int(child["mother"]) > 0, "Criancas tem pais identificaveis")
+		_check(int(child["father"]) != int(child["mother"]), "Linhagem usa dois pais diferentes")
+
 	_check(not world.wars and not world.rivals and not world.predators, "Hostilidade desligada por padrao")
 	var first_id: int = world.people[0]["id"]
 	_check(not world.get_person(first_id).is_empty(), "Identidade individual")
