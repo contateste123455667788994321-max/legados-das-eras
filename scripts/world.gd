@@ -81,11 +81,29 @@ func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
 			town["leader"] = person_id
 			var ruler: Dictionary = get_person(person_id)
 			ruler["role"] = "Rei" if int(ruler["gender"]) == 0 else "Rainha"
-	# Set one pair of parents for starting children.
-	var first: Dictionary = people[people.size() - 6]
-	var second: Dictionary = people[people.size() - 5]
-	first["partner"] = second["id"]
-	second["partner"] = first["id"]
+	# Cada aldeia nasce com um casal adulto e linhagens consistentes.
+	var men: Array = []
+	var women: Array = []
+	for i in range(people.size() - 6, people.size()):
+		var settler: Dictionary = people[i]
+		if int(settler["gender"]) == 0:
+			men.append(settler)
+		else:
+			women.append(settler)
+	if men.is_empty():
+		var first_man: Dictionary = people[people.size() - 6]
+		first_man["gender"] = 0
+		men.append(first_man)
+	if women.is_empty():
+		var first_woman: Dictionary = people[people.size() - 5]
+		first_woman["gender"] = 1
+		women.append(first_woman)
+	var father: Dictionary = men[0]
+	var mother: Dictionary = women[0]
+	father["partner"] = mother["id"]
+	mother["partner"] = father["id"]
+	var ruler: Dictionary = get_person(int(town["leader"]))
+	ruler["role"] = "Rei" if int(ruler["gender"]) == 0 else "Rainha"
 
 func make_person(town_id: int, x: float, y: float, age: int = 20, father: int = 0, mother: int = 0) -> int:
 	var person_id := new_id()
@@ -214,25 +232,41 @@ func _grow_economies() -> void:
 
 func _new_children() -> void:
 	for town in towns:
-		if active_population(int(town["id"])) >= 24 or float(town["food"]) < 8.0:
+		var town_id: int = int(town["id"])
+		if active_population(town_id) >= 24 or float(town["food"]) < 8.0:
 			continue
-		var adults: Array = []
-		for p in people:
-			if bool(p["alive"]) and int(p["town"]) == int(town["id"]) and float(p["age"]) >= 18.0 and float(p["age"]) < 52.0:
-				adults.append(p)
-		if adults.size() < 2:
+		var mothers: Array = []
+		for candidate in people:
+			if not bool(candidate["alive"]) or int(candidate["town"]) != town_id:
+				continue
+			if int(candidate["gender"]) != 1 or float(candidate["age"]) < 18.0 or float(candidate["age"]) > 44.0:
+				continue
+			var partner: Dictionary = get_person(int(candidate["partner"]))
+			if partner.is_empty() or not bool(partner["alive"]):
+				continue
+			if int(partner["town"]) != town_id or int(partner["gender"]) != 0:
+				continue
+			if float(partner["age"]) < 18.0 or float(partner["age"]) > 65.0:
+				continue
+			if int(partner["partner"]) != int(candidate["id"]):
+				continue
+			# Evita que pais e filhos ou irmaos de sangue formem um casal reprodutivo.
+			if int(partner["father"]) == int(candidate["id"]) or int(partner["mother"]) == int(candidate["id"]):
+				continue
+			if int(candidate["father"]) == int(partner["id"]) or int(candidate["mother"]) == int(partner["id"]):
+				continue
+			if int(candidate["father"]) > 0 and int(candidate["father"]) == int(partner["father"]):
+				continue
+			if int(candidate["mother"]) > 0 and int(candidate["mother"]) == int(partner["mother"]):
+				continue
+			mothers.append(candidate)
+		if mothers.is_empty():
 			continue
-		var parent_a: Dictionary = adults[rng.randi_range(0, adults.size() - 1)]
-		var parent_b: Dictionary = adults[rng.randi_range(0, adults.size() - 1)]
-		if int(parent_a["id"]) == int(parent_b["id"]):
-			continue
-		parent_a["partner"] = parent_b["id"]
-		parent_b["partner"] = parent_a["id"]
-		var father_id := int(parent_a["id"]) if int(parent_a["gender"]) == 0 else int(parent_b["id"])
-		var mother_id := int(parent_b["id"]) if int(parent_a["gender"]) == 0 else int(parent_a["id"])
-		make_person(int(town["id"]), float(town["x"]) + rng.randf_range(-0.8, 0.8), float(town["y"]) + rng.randf_range(-0.8, 0.8), 0, father_id, mother_id)
+		var mother: Dictionary = mothers[rng.randi_range(0, mothers.size() - 1)]
+		var father: Dictionary = get_person(int(mother["partner"]))
+		var baby_id: int = make_person(town_id, float(town["x"]) + rng.randf_range(-0.8, 0.8), float(town["y"]) + rng.randf_range(-0.8, 0.8), 0, int(father["id"]), int(mother["id"]))
 		town["food"] = float(town["food"]) - 5.0
-		news = "Nasceu uma crianca em " + str(town["name"]) + "!"
+		news = "Nasceu " + str(get_person(baby_id)["name"]) + " em " + str(town["name"]) + "!"
 
 func active_population(town_id: int) -> int:
 	var total := 0
