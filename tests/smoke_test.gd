@@ -28,6 +28,18 @@ func _run_tests() -> void:
 	_check(str(world.towns[0].get("home_biome", "")) != "", "Aldeias guardam o bioma de origem")
 	_check(terrain_kinds.size() >= 5, "Mapa possui regioes ecologicas variadas")
 	_check(world.people.size() == 18, "Habitantes iniciais")
+	_check(float(world.people[3]["age"]) < 16.0, "O mundo ja nasce com criancas")
+	_check(int(world.people[3]["father"]) > 0 and int(world.people[3]["mother"]) > 0, "Crianca ja nasce em familia")
+	var forest_tiles := 0
+	var desert_tiles := 0
+	var snow_tiles := 0
+	for row in world.tiles:
+		for tile in row:
+			match str(tile):
+				"forest": forest_tiles += 1
+				"sand": desert_tiles += 1
+				"snow": snow_tiles += 1
+	_check(forest_tiles >= 10 and desert_tiles >= 10 and snow_tiles >= 10, "Biomas amplos presentes no mapa")
 	# Forca um casal adulto conhecido para testar nascimentos e linhagens.
 	var parent_a: Dictionary = world.people[0]
 	var parent_b: Dictionary = world.people[1]
@@ -104,6 +116,15 @@ func _run_tests() -> void:
 	_check(game.tile_textures.size() == 9, "Nove imagens de terrenos e estacoes carregadas")
 	_check(game.actor_textures.size() == 8, "Oito sprites de pessoas, aldeias e animais carregados")
 	_check(int(ProjectSettings.get_setting("display/window/size/viewport_width")) == 1280, "Tela horizontal configurada")
+	_check(is_instance_valid(game.preview_visual) and game.preview_visual.preview_mode, "Visao do personagem aparece no painel lateral")
+	_check(game.RIGHT_VIEW.position.x > game.MAP_AREA.end.x, "Mapa e perspectiva aparecem lado a lado")
+	_check(is_instance_valid(game.view_button), "Botao de explorar o mundo existe")
+	game.call("_toggle_view")
+	_check(game.character_view and game.character_clip.visible, "O jogador entra na visao do personagem")
+	game.call("_toggle_view")
+	_check(not game.character_view and not game.character_clip.visible, "O jogador retorna ao mapa")
+	game.call("_focus_biome", "snow")
+	_check(not game.character_view, "Atalho para clima frio retorna ao mapa")
 	_check(str(ProjectSettings.get_setting("autoload/PatchLoader", "")).contains("patch_loader.gd"), "Pacotes do jogo carregam antes da tela inicial")
 	_check(game.preview_visual != null, "Visao do personagem aparece junto do mapa")
 	game.call("_toggle_view")
@@ -116,6 +137,12 @@ func _run_tests() -> void:
 		if child is ConfirmationDialog and child.title == "Diplomacia entre aldeias":
 			found_window = true
 	_check(found_window, "Janela de diplomacia abre com controles reais")
+	game.call("_show_options")
+	var options_found := false
+	for child in game.get_children():
+		if child is PopupMenu:
+			options_found = true
+	_check(options_found, "Menu de opcoes acessivel ao jogador")
 	game.call("_check_updates")
 	var found_update_dialog := false
 	for child in game.update_manager.get_children():
