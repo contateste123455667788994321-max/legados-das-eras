@@ -116,7 +116,7 @@ func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
 		"law": "primogenitura", "water": 18.0,
 		"home_biome": founding_biome,
 		"clothing": 0.0, "drought_preparation": false,
-		"houses": 2, "farms": 1, "oven":false, "forge":false, "crossing":false, "stone":0.0, "construction": {}, "historical_events": []
+		"houses": 2, "farms": 1, "campfire":false, "oven":false, "forge":false, "crossing":false, "stone":0.0, "construction": {}, "historical_events": []
 	}
 	towns.append(town)
 	tiles[y][x] = "grass"
@@ -259,6 +259,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 
 func construction_cost(kind: String) -> float:
 	match kind:
+		"campfire": return 10.0
 		"house": return 14.0
 		"farm": return 18.0
 		"oven": return 8.0
@@ -284,7 +285,7 @@ func start_construction(town_id: int, kind: String) -> bool:
 	if kind == "farm" and int(town.get("farms", 1)) >= 6:
 		news = "Esta aldeia atingiu o limite de fazendas."
 		return false
-	if kind in ["oven","forge","crossing"]:
+	if kind in ["campfire","oven","forge","crossing"]:
 		if bool(town.get(kind,false)): return false
 		if kind=="forge" and (int(town["level"])<3 or not bool(town.get("oven",false))):
 			news="A forja exige a terceira era e um forno."
@@ -296,20 +297,12 @@ func start_construction(town_id: int, kind: String) -> bool:
 		news = "Madeira insuficiente: precisa de %d, tem %d." % [int(cost), int(float(town["wood"]))]
 		return false
 	town["wood"] = float(town["wood"]) - cost
-	var label:String={"house":"casa","farm":"fazenda","oven":"forno","forge":"forja","crossing":"ponte"}[kind]
-	town["construction"]={"kind":kind,"progress":0.0,"duration":float({"house":12,"farm":15,"oven":20,"forge":32,"crossing":26}[kind])}
-	if kind in ["oven","forge","crossing"]:
-		town["stone"]=float(town.get("stone",0))-workshop_stone_cost(kind)
-		var pos:Vector2=workshop_position(town,kind)
-		town["construction"]["x"]=pos.x
-		town["construction"]["y"]=pos.y
-		var worker:Dictionary={}
-		for p in people:
-			if bool(p["alive"]) and int(p["town"])==town_id and float(p["age"])>=16.0:
-				if worker.is_empty() or str(p.get("profession",""))=="Construtor": worker=p
-		if not worker.is_empty():
-			worker["profession"]="Construtor"
-			worker["specialty_v57"]=true
+	var label:String={"campfire":"fogueira","house":"casa","farm":"fazenda","oven":"forno","forge":"forja","crossing":"ponte"}[kind]
+	town["construction"]={"kind":kind,"progress":0.0,"duration":float({"campfire":8,"house":12,"farm":15,"oven":20,"forge":32,"crossing":26}[kind])}
+	var stone_cost:float=workshop_stone_cost(kind)
+	town["stone"]=float(town.get("stone",0))-stone_cost
+	_prepare_project(town)
+
 	news = str(town["name"]) + " iniciou uma " + label + "."
 	return true
 
@@ -317,16 +310,18 @@ func progress_construction(town: Dictionary, dt: float) -> void:
 	var site: Dictionary = town.get("construction", {})
 	if site.is_empty() or dt <= 0.0:
 		return
-	var helpers := 0
-	var workshop:bool=str(site["kind"]) in ["oven","forge","crossing"]
+	_prepare_project(town)
+	var helpers:=0
 	for person in people:
-		if not bool(person["alive"]) or int(person["town"]) != int(town["id"]):
-			continue
-		if str(person.get("profession", "")) == "Construtor" and str(person.get("task", "")) == "Construindo":
-			if not workshop or Vector2(float(person["x"]),float(person["y"])).distance_to(Vector2(float(site.get("x",town["x"])),float(site.get("y",town["y"]))))<1.1:
-				helpers += 1
-	if workshop and helpers==0: return
-	site["progress"] = float(site.get("progress", 0.0)) + dt * (1.0 + minf(float(helpers) * 0.3, 0.9))
+		if not bool(person["alive"]) or int(person["town"])!=int(town["id"]): continue
+		if str(person.get("task",""))=="Construindo" and Vector2(float(person["x"]),float(person["y"])).distance_to(Vector2(float(site["x"]),float(site["y"])))<1.1:
+			helpers+=1
+	if helpers==0: return
+	var required:Dictionary=site["required"]
+	var delivered:Dictionary=site["delivered"]
+	var fraction:float=(float(delivered["wood"])+float(delivered["stone"]))/maxf(1.0,float(required["wood"])+float(required["stone"]))
+	site["progress"]=minf(float(site["duration"])*fraction,float(site["progress"])+dt*(1.0+minf(float(helpers)*0.35,0.9)))
+
 	if float(site["progress"]) < float(site.get("duration", 12.0)):
 		return
 	var kind: String = str(site["kind"])
@@ -338,7 +333,7 @@ func progress_construction(town: Dictionary, dt: float) -> void:
 		town[kind]=true
 		sites.append({"kind":kind,"x":site["x"],"y":site["y"],"town":town["id"]})
 	town["construction"]={}
-	var label:String={"house":"Casa pronta","farm":"Fazenda pronta","oven":"Forno construido","forge":"Forja construida","crossing":"Ponte construida"}[kind]
+	var label:String={"campfire":"Fogueira acesa","house":"Casa pronta","farm":"Fazenda pronta","oven":"Forno construido","forge":"Forja construida","crossing":"Ponte construida"}[kind]
 	var history: Array = town.get("historical_events", [])
 	history.append({"day": int(day), "event": label + "."})
 	if history.size() > 12:
@@ -357,7 +352,8 @@ func _wander(actor: Dictionary, dt: float, pace: float) -> void:
 			actor["wander"] = rng.randf_range(1.5, 4.0)
 	var toward := Vector2(float(actor["target_x"]) - float(actor["x"]), float(actor["target_y"]) - float(actor["y"]))
 	if toward.length() > 0.06:
-		var step := toward.limit_length(pace*dt)
+		var burden:float=1.0-0.25*clampf(carried_weight(actor)/maxf(1.0,load_capacity(actor)),0.0,1.0)
+		var step := toward.limit_length(pace*dt*burden)
 		move_actor(actor,step,dt)
 
 func _grow_economies() -> void:
@@ -546,7 +542,7 @@ func load_world() -> bool:
 		elif sites.is_empty(): _prepare_sites()
 		for i in range(sites.size()-1,-1,-1):
 			var site:Dictionary=sites[i]
-			if str(site["kind"]) in ["oven","forge","crossing"]:
+			if str(site["kind"]) in ["campfire","oven","forge","crossing"]:
 				var owner:Dictionary=get_town(int(site["town"]))
 				if not bool(owner.get(str(site["kind"]),false)): sites.remove_at(i)
 		if not value.has("wildlife"): _seed_wildlife()
@@ -604,6 +600,9 @@ func cut_tree(actor: Dictionary, x: int,y: int) -> bool:
 	if not trees.has(key): return false
 	var tree: Dictionary = trees[key]
 	if str(tree["state"])!="live" or tree_scale(tree)<0.65: return false
+	if free_load(actor)<3.0*resource_weight("wood"):
+		news="Carga cheia. Leve os materiais para a aldeia."
+		return false
 	tree["state"]="falling"
 	tree["fall"]=0.0
 	tree["regrow"]=day+rng.randf_range(50.0,100.0)
@@ -668,7 +667,7 @@ func _prepare_sites() -> void:
 	sites.clear()
 	for town in towns:
 		var origin:=Vector2(float(town["x"]),float(town["y"]))
-		for kind in ["oven","forge","crossing"]:
+		for kind in ["campfire","oven","forge","crossing"]:
 			if bool(town.get(kind,false)):
 				var pos:Vector2=workshop_position(town,kind)
 				sites.append({"kind":kind,"x":pos.x,"y":pos.y,"town":town["id"]})
@@ -870,6 +869,13 @@ func workshop_stone_cost(kind:String) -> float:
 
 func workshop_position(town:Dictionary,kind:String) -> Vector2:
 	var origin:=Vector2(float(town["x"]),float(town["y"]))
+	if kind=="campfire": return origin+Vector2(0.7,1.0)
+	if kind=="house":
+		var spots:Array[Vector2]=[Vector2(0,-0.35),Vector2(1.60,0.35),Vector2(-1.25,-0.75),Vector2(2.15,-0.85),Vector2(-2.4,0.15),Vector2(0.95,-1.65),Vector2(-1.35,1.45),Vector2(2.9,1.15)]
+		return origin+spots[clampi(int(town.get("houses",2)),0,7)]
+	if kind=="farm":
+		var spots:Array[Vector2]=[Vector2(-1.4,1.15),Vector2(-2.2,2.20),Vector2(1.3,1.85),Vector2(2.9,2.0),Vector2(-2.8,-1.1),Vector2(3.1,-1.4)]
+		return origin+spots[clampi(int(town.get("farms",1)),0,5)]
 	if kind=="crossing":
 		var best:=Vector2(river_x(6,0),6)
 		for y in [6,14]:
@@ -927,3 +933,108 @@ func _seed_extra_animals() -> void:
 			var p:Vector2=candidates[rng.randi_range(0,candidates.size()-1)]
 			wildlife.append({"id":1000+wildlife.size(),"species":species,"x":p.x,"y":p.y,"tx":p.x,"ty":p.y,"timer":rng.randf_range(0,3),"hunger":rng.randf_range(0,50),"breed_timer":rng.randf_range(90,180),"state":"Descansando"})
 	ecology_v60=true
+
+func resource_weight(kind:String) -> float:
+	return float({"wood":2.0,"stone":3.0,"ore":3.0,"metal":3.0,"food":1.0,"water":1.0,"fish":1.0,"meat":1.0}.get(kind,1.0))
+
+func load_capacity(p:Dictionary) -> float:
+	var base:float=22.0
+	if p.has("age"):
+		base=[0.0,7.0,22.0,20.0][life_stage(p)]
+	return base+float({"basket":12,"cart":48}.get(str(p.get("transport","hands")),0))
+
+func carried_weight(p:Dictionary) -> float:
+	var total:float=0.0
+	for key in ["wood","stone","ore","metal","food","water","fish","meat"]:
+		total+=float(p.get(key,0))*resource_weight(key)
+	var cargo:Dictionary=p.get("cargo",{})
+	if not cargo.is_empty(): total+=float(cargo.get("amount",0))*resource_weight(str(cargo.get("kind","wood")))
+	return total
+
+func free_load(p:Dictionary) -> float:
+	return maxf(0.0,load_capacity(p)-carried_weight(p))
+
+func _prepare_project(town:Dictionary) -> void:
+	var project:Dictionary=town.get("construction",{})
+	if project.is_empty() or project.has("required"): return
+	var kind:String=str(project["kind"])
+	var pos:Vector2=workshop_position(town,kind)
+	project["x"]=pos.x
+	project["y"]=pos.y
+	project["required"]={"wood":construction_cost(kind),"stone":workshop_stone_cost(kind)}
+	project["delivered"]={"wood":0.0,"stone":0.0}
+	project["project_id"]=new_id()
+	project["progress"]=0.0
+
+func transport_job(p:Dictionary,town:Dictionary) -> bool:
+	var project:Dictionary=town.get("construction",{})
+	var cargo:Dictionary=p.get("cargo",{})
+	var pos:=Vector2(float(p["x"]),float(p["y"]))
+	var store:=Vector2(float(town["x"]),float(town["y"]))
+	if not cargo.is_empty():
+		var for_project:bool=bool(cargo.get("project",false))
+		var goal:Vector2=store
+		if for_project and not project.is_empty() and int(cargo.get("project_id",-1))==int(project.get("project_id",-2)):
+			goal=Vector2(float(project["x"]),float(project["y"]))
+			_set_delivery_goal(p,goal,"Entregando materiais")
+			if pos.distance_to(goal)<0.65:
+				var key:String=str(cargo["kind"])
+				project["delivered"][key]=float(project["delivered"].get(key,0))+float(cargo["amount"])
+				p["cargo"]={}
+				p["task"]="Construindo"
+			return true
+		_set_delivery_goal(p,store,"Levando recursos")
+		if pos.distance_to(store)<0.65:
+			var key:String=str(cargo["kind"])
+			town[key]=float(town.get(key,0))+float(cargo["amount"])
+			p["cargo"]={}
+		return true
+	if project.is_empty() or float(p["age"])<16.0: return false
+	_prepare_project(town)
+	# Dois adultos por aldeia trabalham na obra, os demais mantem producao.
+	var rank:int=0
+	for other in people:
+		if not bool(other["alive"]) or int(other["town"])!=int(town["id"]) or float(other["age"])<16.0: continue
+		if int(other["id"])==int(p["id"]): break
+		rank+=1
+	if rank>=2: return false
+	var needed:Dictionary=project["required"]
+	var delivered:Dictionary=project["delivered"]
+	for key in ["wood","stone"]:
+		var in_transit:float=0
+		for other in people:
+			var load:Dictionary=other.get("cargo",{})
+			if bool(other["alive"]) and int(load.get("project_id",-1))==int(project["project_id"]) and str(load.get("kind",""))==key:
+				in_transit+=float(load.get("amount",0))
+		var remaining:float=float(needed[key])-float(delivered[key])-in_transit
+		if remaining<=0.001: continue
+		_set_delivery_goal(p,store,"Buscando materiais")
+		if pos.distance_to(store)<0.65:
+			var amount:float=minf(remaining,floorf(free_load(p)/resource_weight(key)))
+			if amount>0:
+				p["cargo"]={"kind":key,"amount":amount,"project":true,"project_id":project["project_id"]}
+				_set_delivery_goal(p,Vector2(float(project["x"]),float(project["y"])),"Entregando materiais")
+		return true
+	_set_delivery_goal(p,Vector2(float(project["x"]),float(project["y"])),"Construindo")
+	return true
+
+func _set_delivery_goal(p:Dictionary,goal:Vector2,task:String) -> void:
+	p["target_x"]=goal.x
+	p["target_y"]=goal.y
+	p["task"]=task
+	p["work_timer"]=3.0
+	p["work_goal"]=true
+
+func collect_cargo(p:Dictionary,kind:String,amount:float) -> bool:
+	if not p.get("cargo",{}).is_empty(): return false
+	var limit:float=minf(amount,floorf(free_load(p)/resource_weight(kind)))
+	if limit<=0: return false
+	p["cargo"]={"kind":kind,"amount":limit}
+	return true
+
+func add_resource(p:Dictionary,kind:String,amount:int) -> bool:
+	if free_load(p)<resource_weight(kind)*amount:
+		news="Carga cheia. Deposite os recursos na aldeia."
+		return false
+	p[kind]=int(p.get(kind,0))+amount
+	return true

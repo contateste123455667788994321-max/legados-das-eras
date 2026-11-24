@@ -79,11 +79,13 @@ func _manage_town(sim, town: Dictionary, step: float) -> void:
 	var pop: int = sim.active_population(int(town["id"]))
 	# Moradores levantam UMA obra de cada vez. Madeira e tempo tem custos reais.
 	if town.get("construction", {}).is_empty():
-		if pop > int(town["houses"]) * 5 and float(town["wood"]) >= 14.0 and int(town["houses"]) < 8:
+		if not bool(town.get("campfire",false)) and float(town["wood"])>=10:
+			sim.start_construction(int(town["id"]),"campfire")
+		elif pop > int(town["houses"]) * 5 and float(town["wood"]) >= 14.0 and int(town["houses"]) < 8:
 			sim.start_construction(int(town["id"]), "house")
 		elif float(town["food"]) < float(pop) * 1.5 and float(town["wood"]) >= 18.0 and int(town["farms"]) < 6:
 			sim.start_construction(int(town["id"]), "farm")
-		elif not bool(town.get("oven",false)) and float(town.get("stone",0))>=12 and float(town["wood"])>=8:
+		elif bool(town.get("campfire",false)) and not bool(town.get("oven",false)) and float(town.get("stone",0))>=12 and float(town["wood"])>=8:
 			sim.start_construction(int(town["id"]),"oven")
 		elif not bool(town.get("crossing",false)) and float(town.get("stone",0))>=4 and float(town["wood"])>=16:
 			sim.start_construction(int(town["id"]),"crossing")
@@ -121,6 +123,17 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 		n["energy"] = minf(100.0, float(n["energy"]) + step * 5.0)
 		_set_task(sim, p, home, "Descansando", 0.35)
 		return
+	if sim.transport_job(p,home): return
+	if float(p["age"])>=16 and bool(home.get("campfire",false)):
+		var equipment:String=str(p.get("transport","hands"))
+		var near_store:bool=Vector2(float(p["x"]),float(p["y"])).distance_to(Vector2(float(home["x"]),float(home["y"])))<0.8
+		if near_store and equipment=="hands" and float(home["wood"])>=5 and float(home.get("knowledge",0))>=0.5:
+			home["wood"]=float(home["wood"])-5
+			p["transport"]="basket"
+		elif near_store and equipment=="basket" and int(home["level"])>=2 and float(home["wood"])>=14 and float(home.get("stone",0))>=3:
+			home["wood"]=float(home["wood"])-14
+			home["stone"]=float(home["stone"])-3
+			p["transport"]="cart"
 	if float(n["company"]) >= 53.0:
 		if _socialize(sim, p, home):
 			_set_task(sim, p, home, "Conversando", 0.75)
@@ -136,12 +149,11 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 	match str(p["profession"]):
 		"Pescador":
 			if _site_work(sim,p,home,"fish","Pescando"):
-				home["fish"]=float(home.get("fish",0))+step*0.32
-				home["food"]=float(home["food"])+step*0.14
+				sim.collect_cargo(p,"fish",3.0)
 		"Minerador":
 			if _site_work(sim,p,home,"mine","Minerando"):
 				var deposit:Dictionary=sim.local_site("mine",int(home["id"]))
-				home["stone"]=float(home.get("stone",0))+step*0.27
+				sim.collect_cargo(p,"stone",2.0)
 				if not bool(deposit.get("developed",false)):
 					deposit["work"]=float(deposit.get("work",0))+step
 					if float(deposit["work"])>=16 and float(home["wood"])>=6:
@@ -149,7 +161,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 						deposit["developed"]=true
 						sim.news=str(home["name"])+" abriu uma mina."
 				elif int(home["level"])>=3:
-					home["ore"]=float(home.get("ore",0))+step*0.12
+					sim.collect_cargo(p,"ore",2.0)
 		"Cozinheiro":
 			if bool(home.get("forge",false)) and float(home.get("ore",0))>0:
 				if _site_work(sim,p,home,"forge","Forjando"):
@@ -158,14 +170,17 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 					home["wood"]=float(home["wood"])-fuel
 					home["ore"]=float(home.get("ore",0))-ore
 					home["metal"]=float(home.get("metal",0))+ore
-			elif not bool(home.get("oven",false)):
+			elif not bool(home.get("campfire",false)):
 				_set_task(sim,p,home,"Preparando alimentos",0.6)
-			elif _site_work(sim,p,home,"oven","Cozinhando"):
+			elif _site_work(sim,p,home,"oven" if bool(home.get("oven",false)) else "campfire","Cozinhando"):
 				var fuel: float=minf(float(home["wood"]),step*0.05)
-				var fish: float=minf(float(home.get("fish",0)),fuel*4.0)
-				home["wood"]=float(home["wood"])-fuel
-				home["fish"]=float(home.get("fish",0))-fish
-				home["food"]=float(home["food"])+fish*1.5
+				var fish:float=minf(float(home.get("fish",0)),fuel*4.0)
+				var meat:float=minf(float(home.get("meat",0)),maxf(0,fuel*4.0-fish))
+				if fish+meat>0:
+					home["wood"]=float(home["wood"])-(fish+meat)/4.0
+					home["fish"]=float(home.get("fish",0))-fish
+					home["meat"]=float(home.get("meat",0))-meat
+					home["food"]=float(home["food"])+(fish+meat)*1.5
 		"Construtor":
 			if not home.get("construction", {}).is_empty():
 				var project:Dictionary=home["construction"]
@@ -175,7 +190,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 					p["target_y"]=float(project["y"])
 			else:
 				_set_task(sim, p, home, "Coletando madeira", 2.4)
-				home["wood"] = float(home["wood"]) + step * (0.3 + float(m["ambition"]) * 0.6)
+				_gather_wood(sim,p,home)
 		"Explorador":
 			_set_task(sim, p, home, "Explorando", 3.7)
 			home["knowledge"] = float(home["knowledge"]) + step * (0.005 + float(m["curiosity"]) * 0.015)
@@ -185,8 +200,13 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 		"Crianca":
 			_set_task(sim, p, home, "Brincando", 1.2)
 		_:
-			_set_task(sim, p, home, "Cultivando", 1.6)
-			home["food"] = float(home["food"]) + step * (0.25 + float(m["kindness"]) * 0.25)
+			if bool(home.get("campfire",false)) and int(p["id"])%5==0 and float(home.get("meat",0))<3:
+				_hunt(sim,p,home)
+			else:
+				var field:Vector2=Vector2(float(home["x"])-1.4,float(home["y"])+1.15)
+				sim._set_delivery_goal(p,field,"Cultivando")
+				if Vector2(float(p["x"]),float(p["y"])).distance_to(field)<0.65:
+					sim.collect_cargo(p,"food",3.0)
 	# Laços familiares e rivalidades alteram a lealdade entre pessoas.
 	if float(m["ambition"]) > 0.88 and str(p["role"]) == "Aldeao":
 		var ruler: Dictionary = sim.get_person(int(home["leader"]))
@@ -296,3 +316,41 @@ func _site_work(sim,p:Dictionary,home:Dictionary,kind:String,task:String) -> boo
 	p["target_x"]=float(site["x"])
 	p["target_y"]=float(site["y"])
 	return Vector2(float(p["x"]),float(p["y"])).distance_to(Vector2(float(site["x"]),float(site["y"])))<0.6
+
+func _gather_wood(sim,p:Dictionary,home:Dictionary) -> void:
+	var origin:=Vector2(float(p["x"]),float(p["y"]))
+	var best:Dictionary={}
+	var distance:float=1000.0
+	for tree in sim.trees.values():
+		if str(tree["state"])!="live" or sim.tree_scale(tree)<0.65: continue
+		var q:=Vector2(float(tree["x"])+float(tree["ox"]),float(tree["y"])+float(tree["oy"]))
+		var d:float=origin.distance_to(q)
+		if d<distance:
+			distance=d
+			best=tree
+	if best.is_empty(): return
+	var goal:=Vector2(float(best["x"])+float(best["ox"]),float(best["y"])+float(best["oy"]))
+	sim._set_delivery_goal(p,goal,"Coletando madeira")
+	if distance<0.65 and sim.free_load(p)>=6.0:
+		if sim.cut_tree(p,int(best["x"]),int(best["y"])):
+			p["wood"]=int(p.get("wood",0))-3
+			sim.collect_cargo(p,"wood",3.0)
+
+func _hunt(sim,p:Dictionary,home:Dictionary) -> void:
+	var pos:=Vector2(float(p["x"]),float(p["y"]))
+	var best:Dictionary={}
+	var distance:float=6.0
+	for animal in sim.wildlife:
+		if str(animal["species"]) not in ["rabbit","deer","boar","chicken"]: continue
+		var q:=Vector2(float(animal["x"]),float(animal["y"]))
+		if q.distance_to(Vector2(float(home["x"]),float(home["y"])))>5.0: continue
+		var d:float=pos.distance_to(q)
+		if d<distance:
+			distance=d
+			best=animal
+	if best.is_empty():
+		_set_task(sim,p,home,"Procurando alimento",2.0)
+		return
+	sim._set_delivery_goal(p,Vector2(float(best["x"]),float(best["y"])),"Cacando")
+	if distance<0.45 and sim.collect_cargo(p,"meat",3.0):
+		sim.wildlife.erase(best)

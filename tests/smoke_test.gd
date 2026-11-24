@@ -53,11 +53,30 @@ func _run_tests() -> void:
 	_check(float(target_town["wood"]) == 36.0, "Uma casa consome 14 madeiras")
 	_check(not building_world.start_construction(target_id, "farm"), "Uma vila so pode executar uma obra por vez")
 	_check(int(target_town["houses"]) == original_houses, "Casa nao surge magicamente antes da obra")
-	for i in range(150):
-		building_world.update_world(0.1)
+	building_world.progress_construction(target_town,20.0)
+	_check(float(target_town["construction"]["progress"])==0.0,"Sem materiais ou trabalhadores a obra nao avanca")
+	var worker:Dictionary=building_world.people[0]
+	worker["x"]=target_town["x"]
+	worker["y"]=target_town["y"]
+	var project:Dictionary=target_town["construction"]
+	building_world.transport_job(worker,target_town)
+	_check(not worker.get("cargo",{}).is_empty(),"Trabalhador retira carga do estoque")
+	_check(building_world.carried_weight(worker)<=building_world.load_capacity(worker),"Respeita peso")
+	for trip in range(6):
+		worker["x"]=project["x"]
+		worker["y"]=project["y"]
+		building_world.transport_job(worker,target_town)
+		if float(project["delivered"]["wood"])>=14: break
+		worker["x"]=target_town["x"]
+		worker["y"]=target_town["y"]
+		building_world.transport_job(worker,target_town)
+	_check(float(project["delivered"]["wood"])==14.0,"Madeira entregue em viagens")
+	building_world.transport_job(worker,target_town)
+	building_world.progress_construction(target_town,20.0)
 	_check(int(target_town["houses"]) == original_houses + 1, "A casa fica pronta depois do trabalho")
 	_check(target_town.get("construction", {}).is_empty(), "A obra pronta sai da fila")
 	_check(target_town.get("historical_events", []).size() > 0, "Obra entra na historia da aldeia")
+	building_world.agent_ai.advance(building_world,1.0)
 	var gardener: Dictionary = building_world.people[5]
 	_check(str(gardener.get("task", "")) != "", "Morador tem atividade visivel")
 	_check(float(gardener.get("work_timer", 0.0)) > 0.0, "Morador possui destino de trabalho")

@@ -429,7 +429,6 @@ func _draw() -> void:
 				_draw_sprite("hut", center + spot * unit, Vector2(house_size, house_size*0.82) * unit, true)
 			else:
 				_draw_landscape_object("house_" + str(era), center + spot * unit + Vector2(0, house_size * unit * 0.27), house_size * unit * (1.0 + float(era-1)*0.10))
-		_draw_sprite("fire", center + Vector2(0.7, 1.0) * unit, Vector2(0.70, 0.70) * unit, true)
 		var site: Dictionary = town.get("construction", {})
 		if not site.is_empty() and MAP_AREA.grow(-35.0).has_point(center):
 			var kind: String = str(site.get("kind", "house"))
@@ -442,7 +441,8 @@ func _draw() -> void:
 			draw_rect(Rect2(line_start, size), Color("#f4d8a1"), false, maxf(1.0, zoom))
 			var build_spot: Vector2 = house_spots[mini(int(town.get("houses", 2)), house_spots.size()-1)] if kind == "house" else farm_spots[mini(int(town.get("farms", 1)), farm_spots.size()-1)]
 			var scaffold: Vector2 = _world_to_screen(Vector2(float(site["x"])+0.5,float(site["y"])+0.5)) if site.has("x") else center + build_spot * unit
-			if MAP_AREA.has_point(scaffold):
+			if MAP_AREA.grow(-unit).has_point(scaffold):
+				_draw_project_marker(site,scaffold,unit)
 				draw_line(scaffold + Vector2(-15, 10) * zoom, scaffold + Vector2(15, -21) * zoom, Color("#ddbe7e"), maxf(1.0, 3.0 * zoom))
 				draw_line(scaffold + Vector2(15, 10) * zoom, scaffold + Vector2(-15, -21) * zoom, Color("#b78c5d"), maxf(1.0, 3.0 * zoom))
 		if int(town["id"]) == selected_town_id and MAP_AREA.has_point(center):
@@ -508,7 +508,9 @@ func _draw_world_sites() -> void:
 	for site in world.sites:
 		var p:Vector2=_world_to_screen(Vector2(float(site["x"])+0.5,float(site["y"])+0.5))
 		var kind:String=str(site["kind"])
-		if kind=="waterfall":
+		if kind=="campfire":
+			_draw_sprite("fire",p,Vector2.ONE*unit*0.70,true)
+		elif kind=="waterfall":
 			_draw_waterfall(p,unit)
 		elif kind=="crossing":
 			_draw_landscape_object("bridge",p,unit*1.9)
@@ -557,10 +559,13 @@ func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
 	var target := Vector2(float(p.get("target_x",p["x"])),float(p.get("target_y",p["y"])))
 	var moving: bool = target.distance_to(Vector2(float(p["x"]),float(p["y"])))>0.08 and world.speed>0.0
 	var bounce: float = roundf(absf(sin(float(Time.get_ticks_msec())*0.014+float(p["id"])))) * 2.0*zoom if moving else 0.0
-	var dest := Rect2(center-Vector2(s/3.0,s*0.7+bounce),Vector2(s*2.0/3.0,s))
+	var dest := Rect2(center-Vector2(s*0.23,s*0.7+bounce),Vector2(s*0.46,s))
 	var clipped := dest.intersection(MAP_AREA)
 	if clipped.has_area():
 		draw_texture_rect_region(atlas,clipped,Rect2(source.position+(clipped.position-dest.position)/dest.size*source.size,clipped.size/dest.size*source.size))
+	var cargo:Dictionary=p.get("cargo",{})
+	if not cargo.is_empty() and MAP_AREA.grow(-s).has_point(center):
+		_draw_landscape_object("cart" if str(p.get("transport","hands"))=="cart" else ("basket" if str(p.get("transport","hands"))=="basket" else ("log_bundle" if str(cargo["kind"])=="wood" else "sack")),center+Vector2(s*0.28,s*0.12),s*0.60)
 	if str(p.get("profession",""))=="Pescador" and stage>=2:
 		draw_rect(Rect2(dest.position+Vector2(s*0.12,s*0.05),Vector2(s*0.42,s*0.09)),Color("#c9a255"))
 		if str(p.get("task",""))=="Pescando":
@@ -1033,6 +1038,7 @@ func _show_construction() -> void:
 		town_picker.add_item(str(town["name"]), int(town["id"]))
 	build_picker.add_item("Casa (14 madeira)", 0)
 	build_picker.add_item("Fazenda (18 madeira)", 1)
+	build_picker.add_item("Fogueira (10 madeira)", 2)
 	var prefer_id := _preferred_town_id()
 	for i in range(town_picker.item_count):
 		if town_picker.get_item_id(i) == prefer_id:
@@ -1058,7 +1064,7 @@ func _show_construction() -> void:
 	town_picker.item_selected.connect(refresh_stock)
 	refresh_stock.call(0)
 	dialog.confirmed.connect(func() -> void:
-		var kind: String = "farm" if build_picker.get_selected_id() == 1 else "house"
+		var kind: String = ["house","farm","campfire"][build_picker.get_selected_id()]
 		var target: int = town_picker.get_selected_id()
 		if world.start_construction(target, kind):
 			selected_town_id = target
@@ -1223,19 +1229,29 @@ func _character_action() -> void:
 	if biome == "forest":
 		world.news = "Aproxime-se de uma arvore adulta para cortar."
 	elif biome == "grass":
-		actor["wood"] = int(actor.get("wood", 0)) + 1
+		if not world.add_resource(actor,"wood",1):
+			_refresh_ui()
+			return
 		world.news = str(actor["name"]) + " coletou galhos no campo."
 	elif biome == "sand":
-		actor["food"] = int(actor.get("food", 0)) + 1
+		if not world.add_resource(actor,"food",1):
+			_refresh_ui()
+			return
 		world.news = str(actor["name"]) + " encontrou mantimentos no deserto."
 	elif biome == "mountain":
-		actor["stone"] = int(actor.get("stone", 0)) + 2
+		if not world.add_resource(actor,"stone",2):
+			_refresh_ui()
+			return
 		world.news = str(actor["name"]) + " coletou 2 pedras."
 	elif biome == "water":
-		actor["water"] = int(actor.get("water", 0)) + 2
+		if not world.add_resource(actor,"water",2):
+			_refresh_ui()
+			return
 		world.news = str(actor["name"]) + " coletou 2 unidades de agua."
 	elif biome == "snow":
-		actor["wood"] = int(actor.get("wood", 0)) + 1
+		if not world.add_resource(actor,"wood",1):
+			_refresh_ui()
+			return
 		world.news = str(actor["name"]) + " guardou lenha para o frio."
 	else:
 		world.news = "Aqui nao ha recursos faceis de recolher."
@@ -1255,7 +1271,7 @@ func _show_inventory() -> void:
 		var content := VBoxContainer.new()
 		content.custom_minimum_size = Vector2(520, 280)
 		var header := Label.new()
-		header.text = "%s  |  Vida: %d" % [str(actor.get("name", "Habitante")), int(float(actor.get("health", 100.0)))]
+		header.text = "%s | Vida: %d | Carga: %.1f/%.0f kg" % [str(actor.get("name", "Habitante")), int(float(actor.get("health", 100.0))),world.carried_weight(actor),world.load_capacity(actor)]
 		header.add_theme_font_size_override("font_size", 23)
 		content.add_child(header)
 		var grid := GridContainer.new()
@@ -1353,3 +1369,24 @@ func _new_world() -> void:
 	)
 	dialog.popup_centered()
 	dialog.close_requested.connect(dialog.queue_free)
+
+func _draw_project_marker(site:Dictionary,p:Vector2,unit:float) -> void:
+	var kind:String=str(site["kind"])
+	var required:Dictionary=site.get("required",{})
+	var delivered:Dictionary=site.get("delivered",{})
+	var total:float=maxf(1.0,float(required.get("wood",0))+float(required.get("stone",0)))
+	var received:float=float(delivered.get("wood",0))+float(delivered.get("stone",0))
+	var portion:float=clampf(received/total,0,1)
+	var ratio:float=clampf(float(site.get("progress",0))/maxf(1,float(site["duration"])),0,1)
+	var icon:String={"house":"hut","farm":"farm","campfire":"fire","oven":"oven","forge":"forge","crossing":"bridge"}.get(kind,"hut")
+	var badge_pos:Vector2=p-Vector2(0,unit*0.85)
+	draw_rect(Rect2(badge_pos-Vector2.ONE*unit*0.29,Vector2.ONE*unit*0.58),Color("#302c24",0.92))
+	draw_rect(Rect2(badge_pos-Vector2.ONE*unit*0.29,Vector2.ONE*unit*0.58),Color("#dab477"),false,1.5)
+	if icon in ["hut","farm","fire"]: _draw_sprite(icon,badge_pos,Vector2.ONE*unit*0.5,true)
+	else: _draw_landscape_object(icon,badge_pos+Vector2(0,unit*0.13),unit*0.50)
+	for n in range(int(ceil(portion*6))):
+		draw_rect(Rect2(p+Vector2((n%3-1)*unit*0.15,(n/3-0.3)*unit*0.12),Vector2(unit*0.13,unit*0.08)),Color("#ad8150"))
+	var bar:=Rect2(p-Vector2(unit*0.44,unit*0.52),Vector2(unit*0.88,5.0))
+	draw_rect(bar,Color("#362b23"))
+	draw_rect(Rect2(bar.position,Vector2(bar.size.x*ratio,bar.size.y)),Color("#e8bd65"))
+	draw_string(ThemeDB.fallback_font,p+Vector2(-unit*0.48,unit*0.36),"%d/%d"%[int(received),int(total)],HORIZONTAL_ALIGNMENT_CENTER,unit,12,Color("#ffedb8"))
