@@ -15,6 +15,9 @@ var selected_town_id := 0
 var controlled_id := 0
 var map_offset := Vector2.ZERO
 var zoom := 1.43
+var landscape_texture: ImageTexture
+var landscape_signature := 0
+var landscape_objects: Dictionary = {}
 var dragging := false
 var drag_started := Vector2.ZERO
 var active_touches: Dictionary = {}
@@ -272,6 +275,102 @@ func _draw_sprite(key: String, center: Vector2, dimensions: Vector2, clip_to_map
 	else:
 		draw_texture_rect(texture, dest, false)
 
+
+func _landscape_color(kind: String, season: int) -> Color:
+	match kind:
+		"water": return Color("#247e9b")
+		"sand": return Color("#cdb17a")
+		"snow": return Color("#cedddf")
+		"mountain": return Color("#777e71")
+		"forest":
+			return Color("#496c35") if season != 3 else Color("#a7b9b3")
+		_:
+			if season == 2: return Color("#a89b4d")
+			if season == 3: return Color("#c6d6d0")
+			return Color("#78a34a")
+
+func _make_landscape() -> void:
+	var season: int = int(world.day / 90.0) % 4
+	var signature: int = hash([world.tiles, season])
+	if landscape_texture != null and signature == landscape_signature:
+		return
+	landscape_signature = signature
+	const DETAIL := 24
+	var img := Image.create(World.SIZE * DETAIL, World.SIZE * DETAIL, false, Image.FORMAT_RGB8)
+	var noise := FastNoiseLite.new()
+	noise.seed = 527
+	noise.frequency = 0.055
+	for py in range(img.get_height()):
+		for px in range(img.get_width()):
+			var fx: float = float(px) / DETAIL - 0.5 + noise.get_noise_2d(px, py) * 0.65
+			var fy: float = float(py) / DETAIL - 0.5 + noise.get_noise_2d(px + 431, py + 217) * 0.65
+			var x0: int = clampi(floori(fx), 0, World.SIZE - 1)
+			var y0: int = clampi(floori(fy), 0, World.SIZE - 1)
+			var x1: int = clampi(floori(fx) + 1, 0, World.SIZE - 1)
+			var y1: int = clampi(floori(fy) + 1, 0, World.SIZE - 1)
+			var tx: float = smoothstep(0.12, 0.88, fposmod(fx, 1.0))
+			var ty: float = smoothstep(0.12, 0.88, fposmod(fy, 1.0))
+			var a: Color = _landscape_color(str(world.tiles[y0][x0]), season)
+			var b: Color = _landscape_color(str(world.tiles[y0][x1]), season)
+			var d: Color = _landscape_color(str(world.tiles[y1][x0]), season)
+			var e: Color = _landscape_color(str(world.tiles[y1][x1]), season)
+			var col: Color = a.lerp(b, tx).lerp(d.lerp(e, tx), ty)
+			var water: float = lerpf(lerpf(float(str(world.tiles[y0][x0]) == "water"), float(str(world.tiles[y0][x1]) == "water"), tx), lerpf(float(str(world.tiles[y1][x0]) == "water"), float(str(world.tiles[y1][x1]) == "water"), tx), ty)
+			var grain: float = float(posmod(px * 79 + py * 131 + px * py * 17, 97)) / 97.0
+			var shade: float = noise.get_noise_2d(px, py) * 0.14 + (grain - 0.5) * 0.12
+			if water > 0.46:
+				col = Color("#237c9e").lerp(Color("#52b6ca"), clampf((1.0-water)*1.5 + shade, 0.0, 0.85))
+				if water < 0.60: col = col.lerp(Color("#b6c9a0"), 0.32)
+				elif grain > 0.89 and py % 5 == 0: col = col.lightened(0.20)
+			elif water > 0.28:
+				col = col.lerp(Color("#c1b17a"), 0.38)
+			col = col.lightened(shade) if shade > 0.0 else col.darkened(-shade)
+			img.set_pixel(px, py, col)
+	landscape_texture = ImageTexture.create_from_image(img)
+
+func _draw_landscape() -> void:
+	_make_landscape()
+	var side: float = TILE_SIZE * zoom
+	var dest := Rect2(_world_to_screen(Vector2.ZERO), Vector2.ONE * side * World.SIZE)
+	var clipped: Rect2 = dest.intersection(MAP_AREA)
+	if clipped.has_area():
+		var source := Rect2((clipped.position-dest.position)/dest.size*landscape_texture.get_size(), clipped.size/dest.size*landscape_texture.get_size())
+		draw_texture_rect_region(landscape_texture, clipped, source)
+	for y in range(World.SIZE):
+		for x in range(World.SIZE):
+			var kind: String = str(world.tiles[y][x])
+			var seed: int = posmod(x*7919+y*104729+x*y*71, 997)
+			var pos: Vector2 = _world_to_screen(Vector2(x + 0.25 + float(seed % 13)*0.04, y + 0.35 + float(seed % 9)*0.045))
+			if not MAP_AREA.grow(-side*0.45).has_point(pos): continue
+			var near_house := false
+			for town in world.towns:
+				if Vector2(x,y).distance_to(Vector2(float(town["x"]),float(town["y"]))) < 2.8:
+					near_house = true
+					break
+			if near_house: continue
+			if kind == "forest" or (kind == "grass" and seed % 8 == 0):
+				_draw_landscape_object("tree", pos, side * (0.94 + float(seed%9)*0.04))
+				if kind == "forest" and seed % 3 != 0:
+					_draw_landscape_object("tree", pos + Vector2(side*0.35,side*0.19), side*0.72)
+			elif kind == "snow" and seed % 4 != 0:
+				_draw_landscape_object("pine", pos, side*1.05)
+			elif kind == "mountain":
+				_draw_landscape_object("rock", pos, side*1.18)
+			elif kind == "sand" and seed % 4 == 0:
+				_draw_landscape_object("cactus", pos, side*0.66)
+
+func _draw_landscape_object(key: String, p: Vector2, size: float) -> void:
+	if not landscape_objects.has(key):
+		var tex: Resource = load("res://assets/landscape/" + key + ".svg")
+		if tex is Texture2D: landscape_objects[key] = tex
+		else: return
+	var texture: Texture2D = landscape_objects[key]
+	var dest := Rect2(p-Vector2(size*0.5,size*0.85), Vector2(size,size))
+	var clipped: Rect2 = dest.intersection(MAP_AREA)
+	if clipped.has_area():
+		draw_texture_rect_region(texture, clipped, Rect2((clipped.position-dest.position)/dest.size*texture.get_size(),clipped.size/dest.size*texture.get_size()))
+
+
 func _draw() -> void:
 	# Interface discreta: mapa em quase toda a area util do aparelho.
 	draw_rect(Rect2(0, 0, 1280, 720), Color("#141e1a"), true)
@@ -285,24 +384,7 @@ func _draw() -> void:
 		draw_rect(MAP_AREA, Color("#af986c", 0.28), false, 2.0)
 		_draw_character_hud()
 		return
-	var scale_size := TILE_SIZE * zoom
-	for y in range(world.tiles.size()):
-		var row: Array = world.tiles[y]
-		for x in range(row.size()):
-			var position := _world_to_screen(Vector2(x, y))
-			var tile_rect := Rect2(position, Vector2(scale_size + 0.5, scale_size + 0.5))
-			if not tile_rect.intersects(MAP_AREA):
-				continue
-			var clipped_tile: Rect2 = tile_rect.intersection(MAP_AREA)
-			if clipped_tile.size.x <= 0.0 or clipped_tile.size.y <= 0.0:
-				continue
-			var tile: String = _terrain_type(str(row[x]))
-			if tile_textures.has(tile):
-				var tile_texture: Texture2D = tile_textures[tile]
-				var region := Rect2((clipped_tile.position - tile_rect.position) / tile_rect.size * tile_texture.get_size(), clipped_tile.size / tile_rect.size * tile_texture.get_size())
-				draw_texture_rect_region(tile_texture, clipped_tile, region)
-			else:
-				draw_rect(clipped_tile, Color("#528c55"), true)
+	_draw_landscape()
 	# Quantidade real de casas e fazendas aparece no mapa, conforme o estoque da vila.
 	var house_spots: Array[Vector2] = [
 		Vector2(0.0, -0.35), Vector2(1.60, 0.35), Vector2(-1.25, -0.75),
@@ -410,8 +492,17 @@ func _draw_character_hud() -> void:
 	draw_line(sight + Vector2(3, 0), sight + Vector2(10, 0), Color("#e7dbbc", 0.72), 2.0)
 	draw_line(sight - Vector2(0, 10), sight - Vector2(0, 3), Color("#e7dbbc", 0.72), 2.0)
 	draw_line(sight + Vector2(0, 3), sight + Vector2(0, 10), Color("#e7dbbc", 0.72), 2.0)
-	draw_rect(Rect2(840, 643, 405, 42), Color("#1c2a21", 0.8), true)
-	draw_string(ThemeDB.fallback_font, Vector2(854, 670), "Analógico: andar  •  lado direito: olhar", HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color("#f8e0b3"))
+	var actor: Dictionary = world.get_actor(controlled_id)
+	for i in range(4):
+		var keys := ["wood", "food", "stone", "water"]
+		var names := ["Madeira", "Comida", "Pedra", "Agua"]
+		var slot := Rect2(418 + i * 110, 641, 106, 54)
+		draw_rect(slot, Color("#26291f", 0.90), true)
+		draw_rect(slot, Color("#b39c6e"), false, 2)
+		draw_string(ThemeDB.fallback_font, slot.position + Vector2(8, 20), names[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color("#e8d4ab"))
+		draw_string(ThemeDB.fallback_font, slot.position + Vector2(8, 43), str(int(actor.get(keys[i], 0))), HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color.WHITE)
+	draw_rect(Rect2(865, 643, 380, 42), Color("#1c2a21", 0.8), true)
+	draw_string(ThemeDB.fallback_font, Vector2(875, 670), "Andar à esquerda  •  olhar à direita", HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color("#f8e0b3"))
 
 
 func _draw_panel(rect: Rect2, fill: Color) -> void:
@@ -553,7 +644,7 @@ func _update_pinch() -> void:
 	if pinch_distance > 2.0:
 		# O centro pode mudar durante a pinça: permitir zoom E deslocamento suave.
 		var anchor: Vector2 = _screen_to_world(pinch_midpoint)
-		zoom = clampf(zoom * (current_distance / pinch_distance), 0.55, 3.5)
+		zoom = clampf(zoom * (current_distance / pinch_distance), MAP_AREA.size.x / (float(World.SIZE) * TILE_SIZE), 3.5)
 		map_offset = center - MAP_ORIGIN - anchor * TILE_SIZE * zoom
 		_clamp_map()
 	pinch_distance = current_distance
@@ -561,7 +652,7 @@ func _update_pinch() -> void:
 
 func _zoom_around(screen_point: Vector2, desired_zoom: float) -> void:
 	var anchor: Vector2 = _screen_to_world(screen_point)
-	zoom = clampf(desired_zoom, 0.55, 3.5)
+	zoom = clampf(desired_zoom, MAP_AREA.size.x / (float(World.SIZE) * TILE_SIZE), 3.5)
 	map_offset = screen_point - MAP_ORIGIN - anchor * TILE_SIZE * zoom
 	_clamp_map()
 
@@ -666,6 +757,7 @@ func _move_controlled(delta: float) -> void:
 		actor["y"] = clampf(float(actor["y"]) + step.y, 1.0, float(World.SIZE - 2))
 
 func _clamp_map() -> void:
+	zoom = maxf(zoom, MAP_AREA.size.x / (float(World.SIZE) * TILE_SIZE))
 	var side: float = float(World.SIZE) * TILE_SIZE * zoom
 	if side <= MAP_AREA.size.x:
 		map_offset.x = MAP_AREA.get_center().x - MAP_ORIGIN.x - side * 0.5
@@ -1021,6 +1113,12 @@ func _character_action() -> void:
 	elif biome == "sand":
 		actor["food"] = int(actor.get("food", 0)) + 1
 		world.news = str(actor["name"]) + " encontrou mantimentos no deserto."
+	elif biome == "mountain":
+		actor["stone"] = int(actor.get("stone", 0)) + 2
+		world.news = str(actor["name"]) + " coletou 2 pedras."
+	elif biome == "water":
+		actor["water"] = int(actor.get("water", 0)) + 2
+		world.news = str(actor["name"]) + " coletou 2 unidades de agua."
 	elif biome == "snow":
 		actor["wood"] = int(actor.get("wood", 0)) + 1
 		world.news = str(actor["name"]) + " guardou lenha para o frio."
@@ -1034,18 +1132,45 @@ func _show_inventory() -> void:
 	if actor.is_empty() and selected_person_id > 0:
 		actor = world.get_person(selected_person_id)
 	var dialog := AcceptDialog.new()
-	dialog.title = "Mochila e condicao"
+	dialog.title = "Inventario"
+	dialog.ok_button_text = "Fechar"
 	if actor.is_empty():
-		dialog.dialog_text = "Selecione um habitante no mapa e toque em Explorar para assumir o controle."
+		dialog.dialog_text = "Selecione um habitante para abrir a mochila."
 	else:
-		var message := "%s\nVida: %d\nMadeira: %d\nComida: %d" % [str(actor.get("name", "Habitante")), int(float(actor.get("health", 100.0))), int(actor.get("wood", 0)), int(actor.get("food", 0))]
+		var content := VBoxContainer.new()
+		content.custom_minimum_size = Vector2(520, 280)
+		var header := Label.new()
+		header.text = "%s  |  Vida: %d" % [str(actor.get("name", "Habitante")), int(float(actor.get("health", 100.0)))]
+		header.add_theme_font_size_override("font_size", 23)
+		content.add_child(header)
+		var grid := GridContainer.new()
+		grid.columns = 4
+		content.add_child(grid)
+		for item in [["Madeira", "wood", Color("#ad8052")], ["Comida", "food", Color("#a8bb65")], ["Pedra", "stone", Color("#a2aaa8")], ["Agua", "water", Color("#56aace")]]:
+			var slot := PanelContainer.new()
+			slot.custom_minimum_size = Vector2(124, 84)
+			var style := StyleBoxFlat.new()
+			style.bg_color = Color("#2e3027")
+			style.border_color = item[2]
+			style.set_border_width_all(2)
+			slot.add_theme_stylebox_override("panel", style)
+			var label := Label.new()
+			label.text = "%s\n%d" % [str(item[0]), int(actor.get(str(item[1]), 0))]
+			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			label.add_theme_font_size_override("font_size", 20)
+			slot.add_child(label)
+			grid.add_child(slot)
 		if actor.has("town"):
 			var town: Dictionary = world.get_town(int(actor["town"]))
-			message += "\n\nAldeia: %s\nEstoque da tribo:\nMadeira: %d\nAlimentos: %d" % [str(town.get("name", "Sem aldeia")), int(float(town.get("wood", 0.0))), int(float(town.get("food", 0.0)))]
-		dialog.dialog_text = message
+			var stock := Label.new()
+			stock.text = "Estoque da aldeia (separado da mochila)\nMadeira: %d   Comida: %d   Agua: %d" % [int(town.get("wood", 0)), int(town.get("food", 0)), int(town.get("water", 0))]
+			content.add_child(stock)
+		dialog.add_child(content)
 	add_child(dialog)
-	dialog.popup_centered(Vector2i(470, 360))
+	dialog.popup_centered(Vector2i(570, 350))
 	dialog.confirmed.connect(dialog.queue_free)
+	dialog.canceled.connect(dialog.queue_free)
 
 func _show_details() -> void:
 	var lines: Array[String] = []
