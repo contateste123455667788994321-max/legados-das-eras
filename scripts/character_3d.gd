@@ -10,6 +10,7 @@ var world_env: WorldEnvironment
 var materials: Dictionary = {}
 var last_build_signature := ""
 var last_world_id := 0
+var actors_3d: Dictionary = {}
 
 func _ready() -> void:
 	root_mesh = Node3D.new()
@@ -162,6 +163,55 @@ func _settlement(town: Dictionary) -> void:
 		_farm(root_mesh, p + Vector3(-2.0 + float(i % 3) * 2.8, 0.04, 3.2 + float(i / 3) * 2.2))
 	_fire(root_mesh, p + Vector3(1.4, 0.0, 2.4))
 
+func _make_person_3d(person: Dictionary) -> Node3D:
+	var figure := Node3D.new()
+	root_mesh.add_child(figure)
+	var is_child: bool = float(person.get("age", 20.0)) < 16.0
+	var scale_factor: float = 0.68 if is_child else 1.0
+	figure.scale = Vector3.ONE * scale_factor
+	var female: bool = int(person.get("gender", 0)) == 1
+	var outfit: String = "#a06c4e" if female else "#517550"
+	if str(person.get("profession", "")) == "Guarda":
+		outfit = "#667581"
+	elif str(person.get("profession", "")) == "Agricultor":
+		outfit = "#a98b4b"
+	elif str(person.get("profession", "")) == "Construtor":
+		outfit = "#6e7555"
+	_box(figure, Vector3(0.0, 0.91, 0.0), Vector3(0.48, 0.68, 0.30), outfit)
+	_box(figure, Vector3(0.0, 1.43, 0.0), Vector3(0.39, 0.43, 0.38), "#d8a67d")
+	_box(figure, Vector3(0.0, 1.67, -0.01), Vector3(0.43, 0.12, 0.40), "#533d30")
+	for side in [-1, 1]:
+		_box(figure, Vector3(float(side) * 0.35, 0.85, 0.0), Vector3(0.20, 0.68, 0.22), "#cb9871")
+		_box(figure, Vector3(float(side) * 0.14, 0.35, 0.0), Vector3(0.22, 0.64, 0.27), "#584c3b")
+		_box(figure, Vector3(float(side) * 0.14, 0.08, -0.045), Vector3(0.25, 0.17, 0.33), "#392e25")
+	_box(figure, Vector3(-0.10, 1.47, -0.20), Vector3(0.065, 0.067, 0.02), "#2b2a27")
+	_box(figure, Vector3(0.10, 1.47, -0.20), Vector3(0.065, 0.067, 0.02), "#2b2a27")
+	return figure
+
+func _refresh_people_models() -> void:
+	for person in game.world.people:
+		if not bool(person.get("alive", false)):
+			continue
+		var id: int = int(person["id"])
+		if actors_3d.has(id):
+			continue
+		actors_3d[id] = _make_person_3d(person)
+	update_people()
+
+func update_people() -> void:
+	for person in game.world.people:
+		var id: int = int(person["id"])
+		if not actors_3d.has(id):
+			continue
+		var figure: Node3D = actors_3d[id]
+		if not is_instance_valid(figure):
+			continue
+		figure.visible = bool(person.get("alive", false)) and id != game.controlled_id
+		figure.position = Vector3((float(person["x"]) + 0.5) * SPACING, 0.0, (float(person["y"]) + 0.5) * SPACING)
+		var d := Vector2(float(person.get("target_x", person["x"])) - float(person["x"]), float(person.get("target_y", person["y"])) - float(person["y"]))
+		if d.length_squared() > 0.04:
+			figure.rotation.y = atan2(-d.x, -d.y)
+
 func _build_signature() -> String:
 	var parts: Array[String] = []
 	for town in game.world.towns:
@@ -174,6 +224,7 @@ func rebuild() -> void:
 	for child in root_mesh.get_children():
 		root_mesh.remove_child(child)
 		child.queue_free()
+	actors_3d.clear()
 	var season: int = int(game.world.day / 90.0) % 4
 	for y in range(game.world.tiles.size()):
 		var row: Array = game.world.tiles[y]
@@ -206,6 +257,7 @@ func rebuild() -> void:
 				_tree(root_mesh, Vector3(px - 0.15, 0.0, pz + 0.2), false, 2.35)
 	for town in game.world.towns:
 		_settlement(town)
+	_refresh_people_models()
 	last_build_signature = _build_signature()
 
 func follow(actor: Dictionary, yaw: float) -> void:
