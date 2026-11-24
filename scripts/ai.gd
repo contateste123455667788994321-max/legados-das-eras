@@ -268,6 +268,7 @@ func _site_work(sim,p:Dictionary,home:Dictionary,kind:String,task:String) -> boo
 		_set_task(sim,p,home,"Procurando recursos",1.0)
 		return false
 	p["task"]=task
+	p["work_timer"]=3.0
 	p["work_goal"]=true
 	p["target_x"]=float(site["x"])
 	p["target_y"]=float(site["y"])
