@@ -137,7 +137,7 @@ func _explorer() -> void:
 	game._zoom_around(game.MAP_AREA.get_center(), 20.0)
 	_assert(is_equal_approx(game.zoom, 3.5), "Explorador: zoom maximo respeitado")
 	game._zoom_around(game.MAP_AREA.get_center(), 0.01)
-	_assert(is_equal_approx(game.zoom, 0.55), "Explorador: zoom minimo respeitado")
+	_assert(is_equal_approx(game.zoom, game.MAP_AREA.size.x / (float(World.SIZE) * game.TILE_SIZE)), "Explorador: zoom minimo respeitado")
 	game._toggle_pause()
 	_assert(game.world.speed == 0.0, "Explorador: pausa ativada")
 	game._change_speed()
@@ -320,7 +320,7 @@ func _impatient() -> void:
 	var start: float = game.world.day
 	for i in range(25):
 		game._zoom_around(game.MAP_AREA.get_center(), 0.1 if i % 2 == 0 else 30.0)
-		_assert(game.zoom >= 0.55 and game.zoom <= 3.5, "Impaciente: zoom repetido sem travar")
+		_assert(game.zoom >= game.MAP_AREA.size.x / (float(World.SIZE) * game.TILE_SIZE) - 0.001 and game.zoom <= 3.5, "Impaciente: zoom repetido sem travar")
 	game._toggle_pause()
 	var paused: float = game.world.day
 	for i in range(80):
