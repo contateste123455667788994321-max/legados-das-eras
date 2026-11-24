@@ -431,6 +431,10 @@ func _screen_to_world(screen_pos: Vector2) -> Vector2:
 	return (screen_pos - MAP_ORIGIN - map_offset) / (TILE_SIZE * zoom)
 
 func _unhandled_input(event: InputEvent) -> void:
+	# A base Android antiga pode duplicar toques como eventos de mouse.
+	# Ignorar esses clones preserva pinça e analógico nas atualizações PCK.
+	if OS.has_feature("mobile") and (event is InputEventMouseButton or event is InputEventMouseMotion):
+		return
 	if character_view:
 		_character_input(event)
 		return
