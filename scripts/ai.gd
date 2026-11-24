@@ -21,6 +21,7 @@ func advance(sim, delta: float, controlled_id: int = 0) -> void:
 		_decide(sim, person, step)
 
 func _init_person(sim, p: Dictionary) -> void:
+	sim.init_traits(p)
 	if not p.has("mind"):
 		p["mind"] = {
 			"kindness": sim.rng.randf(),
@@ -113,12 +114,13 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 	var home: Dictionary = sim.get_town(int(p["town"]))
 	if home.is_empty():
 		return
+	if sim.swamp_combat_job(p): return
 	if float(n["hunger"]) >= 55.0:
 		_set_task(sim, p, home, "Comendo", 0.25)
 		if float(home["food"]) >= 0.4:
 			home["food"] = float(home["food"]) - 0.4
 			n["hunger"] = maxf(0.0, float(n["hunger"]) - 45.0)
-			p["health"] = minf(100.0, float(p["health"]) + 1.0)
+			p["health"] = minf(sim.max_hp(p), float(p["health"]) + 1.0)
 		else:
 			p["health"] = float(p["health"]) - step * 0.12
 			if float(p["health"]) <= 0.0:
@@ -126,6 +128,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 		return
 	if float(n["energy"]) < 28.0:
 		n["energy"] = minf(100.0, float(n["energy"]) + step * 5.0)
+		if float(n["hunger"])<55: p["health"]=minf(sim.max_hp(p),float(p["health"])+step*0.3)
 		_set_task(sim, p, home, "Descansando", 0.35)
 		return
 	if sim.transport_job(p,home): return
@@ -145,6 +148,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 		if _socialize(sim, p, home):
 			_set_task(sim, p, home, "Conversando", 0.75)
 			n["company"] = maxf(0.0, float(n["company"]) - 38.0)
+			sim.gain_xp(p,1.5,"social")
 			return
 	if not p.has("specialty_v57") and float(p["age"])>=16.0:
 		p["specialty_v57"]=true
@@ -210,6 +214,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 		"Explorador":
 			_set_task(sim, p, home, "Explorando", 3.7)
 			home["knowledge"] = float(home["knowledge"]) + step * (0.005 + float(m["curiosity"]) * 0.015)
+			sim.gain_xp(p,step*0.25,"estudo")
 		"Guarda":
 			var ruler:Dictionary=sim.get_person(int(home["leader"]))
 			if not ruler.is_empty() and bool(ruler["alive"]):
@@ -217,6 +222,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 				sim._set_delivery_goal(p,Vector2(float(ruler["x"]),float(ruler["y"]))+Vector2(cos(angle),sin(angle))*0.85,"Protegendo lider")
 			else: _set_task(sim,p,home,"Patrulhando",1.8)
 			home["morale"] = minf(100.0, float(home["morale"]) + step * 0.1)
+			sim.gain_xp(p,step*0.20,"combate")
 		"Crianca":
 			_set_task(sim, p, home, "Brincando", 1.2)
 		_:

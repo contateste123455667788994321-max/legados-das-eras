@@ -34,6 +34,14 @@ func _run_tests() -> void:
 	champion["y"]=swamp.swamp_witch["y"]
 	swamp.swamp_witch["health"]=1.0
 	_check(swamp.strike_witch(champion),"Humano derrota bruxa")
+	_check(int(champion["level"])>1 and swamp.max_hp(champion)>100,"Vitoria concede XP e vida maxima")
+	var recruit:Dictionary=swamp.people[1]
+	var base_hp:float=swamp.max_hp(recruit)
+	swamp.train_guard(recruit)
+	_check(swamp.max_hp(recruit)==base_hp+35,"Treinamento militar aumenta vida")
+	var old_intelligence:float=float(recruit["intelligence"])
+	swamp.gain_xp(recruit,swamp.xp_required(recruit),"estudo")
+	_check(int(recruit["level"])==2 and float(recruit["intelligence"])>old_intelligence,"XP de estudo aumenta inteligencia")
 	_check(not bool(swamp.swamp_witch["alive"]) and bool(champion.get("witch_staff",false)),"Vencedor recebe cajado unico")
 	_check(not swamp.strike_witch(swamp.people[1]),"Cajado nao pode ser duplicado")
 	swamp._seed_swamp_witch(true)

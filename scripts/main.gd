@@ -466,7 +466,8 @@ func _draw() -> void:
 		_draw_person_variant(p,center)
 		if int(p["id"]) == selected_person_id:
 			draw_arc(center, 14.0 * zoom, 0, TAU, 20, Color("#ffe890"), 2.0)
-			var task_name: String = str(p.get("task", "Observando"))
+			var task_name: String = "Nv. %d | %s" % [int(p.get("level",1)),str(p.get("task","Observando"))]
+			_draw_selected_life(p,center)
 			var tag: Rect2 = Rect2(center + Vector2(-55, -41) * zoom, Vector2(110, 18) * zoom)
 			if MAP_AREA.encloses(tag):
 				draw_rect(tag, Color("#201f16", 0.92), true)
@@ -1296,7 +1297,7 @@ func _show_inventory() -> void:
 		var content := VBoxContainer.new()
 		content.custom_minimum_size = Vector2(520, 280)
 		var header := Label.new()
-		header.text = "%s | Vida: %d | Carga: %.1f/%.0f kg" % [str(actor.get("name", "Habitante")), int(float(actor.get("health", 100.0))),world.carried_weight(actor),world.load_capacity(actor)]
+		header.text = "%s | Vida: %d/%d | Carga: %.1f/%.0f kg" % [str(actor.get("name", "Habitante")), int(float(actor.get("health", 100.0))),int(world.max_hp(actor)),world.carried_weight(actor),world.load_capacity(actor)]
 		header.add_theme_font_size_override("font_size", 23)
 		content.add_child(header)
 		var grid := GridContainer.new()
@@ -1348,8 +1349,9 @@ func _show_details() -> void:
 			var home: Dictionary = world.get_town(int(p["town"]))
 			lines.append("%s • %d anos" % [p["name"], int(float(p["age"]))])
 			lines.append("Aldeia: %s  |  Profissao: %s" % [home.get("name", "?"), p.get("profession", "?")])
-			lines.append("Vida: %d  |  Funcao: %s" % [int(float(p["health"])), p["role"]])
 			world.init_traits(p)
+			lines.append("Nivel %d  |  XP %.0f / %.0f" % [int(p["level"]),float(p["xp"]),world.xp_required(p)])
+			lines.append("Vida: %d / %d  |  Funcao: %s" % [int(float(p["health"])),int(world.max_hp(p)),p["role"]])
 			lines.append("Forca: %.0f | Dano: %.1f | Defesa: %.0f" % [world.strength(p),world.attack_damage(p),world.defense(p)])
 			lines.append("Diplomacia: %d | Inteligencia: %d | Agressividade: %d" % [int(p["diplomacy"]),int(p["intelligence"]),int(p["aggression"])])
 			lines.append("Armadura: nivel %d | Arma: nivel %d | Ferramenta: nivel %d" % [int(p.get("armor",0)),int(p.get("weapon",0)),int(p.get("tool",0))])
@@ -1376,7 +1378,20 @@ func _show_details() -> void:
 		lines.append("Toque em um habitante ou aldeia para ver suas informacoes.")
 	var dialog := AcceptDialog.new()
 	dialog.title = "Cronicas do Legado"
-	dialog.dialog_text = "\n".join(lines)
+	if selected_person_id>0 and not world.get_person(selected_person_id).is_empty():
+		var person:Dictionary=world.get_person(selected_person_id)
+		var body:=VBoxContainer.new()
+		body.custom_minimum_size=Vector2(620,420)
+		body.add_theme_constant_override("separation",8)
+		_add_stat_bar(body,"Vida",float(person["health"]),world.max_hp(person),Color("#b95850"))
+		_add_stat_bar(body,"Saciedade",100.0-float(person.get("needs",{}).get("hunger",0)),100.0,Color("#d5a455"))
+		_add_stat_bar(body,"Experiencia",float(person.get("xp",0)),world.xp_required(person),Color("#6db7b3"))
+		var description:=Label.new()
+		description.text="\n".join(lines)
+		description.add_theme_font_size_override("font_size",17)
+		body.add_child(description)
+		dialog.add_child(body)
+	else: dialog.dialog_text="\n".join(lines)
 	dialog.confirmed.connect(dialog.queue_free)
 	add_child(dialog)
 	dialog.popup_centered(Vector2i(620, 390))
@@ -1532,3 +1547,28 @@ func _draw_swamp_creatures() -> void:
 		if MAP_AREA.grow(-12).has_point(p):
 			draw_rect(Rect2(p-Vector2.ONE*5*zoom,Vector2.ONE*10*zoom),Color("#a26edd",0.3))
 			draw_rect(Rect2(p-Vector2.ONE*2*zoom,Vector2.ONE*4*zoom),Color("#ebd1ff"))
+
+func _draw_selected_life(person:Dictionary,center:Vector2) -> void:
+	var bar:=Rect2(center+Vector2(-15,-29)*zoom,Vector2(30,4)*zoom)
+	if not MAP_AREA.encloses(bar): return
+	draw_rect(bar,Color("#3b2924"))
+	draw_rect(Rect2(bar.position,Vector2(bar.size.x*clampf(float(person["health"])/world.max_hp(person),0,1),bar.size.y)),Color("#79b45b"))
+
+func _add_stat_bar(body:VBoxContainer,label:String,value:float,maximum:float,color:Color) -> void:
+	var title:=Label.new()
+	title.text="%s   %d / %d"%[label,int(value),int(maximum)]
+	body.add_child(title)
+	var bar:=ProgressBar.new()
+	bar.max_value=maxf(1,maximum)
+	bar.value=value
+	bar.show_percentage=false
+	bar.custom_minimum_size=Vector2(0,12)
+	var background:=StyleBoxFlat.new()
+	background.bg_color=Color("#302d25")
+	background.set_corner_radius_all(4)
+	var fill:=StyleBoxFlat.new()
+	fill.bg_color=color
+	fill.set_corner_radius_all(4)
+	bar.add_theme_stylebox_override("background",background)
+	bar.add_theme_stylebox_override("fill",fill)
+	body.add_child(bar)

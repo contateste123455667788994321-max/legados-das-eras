@@ -246,6 +246,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 	for p in people:
 		if not bool(p["alive"]):
 			continue
+		init_traits(p)
 		p["age"] = float(p["age"]) + elapsed_days / 365.0
 		if float(p["age"]) > 79 and rng.randf() < elapsed_days * 0.0008:
 			kill_person(p)
@@ -347,6 +348,9 @@ func progress_construction(town: Dictionary, dt: float) -> void:
 	if float(site["progress"]) < float(site.get("duration", 12.0)):
 		return
 	var kind: String = str(site["kind"])
+	for worker in people:
+		if bool(worker["alive"]) and int(worker["town"])==int(town["id"]) and str(worker.get("task",""))=="Construindo" and Vector2(float(worker["x"]),float(worker["y"])).distance_to(Vector2(float(site["x"]),float(site["y"])))<1.1:
+			gain_xp(worker,15.0,"trabalho")
 	if kind == "house":
 		var levels:Array=house_levels(town)
 		levels.append(1)
@@ -639,6 +643,7 @@ func cut_tree(actor: Dictionary, x: int,y: int) -> bool:
 	tree["fall"]=0.0
 	tree["regrow"]=day+rng.randf_range(50.0,100.0)
 	actor["wood"]=int(actor.get("wood",0))+3
+	if actor.has("town"): gain_xp(actor,3.0,"trabalho")
 	tree_revision+=1
 	news=str(actor["name"])+" derrubou uma arvore e recolheu 3 madeiras."
 	return true
@@ -1014,6 +1019,7 @@ func transport_job(p:Dictionary,town:Dictionary) -> bool:
 			if pos.distance_to(goal)<0.65:
 				var key:String=str(cargo["kind"])
 				project["delivered"][key]=float(project["delivered"].get(key,0))+float(cargo["amount"])
+				gain_xp(p,2.0+float(cargo["amount"])*0.4,"trabalho")
 				p["cargo"]={}
 				p["task"]="Construindo"
 			return true
@@ -1021,6 +1027,7 @@ func transport_job(p:Dictionary,town:Dictionary) -> bool:
 		if pos.distance_to(store)<0.65:
 			var key:String=str(cargo["kind"])
 			town[key]=float(town.get(key,0))+float(cargo["amount"])
+			gain_xp(p,2.0+float(cargo["amount"])*0.4,"trabalho")
 			p["cargo"]={}
 		return true
 	if project.is_empty() or float(p["age"])<16.0: return false
@@ -1071,6 +1078,7 @@ func add_resource(p:Dictionary,kind:String,amount:int) -> bool:
 		news="Carga cheia. Deposite os recursos na aldeia."
 		return false
 	p[kind]=int(p.get(kind,0))+amount
+	if p.has("town"): gain_xp(p,float(amount),"trabalho")
 	return true
 
 func deposit_inventory(p:Dictionary) -> bool:
@@ -1113,10 +1121,10 @@ func strength(p:Dictionary) -> float:
 	return float(p.get("strength",35+posmod(int(p["id"])*37,61)))
 
 func defense(p:Dictionary) -> float:
-	return float([0,2,5,9,14][clampi(int(p.get("armor",0)),0,4)])
+	return float([0,2,5,9,14][clampi(int(p.get("armor",0)),0,4)])+(2.0 if bool(p.get("combat_training",false)) else 0.0)
 
 func attack_damage(p:Dictionary) -> float:
-	return 2.0+strength(p)*0.05+float([0,2,5,9,14][clampi(int(p.get("weapon",0)),0,4)])
+	return 2.0+strength(p)*0.05+float([0,2,5,9,14][clampi(int(p.get("weapon",0)),0,4)])+(4.0 if bool(p.get("combat_training",false)) else 0.0)
 
 func update_roles(town:Dictionary) -> void:
 	var adults:Array=[]
@@ -1137,6 +1145,7 @@ func update_roles(town:Dictionary) -> void:
 		if i<count:
 			if not p.has("civil_profession"): p["civil_profession"]=str(p.get("profession","Agricultor"))
 			p["profession"]="Guarda"
+			train_guard(p)
 			p["role"]="Guarda real" if int(town["level"])>=4 else "Guerreiro tribal"
 			p["specialty_v57"]=true
 		elif str(p.get("role","")) in ["Guarda real","Guerreiro tribal"]:
@@ -1170,6 +1179,10 @@ func init_traits(person:Dictionary) -> void:
 	if not person.has("intelligence"): person["intelligence"]=35+posmod(id*53+29,61)
 	if not person.has("strength"): person["strength"]=35+posmod(id*37,61)
 	if not person.has("aggression"): person["aggression"]=posmod(id*43+13,101)
+	if not person.has("level"): person["level"]=1
+	if not person.has("xp"): person["xp"]=0.0
+	if not person.has("combat_training"): person["combat_training"]=false
+	if not person.has("max_health"): person["max_health"]=100.0
 
 func leadership_score(person:Dictionary) -> float:
 	init_traits(person)
@@ -1330,13 +1343,15 @@ func strike_witch(person:Dictionary) -> bool:
 	var p:=Vector2(float(person["x"]),float(person["y"]))
 	var q:=Vector2(float(swamp_witch["x"]),float(swamp_witch["y"]))
 	if p.distance_to(q)>0.9 or not swamp_at(p) or float(person.get("witch_attack_cd",0))>0: return false
-	person["witch_attack_cd"]=1.2
+	person["witch_attack_cd"]=0.9 if bool(person.get("combat_training",false)) else 1.6
 	swamp_witch["health"]=maxf(0.0,float(swamp_witch["health"])-attack_damage(person))
+	gain_xp(person,3.0,"combate")
 	if float(swamp_witch["health"])<=0:
 		swamp_witch["alive"]=false
 		swamp_witch["killer"]=int(person["id"])
 		person["witch_staff"]=true
 		person["staff_cd"]=0.0
+		gain_xp(person,150.0,"combate")
 		news=str(person["name"])+" derrotou a bruxa e conquistou o cajado unico!"
 		var town:Dictionary=get_town(int(person["town"]))
 		if not town.is_empty():
@@ -1367,7 +1382,7 @@ func cast_staff(person:Dictionary) -> bool:
 				target_id=int(other["id"])
 				target_kind="human"
 	if target_id<0: return false
-	magic_bolts.append({"x":p.x+0.22,"y":p.y-0.15,"target":target_id,"kind":target_kind,"life":4.0,"damage":24.0})
+	magic_bolts.append({"x":p.x+0.22,"y":p.y-0.15,"target":target_id,"kind":target_kind,"life":4.0,"damage":24.0,"caster":int(person["id"])})
 	person["staff_cd"]=4.5
 	return true
 
@@ -1407,7 +1422,7 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 				var q:Vector2=_swamp_target(p,1.3)
 				swamp_spiders.append({"id":new_id(),"x":q.x,"y":q.y,"tx":q.x,"ty":q.y,"health":35.0,"timer":0.0,"bite":0.0})
 		for person in people:
-			if int(person["id"])!=controlled_id and str(person.get("profession",""))=="Guarda": strike_witch(person)
+			if int(person["id"])!=controlled_id and bool(person.get("alive",false)) and float(person["age"])>=16 and str(person.get("task",""))=="Combatendo bruxa": strike_witch(person)
 	for i in range(swamp_spiders.size()-1,-1,-1):
 		var spider:Dictionary=swamp_spiders[i]
 		if float(spider["health"])<=0:
@@ -1423,7 +1438,10 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 			if p.distance_to(goal)<0.4 and float(spider["bite"])<=0:
 				_swamp_damage(target,6.0)
 				spider["bite"]=2.5
-				if str(target.get("profession",""))=="Guarda": spider["health"]=float(spider["health"])-attack_damage(target)
+				if bool(target.get("alive",false)) and float(target["age"])>=16.0:
+					spider["health"]=float(spider["health"])-attack_damage(target)
+					gain_xp(target,2.0,"combate")
+					if float(spider["health"])<=0: gain_xp(target,12.0,"combate")
 		elif float(spider["timer"])<=0:
 			goal=_swamp_target(p,1.5)
 			spider["tx"]=goal.x
@@ -1453,4 +1471,58 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 		if q.distance_to(goal)<0.18:
 			if str(bolt["kind"])=="spider": target["health"]=maxf(0,float(target["health"])-float(bolt["damage"]))
 			else: _swamp_damage(target,float(bolt["damage"]))
+			if bolt.has("caster"):
+				var caster:Dictionary=get_person(int(bolt["caster"]))
+				if not caster.is_empty() and bool(caster["alive"]): gain_xp(caster,12.0 if float(target["health"])<=0 else 3.0,"combate")
 			magic_bolts.remove_at(i)
+
+func xp_required(person:Dictionary) -> float:
+	return 50.0+25.0*(int(person.get("level",1))-1)
+
+func max_hp(person:Dictionary) -> float:
+	return float(person.get("max_health",100.0))
+
+func train_guard(person:Dictionary) -> void:
+	init_traits(person)
+	if bool(person["combat_training"]): return
+	person["combat_training"]=true
+	person["max_health"]=max_hp(person)+35.0
+	person["health"]=minf(max_hp(person),float(person["health"])+35.0)
+
+func gain_xp(person:Dictionary,amount:float,source:String="trabalho") -> void:
+	if not person.has("town") or not bool(person.get("alive",false)): return
+	init_traits(person)
+	if int(person["level"])>=20: return
+	person["xp"]=float(person["xp"])+maxf(0.0,amount)
+	while float(person["xp"])>=xp_required(person) and int(person["level"])<20:
+		person["xp"]=float(person["xp"])-xp_required(person)
+		person["level"]=int(person["level"])+1
+		person["max_health"]=max_hp(person)+12.0
+		person["health"]=minf(max_hp(person),float(person["health"])+12.0)
+		person["strength"]=minf(150.0,float(person["strength"])+(3.0 if source=="combate" else 1.0))
+		person["intelligence"]=minf(150.0,float(person["intelligence"])+(3.0 if source=="estudo" or source=="trabalho" else 1.0))
+		person["diplomacy"]=minf(150.0,float(person["diplomacy"])+(3.0 if source=="social" else 1.0))
+		news=str(person["name"])+" avancou para o nivel "+str(person["level"])+"!"
+	if int(person["level"])>=20: person["xp"]=0.0
+
+func swamp_combat_job(person:Dictionary) -> bool:
+	if not bool(swamp_witch.get("alive",false)): return false
+	var p:=Vector2(float(person["x"]),float(person["y"]))
+	var witch:=Vector2(float(swamp_witch["x"]),float(swamp_witch["y"]))
+	if p.distance_to(witch)>3.8 or not swamp_at(p): return false
+	var trained:bool=str(person.get("profession",""))=="Guarda"
+	var allies:int=0
+	for other in people:
+		if bool(other["alive"]) and int(other["town"])==int(person["town"]) and float(other["age"])>=16 and float(other["health"])>=max_hp(other)*0.35 and Vector2(float(other["x"]),float(other["y"])).distance_to(witch)<3.8:
+			allies+=1
+	if float(person["age"])>=16 and float(person["health"])>=max_hp(person)*0.35 and (trained or allies>=3):
+		_set_delivery_goal(person,witch,"Combatendo bruxa")
+		strike_witch(person)
+		return true
+	var away:Vector2=(p-witch).normalized()
+	if away.length()<0.01: away=Vector2(1,0)
+	var escape:Vector2=p+away*3.0
+	escape.x=clampf(escape.x,1,WIDTH-2)
+	escape.y=clampf(escape.y,1,SIZE-2)
+	_set_delivery_goal(person,escape,"Fugindo da bruxa")
+	return true
