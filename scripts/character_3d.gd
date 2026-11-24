@@ -145,7 +145,10 @@ func _tree(parent: Node3D, p: Vector3, pine: bool, height: float, snowy: bool = 
 		_sphere(parent, p + Vector3(-height * 0.18, height * 0.98, 0.0), Vector3(height * 0.27, height * 0.30, height * 0.29), "#3c814d")
 		_sphere(parent, p + Vector3(height * 0.13, height * 1.10, 0.06), Vector3(height * 0.28, height * 0.26, height * 0.31), "#5c9b53")
 
-func _hut(parent: Node3D, p: Vector3, size: float = 1.0) -> void:
+func _hut(parent: Node3D, p: Vector3, size: float = 1.0, era: int = 1) -> void:
+	if era > 1:
+		_evolved_house(parent, p, size, era)
+		return
 	_box(parent, p + Vector3(0.0, 0.6, 0.0) * size, Vector3(1.55, 1.2, 1.3) * size, "#95633f")
 	_box(parent, p + Vector3(-0.56, 0.65, 0.665) * size, Vector3(0.16, 0.55, 0.065) * size, "#cba56d")
 	_box(parent, p + Vector3(0.0, 0.39, 0.67) * size, Vector3(0.45, 0.78, 0.075) * size, "#372a22")
@@ -158,6 +161,30 @@ func _hut(parent: Node3D, p: Vector3, size: float = 1.0) -> void:
 	var roof := _cone(parent, p + Vector3(0.0, 1.63, 0.0) * size, 0.83 * size, 1.26 * size, "#c68c47", 4)
 	roof.rotation.y = PI * 0.25
 	_box(parent, p + Vector3(0.0, 1.82, 0.0) * size, Vector3(0.28, 0.15, 0.28) * size, "#efb956")
+
+func _evolved_house(parent: Node3D, p: Vector3, size: float, era: int) -> void:
+	var wall: String = ["#9e693e", "#9e693e", "#9b947f", "#a0a39a", "#c1c0ad"][clampi(era-1, 0, 4)]
+	var roof_color: String = "#b88c4e" if era == 2 else ("#ad633f" if era == 3 else "#59676d")
+	var h: float = 1.3 + float(era-2)*0.28
+	_box(parent, p + Vector3(0, h*0.5, 0)*size, Vector3(1.7, h, 1.5)*size, wall)
+	_box(parent, p + Vector3(0, 0.38, 0.76)*size, Vector3(0.48, 0.76, 0.08)*size, "#3e3026")
+	for x in [-0.57, 0.57]:
+		_box(parent, p + Vector3(x, h*0.69, 0.77)*size, Vector3(0.28, 0.36, 0.08)*size, "#654e36")
+		_box(parent, p + Vector3(x, h*0.69, 0.82)*size, Vector3(0.19, 0.26, 0.02)*size, "#e8c17d")
+	for row in range(int(h / 0.2)):
+		_box(parent, p + Vector3(0, 0.1+row*0.2, -0.76)*size, Vector3(1.71, 0.022, 0.035)*size, "#706755")
+		for side in [-1, 1]:
+			_box(parent, p + Vector3(side*0.86, 0.1+row*0.2, 0)*size, Vector3(0.032, 0.025, 1.5)*size, "#706755")
+	for side in [-1, 1]:
+		var roof := _box(parent, p + Vector3(side*0.48, h+0.31, 0)*size, Vector3(1.2, 0.13, 1.85)*size, roof_color)
+		roof.rotation.z = -float(side)*0.56
+	if era >= 4:
+		_box(parent, p + Vector3(0.52, h+0.51, -0.38)*size, Vector3(0.27, 0.91, 0.27)*size, wall)
+	if era == 5:
+		for side in [-1, 1]:
+			_box(parent, p + Vector3(side*0.96, h*0.63, 0.14)*size, Vector3(0.52, h*1.26, 0.7)*size, wall)
+			for k in range(4):
+				_box(parent, p + Vector3(side*0.96 + (float(k%2)-0.5)*0.32, h*1.26+0.12, 0.14+(float(k/2)-0.5)*0.48)*size, Vector3(0.15, 0.24, 0.16)*size, wall)
 
 func _farm(parent: Node3D, p: Vector3) -> void:
 	_box(parent, p, Vector3(1.9, 0.10, 1.65), "#674f32")
@@ -188,7 +215,7 @@ func _settlement(town: Dictionary) -> void:
 	]
 	for i in range(houses):
 		var v: Vector2 = offsets[i]
-		_hut(root_mesh, p + Vector3(v.x, 0, v.y), 0.89 if i > 0 else 1.08)
+		_hut(root_mesh, p + Vector3(v.x, 0, v.y), 0.89 if i > 0 else 1.08, int(town.get("level", 1)))
 	for i in range(farms):
 		_farm(root_mesh, p + Vector3(-2.0 + float(i % 3) * 2.8, 0.04, 3.2 + float(i / 3) * 2.2))
 	_fire(root_mesh, p + Vector3(1.4, 0.0, 2.4))
@@ -245,7 +272,7 @@ func update_people() -> void:
 func _build_signature() -> String:
 	var parts: Array[String] = []
 	for town in game.world.towns:
-		parts.append("%d:%d:%d" % [int(town["id"]), int(town.get("houses", 2)), int(town.get("farms", 1))])
+		parts.append("%d:%d:%d:%d" % [int(town["id"]), int(town.get("houses", 2)), int(town.get("farms", 1)), int(town.get("level", 1))])
 	return "|".join(parts)
 
 func rebuild() -> void:
