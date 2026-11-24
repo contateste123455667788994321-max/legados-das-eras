@@ -152,8 +152,10 @@ func _explorer() -> void:
 	_assert(game.world.speed == 1.0, "Explorador: retorna ao ritmo normal")
 	game._toggle_view()
 	_assert(game.character_view, "Explorador: entra na visao do personagem")
+	_assert(game.viewport_3d.render_target_update_mode == SubViewport.UPDATE_ALWAYS, "Explorador: renderizacao 3D ligada")
 	game._toggle_view()
 	_assert(not game.character_view, "Explorador: volta ao mapa")
+	_assert(game.viewport_3d.render_target_update_mode == SubViewport.UPDATE_DISABLED, "Explorador: voltar economiza bateria")
 	game.queue_free()
 
 func _chaos() -> void:
@@ -253,9 +255,10 @@ func _artist() -> void:
 	_assert(game.actor_textures.size() >= 8, "Artista: personagens, construcoes e bichos possuem sprites")
 	_assert(not game.texture_missing, "Artista: recursos visuais nao faltam")
 	_assert(game.MAP_AREA.size.x > 650.0 and game.MAP_AREA.size.y > 350.0, "Artista: mapa tem espaco suficiente")
-	_assert(float(World.SIZE) * game.TILE_SIZE >= game.MAP_AREA.size.x, "Artista: mapa preenche a moldura sem faixa verde vazia")
-	_assert(game.RIGHT_VIEW.position.x > game.MAP_AREA.end.x, "Artista: personagem e mundo nao se sobrepoem")
-	_assert(game.preview_visual.preview_mode, "Artista: visao de primeira pessoa se apresenta na lateral")
+	_assert(float(World.SIZE) * game.TILE_SIZE * game.zoom >= game.MAP_AREA.size.x, "Artista: mapa preenche a tela com zoom inicial")
+	_assert(game.MAP_AREA.size.y >= 600.0, "Artista: faixa inferior nao rouba area de jogo")
+	_assert(game.character_world != null and game.character_world.camera != null, "Artista: cena de personagem usa camera tridimensional real")
+	_assert(game.has_method("_draw_clock"), "Artista: relogio ilustrado permanece funcional")
 	for filename in ["person_m", "person_f", "child"]:
 		var file: FileAccess = FileAccess.open("res://assets/sprites/" + filename + ".svg", FileAccess.READ)
 		_assert(file != null, "Artista: sprite " + filename + " esta presente")
