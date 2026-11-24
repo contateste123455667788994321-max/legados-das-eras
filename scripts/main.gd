@@ -1253,6 +1253,10 @@ func _character_action() -> void:
 		world.save_world()
 		_refresh_ui()
 		return
+	if world.is_military(actor):
+		world.news="Militares defendem a aldeia; os civis recolhem recursos."
+		_refresh_ui()
+		return
 	var chosen: Dictionary = {}
 	var best: float = 1.65
 	for tree in world.trees.values():
@@ -1400,6 +1404,11 @@ func _show_details() -> void:
 		if not town.is_empty():
 			lines.append(str(town["name"]) + " • Era " + str(town["level"]))
 			lines.append("Populacao: %d / %d vagas" % [world.active_population(selected_town_id),world.housing_capacity(town)])
+			var kingdom:Dictionary=world.get_town(world.kingdom_id(town))
+			lines.append("Reino: "+str(kingdom.get("name",town["name"])))
+			var counts:Dictionary={"royal":0,"soldier":0,"archer":0,"general":0}
+			for soldier in world.army_members(town): counts[soldier["military_role"]]+=1
+			lines.append("Escolta: %d | Guerreiros: %d | Arqueiros: %d | Generais: %d"%[counts["royal"],counts["soldier"],counts["archer"],counts["general"]])
 			lines.append("Alimentos %d  |  Madeira %d" % [int(float(town["food"])), int(float(town["wood"]))])
 			for event in town.get("historical_events", []):
 				lines.append("• " + str(event.get("event", "")))
@@ -1494,7 +1503,15 @@ func _draw_equipment(p:Dictionary,c:Vector2,s:float,bounce:float) -> void:
 		draw_rect(Rect2(torso+Vector2(s*0.025,s*0.025),Vector2(s*0.21,s*0.23)),colors[armor])
 		draw_rect(Rect2(torso+Vector2(s*0.06,s*0.06),Vector2(s*0.14,s*0.035)),colors[armor].lightened(0.35))
 		draw_rect(Rect2(c+Vector2(-s*0.13,-s*0.68-bounce),Vector2(s*0.26,s*0.10)),colors[armor])
-	if weapon>0:
+	if str(p.get("military_role",""))=="royal":
+		draw_rect(Rect2(c+Vector2(-s*0.20,-s*0.57-bounce),Vector2(s*0.08,s*0.50)),Color("#bba05a"))
+	elif str(p.get("military_role",""))=="general":
+		draw_rect(Rect2(c+Vector2(-s*0.20,-s*0.35-bounce),Vector2(s*0.08,s*0.55)),Color("#9c443b"))
+	if weapon>0 and str(p.get("military_role",""))=="archer":
+		var grip:Vector2=c+Vector2(s*0.29,-s*0.20-bounce)
+		draw_arc(grip,s*0.25,-PI*0.5,PI*0.5,8,Color("#b18b52"),maxf(1.0,s*0.045))
+		draw_line(grip-Vector2(0,s*0.25),grip+Vector2(0,s*0.25),Color("#d8cbb3"),1.0)
+	elif weapon>0:
 		draw_line(c+Vector2(s*0.23,s*0.15),c+Vector2(s*0.31,-s*0.55),Color("#674b2b"),maxf(1.0,s*0.045))
 		draw_line(c+Vector2(s*0.31,-s*0.55),c+Vector2(s*0.34,-s*0.70),colors[weapon],maxf(1.0,s*0.09))
 	elif tool>0:

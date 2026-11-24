@@ -253,6 +253,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 			continue
 		init_traits(p)
 		p["hunt_cd"]=maxf(0.0,float(p.get("hunt_cd",0))-dt)
+		p["military_cd"]=maxf(0.0,float(p.get("military_cd",0))-dt)
 		p["age"] = float(p["age"]) + elapsed_days / 365.0
 		if float(p["age"]) > 79 and rng.randf() < elapsed_days * 0.0008:
 			kill_person(p)
@@ -274,6 +275,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 	# IA local atualiza necessidades, trabalhos, relacionamentos e aldeias.
 	# Usa tempo da simulacao: pausa impede progresso e fechar o app nao avanca o mundo.
 	agent_ai.advance(self, dt, controlled_id)
+	_update_campaigns()
 	for town in towns:
 		progress_construction(town, dt)
 
@@ -511,7 +513,7 @@ func _predator_attacks(dt: float) -> void:
 		for p in people:
 			if bool(p["alive"]) and Vector2(float(b["x"]), float(b["y"])).distance_to(Vector2(float(p["x"]), float(p["y"]))) < 0.75 and rng.randf() < dt * 0.1:
 				p["health"] = float(p["health"]) - maxf(1.0,animal_damage(b)-defense(p))
-				if float(p["health"])>0 and float(p["age"])>=16 and str(p.get("profession",""))=="Guarda":
+				if float(p["health"])>0 and float(p["age"])>=16 and is_military(p):
 					hunt_animal(p,b)
 					if not bool(b["alive"]): break
 				if float(p["health"]) <= 0.0:
@@ -1038,6 +1040,7 @@ func _prepare_project(town:Dictionary) -> void:
 	project["progress"]=0.0
 
 func transport_job(p:Dictionary,town:Dictionary) -> bool:
+	if is_military(p): return false
 	var project:Dictionary=town.get("construction",{})
 	var cargo:Dictionary=p.get("cargo",{})
 	var pos:=Vector2(float(p["x"]),float(p["y"]))
@@ -1069,7 +1072,7 @@ func transport_job(p:Dictionary,town:Dictionary) -> bool:
 	# Dois adultos por aldeia trabalham na obra, os demais mantem producao.
 	var rank:int=0
 	for other in people:
-		if not bool(other["alive"]) or int(other["town"])!=int(town["id"]) or float(other["age"])<16.0: continue
+		if not bool(other["alive"]) or int(other["town"])!=int(town["id"]) or float(other["age"])<16.0 or is_military(other): continue
 		if int(other["id"])==int(p["id"]): break
 		rank+=1
 	if rank>=2: return false
@@ -1165,36 +1168,200 @@ func defense(p:Dictionary) -> float:
 func attack_damage(p:Dictionary) -> float:
 	return 2.0+strength(p)*0.05+float([0,2,5,9,14][clampi(int(p.get("weapon",0)),0,4)])+(4.0 if bool(p.get("combat_training",false)) else 0.0)+(2.0 if bool(p.get("feather_arrows",false)) else 0.0)
 
+func is_military(person:Dictionary) -> bool:
+	return str(person.get("military_role","")) in ["royal","soldier","archer","general"]
+
+func army_members(town:Dictionary,include_royal:bool=true) -> Array:
+	var result:Array=[]
+	for person in people:
+		if bool(person["alive"]) and int(person["town"])==int(town["id"]) and is_military(person) and (include_royal or str(person["military_role"])!="royal"): result.append(person)
+	return result
+
+func kingdom_id(town:Dictionary) -> int:
+	return int(town.get("kingdom",town["id"]))
+
+func army_limit(population:int,eligible:int,era:int) -> int:
+	var limit:int=floori(float(population)*[0.16,0.20,0.25,0.30,0.30][clampi(era-1,0,4)])
+	if population>=6 and eligible>=3: limit=maxi(1,limit)
+	return mini(limit,maxi(0,mini(eligible-2,floori(float(eligible)*0.5))))
+
+func royal_guard_size(count:int) -> int:
+	if count>=25: return 10
+	if count>=12: return 5
+	if count>=3: return 2
+	return mini(1,count)
+
+func _release_military(person:Dictionary) -> void:
+	if is_military(person) or str(person.get("profession","")) in ["Guarda","Guarda pessoal","Guerreiro","Arqueiro","General"]:
+		person["profession"]=str(person.get("civil_profession","Agricultor"))
+		if str(person["profession"]) in ["Guarda","Guarda pessoal","Guerreiro","Arqueiro","General","Crianca"]: person["profession"]="Agricultor"
+		person["role"]="Aldeao"
+	person["military_role"]=""
+
+func _assign_military(person:Dictionary,kind:String,town:Dictionary,slot:int) -> void:
+	if not is_military(person):
+		if not person.has("civil_profession"):
+			var profession:String=str(person.get("profession","Agricultor"))
+			person["civil_profession"]="Agricultor" if profession in ["Guarda","Guarda pessoal","Guerreiro","Arqueiro","General","Crianca","Governante"] else profession
+		# Civis devem terminar entregas antes do recrutamento.
+	person["military_role"]=kind
+	person["military_slot"]=slot
+	person["profession"]=str({"royal":"Guarda pessoal","soldier":"Guerreiro","archer":"Arqueiro","general":"General"}[kind])
+	person["role"]=str({"royal":"Guarda real" if int(town["level"])>=4 else "Guarda tribal","soldier":"Guerreiro","archer":"Arqueiro","general":"General"}[kind])
+	person["specialty_v57"]=true
+	train_guard(person)
+
 func update_roles(town:Dictionary) -> void:
-	var adults:Array=[]
 	if not bool(town.get("merit_election",false)) or int(town["leader"])==0:
 		choose_successor(town,0)
 		town["merit_election"]=true
 		town["law"]="merito"
 	var leader:Dictionary=get_person(int(town["leader"]))
 	if not leader.is_empty() and bool(leader["alive"]):
-		leader["role"]=ruler_title(town,leader)
-	for p in people:
-		if not bool(p["alive"]) or int(p["town"])!=int(town["id"]) or int(p["id"])==int(town["leader"]): continue
-		if float(p["age"])>=16 and float(p["age"])<65: adults.append(p)
+		_release_military(leader)
+		leader["role"]=ruler_title(town,leader) if kingdom_id(town)==int(town["id"]) else "Governador"
+		leader["profession"]="Governante"
+		leader["specialty_v57"]=true
+	var adults:Array=[]
+	for person in people:
+		if not bool(person["alive"]) or int(person["town"])!=int(town["id"]) or int(person["id"])==int(town["leader"]): continue
+		if float(person["age"])>=16 and float(person["age"])<65:
+			adults.append(person)
+		else: _release_military(person)
+	# Nao repor mortos nem reorganizar tropas durante uma campanha.
+	if int(town.get("siege_by",0))>0 or int(town.get("raid_target",0))>0: return
 	adults.sort_custom(func(a,b): return strength(a)>strength(b))
-	var count:int=mini(adults.size(),maxi(1,int(active_population(int(town["id"]))/8.0)))
-	for i in range(adults.size()):
-		var p:Dictionary=adults[i]
-		if i<count:
-			if not p.has("civil_profession"): p["civil_profession"]=str(p.get("profession","Agricultor"))
-			p["profession"]="Guarda"
-			train_guard(p)
-			p["role"]="Guarda real" if int(town["level"])>=4 else "Guerreiro tribal"
-			p["specialty_v57"]=true
-		elif str(p.get("role","")) in ["Guarda real","Guerreiro tribal"]:
-			p["role"]="Aldeao"
-			p["profession"]=str(p.get("civil_profession","Agricultor"))
+	var count:int=army_limit(active_population(int(town["id"])),adults.size(),int(town["level"]))
+	var royal:int=royal_guard_size(count) if kingdom_id(town)==int(town["id"]) else 0
+	var field:Array=[]
+	var assigned:int=0
+	for person in adults:
+		if not person.get("cargo",{}).is_empty():
+			_release_military(person)
+			continue
+		if assigned<royal: _assign_military(person,"royal",town,assigned)
+		elif assigned<count: field.append(person)
+		else:
+			_release_military(person)
+			continue
+		assigned+=1
+	field.sort_custom(func(a,b): return float(a.get("intelligence",50))+float(a.get("level",1))*5.0>float(b.get("intelligence",50))+float(b.get("level",1))*5.0)
+	var generals:int=mini(2,floori(float(field.size())/7.0)) if int(town["level"])>=3 else 0
+	var archers:int=floori(float(field.size()-generals)*0.35) if int(town["level"])>=2 else 0
+	for index in range(field.size()):
+		_assign_military(field[index],"general" if index<generals else ("archer" if index<generals+archers else "soldier"),town,index)
+
+func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
+	var role:String=str(person.get("military_role",""))
+	var ruler:Dictionary=get_person(int(town["leader"]))
+	var origin:=Vector2(float(town["x"]),float(town["y"]))
+	var pos:=Vector2(float(person["x"]),float(person["y"]))
+	var slot:int=int(person.get("military_slot",0))
+	var goal:=origin
+	var enemy:Dictionary={}
+	var enemy_town:Dictionary={}
+	if role!="royal" and wars:
+		enemy_town=get_town(int(town.get("raid_target",0)))
+		if enemy_town.is_empty(): enemy_town=get_town(int(town.get("siege_by",0)))
+	if role=="royal" and not ruler.is_empty() and bool(ruler["alive"]):
+		var total:int=0
+		for guard in army_members(town):
+			if str(guard["military_role"])=="royal": total+=1
+		var angle:float=float(slot)*TAU/maxi(1,total)
+		goal=Vector2(float(ruler["x"]),float(ruler["y"]))+Vector2(cos(angle),sin(angle))*(0.7 if total<=2 else 1.1)
+		_set_delivery_goal(person,goal,"Protegendo governante")
+	elif not enemy_town.is_empty() and kingdom_id(enemy_town)!=kingdom_id(town):
+		var invading:bool=int(town.get("raid_target",0))==int(enemy_town["id"])
+		var best:float=1000.0
+		for other in army_members(enemy_town):
+			if not invading and Vector2(float(other["x"]),float(other["y"])).distance_to(origin)>5.0: continue
+			var q:=Vector2(float(other["x"]),float(other["y"]))
+			var distance:float=pos.distance_to(q)
+			if distance<best:
+				best=distance
+				enemy=other
+		goal=Vector2(float(enemy_town["x"]),float(enemy_town["y"])) if invading else origin
+		if not enemy.is_empty():
+			goal=Vector2(float(enemy["x"]),float(enemy["y"]))
+			if role=="archer" and best<2.0: goal=pos
+		_set_delivery_goal(person,goal,"Marchando para conquista" if invading else "Defendendo aldeia")
+	else:
+		var angle:float=float(slot)*2.39996+day*0.035
+		goal=origin+Vector2(cos(angle),sin(angle))*(2.2 if role=="archer" else (1.0 if role=="general" else 3.0))
+		_set_delivery_goal(person,goal,"Vigiando com arco" if role=="archer" else ("Comandando exercito" if role=="general" else "Patrulhando aldeia"))
+	if role=="royal" and wars:
+		var best:float=0.9
+		for other in people:
+			if not bool(other["alive"]) or not is_military(other) or int(other["town"])==int(town["id"]): continue
+			var other_town:Dictionary=get_town(int(other["town"]))
+			if other_town.is_empty() or kingdom_id(other_town)==kingdom_id(town) or politics.get_status(self,int(town["id"]),int(other["town"]))!="war": continue
+			var q:=Vector2(float(other["x"]),float(other["y"]))
+			var d:float=pos.distance_to(q)
+			if d<best and q.distance_to(goal)<1.5:
+				best=d
+				enemy=other
+	person["target_x"]=clampf(float(person["target_x"]),1,WIDTH-2)
+	person["target_y"]=clampf(float(person["target_y"]),1,SIZE-2)
+	if not enemy.is_empty() and float(person.get("military_cd",0))<=0:
+		var d:float=pos.distance_to(Vector2(float(enemy["x"]),float(enemy["y"])))
+		var ranged:bool=role=="archer" and int(person.get("weapon",0))>0
+		if d<(2.2 if ranged else 0.9):
+			person["military_cd"]=1.8 if ranged else 1.1
+			if ranged: magic_bolts.append({"x":pos.x,"y":pos.y,"target":enemy["id"],"kind":"human","life":3.0,"damage":attack_damage(person),"caster":person["id"],"arrow":true})
+			else:
+				_swamp_damage(enemy,attack_damage(person))
+				gain_xp(person,2.0 if bool(enemy["alive"]) else 12.0,"combate")
+			person["task"]="Defendendo governante" if role=="royal" else "Combatendo inimigo"
+	town["morale"]=minf(100,float(town.get("morale",60))+step*0.08)
+
+func begin_campaign(attacker:Dictionary,defender:Dictionary) -> bool:
+	if kingdom_id(attacker)==kingdom_id(defender) or int(attacker.get("raid_target",0))>0 or int(attacker.get("siege_by",0))>0 or int(defender.get("siege_by",0))>0 or int(defender.get("raid_target",0))>0: return false
+	if army_members(attacker,false).is_empty(): return false
+	attacker["raid_target"]=defender["id"]
+	defender["siege_by"]=attacker["id"]
+	news=str(attacker["name"])+" enviou seu exercito contra "+str(defender["name"])+"."
+	return true
+
+func _update_campaigns() -> void:
+	for attacker in towns:
+		var target:int=int(attacker.get("raid_target",0))
+		if target<=0: continue
+		var defender:Dictionary=get_town(target)
+		var troops:Array=army_members(attacker,false)
+		if defender.is_empty() or troops.is_empty() or not wars or politics.get_status(self,int(attacker["id"]),target)!="war":
+			attacker["raid_target"]=0
+			if not defender.is_empty(): defender["siege_by"]=0
+			continue
+		if not army_members(defender).is_empty(): continue
+		var origin:=Vector2(float(defender["x"]),float(defender["y"]))
+		for soldier in troops:
+			if Vector2(float(soldier["x"]),float(soldier["y"])).distance_to(origin)<1.1:
+				annex_town(attacker,defender)
+				break
+
+func annex_town(attacker:Dictionary,defender:Dictionary) -> void:
+	var old_kingdom:int=kingdom_id(defender)
+	var new_kingdom:int=kingdom_id(attacker)
+	if old_kingdom==new_kingdom: return
+	loot_stock(attacker,defender)
+	for town in towns:
+		if kingdom_id(town)==old_kingdom:
+			town["kingdom"]=new_kingdom
+			town["raid_target"]=0
+			town["siege_by"]=0
+	attacker["raid_target"]=0
+	defender["siege_by"]=0
+	politics.set_treaty(self,int(attacker["id"]),int(defender["id"]),"peace")
+	news=str(attacker["name"])+" conquistou e anexou "+str(defender["name"])+"!"
+	for town in [attacker,defender]:
+		var history:Array=town.get("historical_events",[])
+		history.append({"day":int(day),"event":news})
+		town["historical_events"]=history
 
 func equip_worker(town:Dictionary,p:Dictionary) -> void:
 	if float(p["age"])<16: return
 	var era:int=clampi(int(town["level"]),1,4)
-	var is_guard:bool=str(p.get("profession",""))=="Guarda"
+	var is_guard:bool=is_military(p)
 	var is_ruler:bool=int(p["id"])==int(town["leader"])
 	if is_guard or is_ruler:
 		var target:int=era if bool(town.get("forge",false)) else mini(era,2)
@@ -1228,7 +1395,7 @@ func equip_worker(town:Dictionary,p:Dictionary) -> void:
 			town["wood"]=float(town["wood"])-2
 			if target>2: town["metal"]=float(town["metal"])-3
 			p["weapon"]=target
-		if not bool(p.get("feather_arrows",false)) and float(town.get("feather",0))>=2 and float(town.get("wood",0))>=2:
+		if str(p.get("military_role",""))=="archer" and not bool(p.get("feather_arrows",false)) and float(town.get("feather",0))>=2 and float(town.get("wood",0))>=2:
 			town["feather"]=float(town["feather"])-2
 			town["wood"]=float(town["wood"])-2
 			p["feather_arrows"]=true
@@ -1577,7 +1744,8 @@ func swamp_combat_job(person:Dictionary) -> bool:
 	var p:=Vector2(float(person["x"]),float(person["y"]))
 	var witch:=Vector2(float(swamp_witch["x"]),float(swamp_witch["y"]))
 	if p.distance_to(witch)>3.8 or not swamp_at(p): return false
-	var trained:bool=str(person.get("profession",""))=="Guarda"
+	var trained:bool=is_military(person)
+	if str(person.get("military_role",""))=="royal": return false
 	var allies:int=0
 	for other in people:
 		if bool(other["alive"]) and int(other["town"])==int(person["town"]) and float(other["age"])>=16 and float(other["health"])>=max_hp(other)*0.35 and Vector2(float(other["x"]),float(other["y"])).distance_to(witch)<3.8:
@@ -1661,6 +1829,7 @@ func _update_drops(dt:float) -> void:
 		if drop["items"].is_empty() or float(drop["remaining"])<=0: resource_drops.remove_at(i)
 
 func collect_nearby_drop(person:Dictionary) -> bool:
+	if is_military(person): return false
 	if not person.get("cargo",{}).is_empty(): return false
 	var pos:=Vector2(float(person["x"]),float(person["y"]))
 	for drop in resource_drops:
@@ -1676,6 +1845,7 @@ func collect_nearby_drop(person:Dictionary) -> bool:
 	return false
 
 func gather_drop_job(person:Dictionary,town:Dictionary) -> bool:
+	if is_military(person): return false
 	if float(person["age"])<16 or not person.get("cargo",{}).is_empty() or free_load(person)<1: return false
 	var pos:=Vector2(float(person["x"]),float(person["y"]))
 	var origin:=Vector2(float(town["x"]),float(town["y"]))

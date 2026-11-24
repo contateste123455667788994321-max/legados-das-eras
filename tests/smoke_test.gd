@@ -146,6 +146,14 @@ func _run_tests() -> void:
 	_check(str(world.towns[0].get("home_biome", "")) != "", "Aldeias guardam o bioma de origem")
 	_check(terrain_kinds.size() >= 5, "Mapa possui regioes ecologicas variadas")
 	_check(world.people.size() == 18, "Habitantes iniciais")
+	_check(world.army_limit(6,3,1)==1,"Aldeia pequena preserva trabalhadores")
+	_check(world.royal_guard_size(3)==2 and world.royal_guard_size(12)==5 and world.royal_guard_size(25)==10,"Escolta proporcional")
+	var conquest=World.new()
+	conquest.generate_world()
+	var capital:Dictionary=conquest.towns[0]
+	var enemy:Dictionary=conquest.towns[1]
+	conquest.annex_town(capital,enemy)
+	_check(conquest.kingdom_id(capital)==conquest.kingdom_id(enemy),"Conquista preserva aldeia como territorio")
 	_check(float(world.people[3]["age"]) < 16.0, "O mundo ja nasce com criancas")
 	_check(int(world.people[3]["father"]) > 0 and int(world.people[3]["mother"]) > 0, "Crianca ja nasce em familia")
 	var forest_tiles := 0

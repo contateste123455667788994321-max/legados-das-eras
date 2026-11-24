@@ -68,6 +68,7 @@ func advance(sim, delta: float) -> void:
 		for j in range(i + 1, sim.towns.size()):
 			var a: Dictionary = sim.towns[i]
 			var b: Dictionary = sim.towns[j]
+			if sim.kingdom_id(a)==sim.kingdom_id(b) or sim.kingdom_id(a)!=int(a["id"]) or sim.kingdom_id(b)!=int(b["id"]): continue
 			var status := get_status(sim, int(a["id"]), int(b["id"]))
 			var relation: Dictionary = get_relation(sim, int(a["id"]), int(b["id"]))
 			if status == "peace" and sim.day > float(relation.get("truce_until", 0.0)):
@@ -103,23 +104,9 @@ func _change_status(sim, a: Dictionary, b: Dictionary, status: String) -> void:
 		relation["status"] = status
 
 func _raid(sim, a: Dictionary, b: Dictionary) -> void:
-	var attacker: Dictionary = a if sim.rng.randf() < 0.5 else b
-	var defender: Dictionary = b if int(attacker["id"]) == int(a["id"]) else a
-	if sim.active_population(int(attacker["id"])) < 2 or sim.active_population(int(defender["id"])) < 2:
-		return
-	var attackers: int = sim.active_population(int(attacker["id"]))
-	var defenders: int = sim.active_population(int(defender["id"]))
-	var attack_score: float = float(attackers) * sim.rng.randf_range(0.7, 1.3) + float(attacker.get("morale", 50)) * 0.05
-	var defense_score: float = float(defenders) * sim.rng.randf_range(0.7, 1.3) + float(defender.get("morale", 50)) * 0.05
-	if attack_score > defense_score:
-		var loot:Dictionary=sim.loot_stock(attacker,defender)
-		defender["morale"] = maxf(0.0, float(defender.get("morale", 60.0)) - 8.0)
-		sim.news = "%s saqueou recursos de %s (%d tipos)." % [attacker["name"], defender["name"],loot.size()]
-	else:
-		attacker["morale"] = maxf(0.0, float(attacker.get("morale", 60.0)) - 4.0)
-		sim.news = "%s resistiu a um ataque de %s." % [defender["name"], attacker["name"]]
-	_record(attacker, sim.news, sim)
-	_record(defender, sim.news, sim)
+	var attacker:Dictionary=a if sim.rng.randf()<0.5 else b
+	var defender:Dictionary=b if int(attacker["id"])==int(a["id"]) else a
+	if not sim.begin_campaign(attacker,defender): sim.begin_campaign(defender,attacker)
 
 func _record(town: Dictionary, event: String, sim) -> void:
 	if not town.has("historical_events"):
