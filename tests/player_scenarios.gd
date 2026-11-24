@@ -151,30 +151,17 @@ func _explorer() -> void:
 	game._change_speed()
 	_assert(game.world.speed == 1.0, "Explorador: retorna ao ritmo normal")
 	game._toggle_view()
-	_assert(game.character_view, "Explorador: entra na visao do personagem")
-	_assert(game.viewport_3d.render_target_update_mode == SubViewport.UPDATE_ALWAYS, "Explorador: renderizacao 3D ligada")
-	_assert(game.character_world.actors_3d.size() >= 18, "Explorador: habitantes aparecem e se movimentam no mundo 3D")
-
-	var controlled: Dictionary = game.world.get_actor(game.controlled_id)
-	controlled["x"] = 10.0
-	controlled["y"] = 10.0
-	game.world.tiles[10][10] = "grass"
-	game.world.tiles[9][10] = "grass"
-	game.world.tiles[9][9] = "grass"
-	game.joystick_direction = Vector2(0, -1)
-	game.look_yaw = 0.0
+	_assert(game.controlled_id>0 and not game.character_view, "Explorador: controle 2D")
+	_assert(not is_instance_valid(game.viewport_3d), "Explorador: sem render 3D")
+	var controlled:Dictionary=game.world.get_actor(game.controlled_id)
+	controlled["x"]=10.0
+	controlled["y"]=10.0
+	controlled["target_x"]=10.0
+	controlled["target_y"]=9.0
+	game.world.tiles[10][10]="grass"
 	game._move_controlled(0.2)
-	_assert(float(controlled["y"]) < 10.0, "Explorador: analogico move personagem no mundo 3D")
-	game.look_yaw = PI * 0.5
-	var old_x: float = float(controlled["x"])
-	game._move_controlled(0.2)
-	_assert(float(controlled["x"]) < old_x, "Explorador: personagem muda direcao junto com a camera")
-	game.joystick_direction = Vector2.ZERO
-	game.look_pitch = -0.21
-	game.character_world.follow(controlled, game.look_yaw, game.look_pitch)
-	_assert(is_equal_approx(game.character_world.camera.rotation.x, -0.21), "Explorador: camera olha para cima e baixo")
-	_assert(game.character_world.camera.position.x > 0.0, "Explorador: camera 3D acompanha corpo do personagem")
-	_assert(game.action_button.visible and game.inventory_button.visible, "Explorador: acoes e inventario aparecem apenas no 3D")
+	_assert(float(controlled["y"])<10.0,"Explorador: deslocamento no mapa")
+	_assert(game.action_button.visible and game.inventory_button.visible,"Explorador: coleta e inventario no mapa")
 	controlled["x"] = 9.5
 	controlled["y"] = 9.5
 	game.world.tiles[9][9] = "forest"
@@ -205,8 +192,8 @@ func _explorer() -> void:
 
 
 	game._toggle_view()
-	_assert(not game.character_view, "Explorador: volta ao mapa")
-	_assert(game.viewport_3d.render_target_update_mode == SubViewport.UPDATE_DISABLED, "Explorador: voltar economiza bateria")
+	_assert(game.controlled_id==0, "Explorador: solta personagem")
+	_assert(not is_instance_valid(game.viewport_3d), "Explorador: sem viewport 3D")
 	_assert(not game.action_button.visible and not game.inventory_button.visible, "Explorador: mapa fica limpo sem botoes de inventario")
 	game.queue_free()
 
@@ -309,7 +296,7 @@ func _artist() -> void:
 	_assert(game.MAP_AREA.size.x > 650.0 and game.MAP_AREA.size.y > 350.0, "Artista: mapa tem espaco suficiente")
 	_assert(float(World.WIDTH) * game.TILE_SIZE * game.zoom >= game.MAP_AREA.size.x, "Artista: mapa preenche a tela com zoom inicial")
 	_assert(game.MAP_AREA.size.y >= 600.0, "Artista: faixa inferior nao rouba area de jogo")
-	_assert(game.character_world != null and game.character_world.camera != null, "Artista: cena de personagem usa camera tridimensional real")
+	_assert(not is_instance_valid(game.viewport_3d), "Artista: somente mapa 2D")
 	_assert(game.has_method("_draw_clock"), "Artista: relogio ilustrado permanece funcional")
 	for filename in ["person_m", "person_f", "child"]:
 		var file: FileAccess = FileAccess.open("res://assets/sprites/" + filename + ".svg", FileAccess.READ)

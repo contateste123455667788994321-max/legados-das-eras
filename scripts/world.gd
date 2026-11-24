@@ -17,6 +17,7 @@ var people: Array = []
 var beasts: Array = []
 var wildlife: Array = []
 var sites: Array = []
+var rivers_v58:bool=false
 var trees: Dictionary = {}
 var tree_revision := 0
 var next_seed_day := 15.0
@@ -94,6 +95,7 @@ func generate_world() -> void:
 	make_town("Vale Verde", 5, 5, false)
 	make_town("Pedra Alta", 15, 5, false)
 	make_town("Campo do Sol", 16, 15, false)
+	_connect_rivers()
 	_seed_initial_trees()
 	_prepare_sites()
 	_seed_wildlife()
@@ -322,9 +324,8 @@ func _wander(actor: Dictionary, dt: float, pace: float) -> void:
 			actor["wander"] = rng.randf_range(1.5, 4.0)
 	var toward := Vector2(float(actor["target_x"]) - float(actor["x"]), float(actor["target_y"]) - float(actor["y"]))
 	if toward.length() > 0.06:
-		var step := toward.normalized() * pace * dt
-		actor["x"] = clampf(float(actor["x"]) + step.x, 1.0, float(WIDTH - 2))
-		actor["y"] = clampf(float(actor["y"]) + step.y, 1.0, float(SIZE - 2))
+		var step := toward.limit_length(pace*dt)
+		move_actor(actor,step,dt)
 
 func _grow_economies() -> void:
 	for town in towns:
@@ -454,7 +455,7 @@ func save_world() -> bool:
 	var data := {
 		"tiles": tiles, "towns": towns, "people": people, "beasts": beasts,
 		"trees": trees, "next_seed_day": next_seed_day,
-		"wildlife": wildlife, "sites": sites,
+		"wildlife": wildlife, "sites": sites, "rivers_v58":rivers_v58,
 		"next_id": next_id, "day": day, "next_birth": next_birth,
 		"next_growth": next_growth, "wars": wars, "rivals": rivals, "predators": predators
 	}
@@ -501,7 +502,11 @@ func load_world() -> bool:
 					_plant_tree(x,y,true)
 		wildlife = value.get("wildlife",[])
 		sites = value.get("sites",[])
-		if sites.is_empty(): _prepare_sites()
+		rivers_v58=bool(value.get("rivers_v58",false))
+		if not rivers_v58:
+			_connect_rivers()
+			_prepare_sites()
+		elif sites.is_empty(): _prepare_sites()
 		if not value.has("wildlife"): _seed_wildlife()
 		tree_revision += 1
 		for p in people:
@@ -661,3 +666,38 @@ func _update_wildlife(dt:float) -> void:
 		if str(tiles[int(n.y)][int(n.x)]) in ["grass","forest"]:
 			animal["x"]=n.x
 			animal["y"]=n.y
+
+func river_x(y:int,index:int) -> int:
+	return (10 if index==0 else 25)+roundi(sin(float(y)*0.36+float(index)*0.9)*2.0)
+
+func _connect_rivers() -> void:
+	for index in range(2):
+		for y in range(SIZE):
+			var x:int=river_x(y,index)
+			var previous:int=river_x(maxi(y-1,0),index)
+			for xx in range(mini(x,previous),maxi(x,previous)+1):
+				tiles[y][xx]="water"
+				trees.erase(tree_key(xx,y))
+	rivers_v58=true
+	tree_revision+=1
+
+func is_bridge(x:int,y:int) -> bool:
+	return y in [6,14] and (x==river_x(y,0) or x==river_x(y,1))
+
+func water_flow(p:Vector2) -> Vector2:
+	var y:int=clampi(int(p.y),0,SIZE-1)
+	var i:int=0 if p.x<18 else 1
+	var next:int=river_x(mini(y+1,SIZE-1),i)
+	return Vector2(float(next-river_x(y,i)),1.0).normalized()
+
+func move_actor(actor:Dictionary,step:Vector2,dt:float) -> void:
+	var p:=Vector2(float(actor["x"]),float(actor["y"]))
+	var x:int=clampi(int(p.x),0,WIDTH-1)
+	var y:int=clampi(int(p.y),0,SIZE-1)
+	if str(tiles[y][x])=="water" and not is_bridge(x,y):
+		step=step*0.42+water_flow(p)*dt*0.20
+	var q:=p+step
+	q.x=clampf(q.x,1.0,WIDTH-2.0)
+	q.y=clampf(q.y,1.0,SIZE-2.0)
+	actor["x"]=q.x
+	actor["y"]=q.y

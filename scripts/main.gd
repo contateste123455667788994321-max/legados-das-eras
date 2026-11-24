@@ -2,7 +2,6 @@ extends Node2D
 ## Legado das Eras — tela jogavel. A simulacao permanece em world.gd.
 const World = preload("res://scripts/world.gd")
 const Updates = preload("res://scripts/update_manager.gd")
-const CharacterWorld3D = preload("res://scripts/character_3d.gd")
 const TILE_SIZE := 44.0
 const MAP_ORIGIN := Vector2(15.0, 79.0)
 const MAP_AREA := Rect2(12.0, 78.0, 1256.0, 626.0)
@@ -14,7 +13,7 @@ var selected_beast_id := 0
 var selected_town_id := 0
 var controlled_id := 0
 var map_offset := Vector2.ZERO
-var zoom := 0.92
+var zoom := 1.25
 var landscape_texture: ImageTexture
 var landscape_signature := 0
 var landscape_objects: Dictionary = {}
@@ -61,19 +60,10 @@ func _ready() -> void:
 	if not world.load_world():
 		world.generate_world()
 	world.speed = 1.0
+	texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST
 	_load_art()
 	update_manager = Updates.new()
 	add_child(update_manager)
-	viewport_3d = SubViewport.new()
-	viewport_3d.size = Vector2i(int(MAP_AREA.size.x), int(MAP_AREA.size.y))
-	viewport_3d.own_world_3d = true
-	viewport_3d.render_target_update_mode = SubViewport.UPDATE_DISABLED
-	viewport_3d.disable_3d = false
-	viewport_3d.transparent_bg = false
-	add_child(viewport_3d)
-	character_world = CharacterWorld3D.new()
-	character_world.game = self
-	viewport_3d.add_child(character_world)
 	_build_ui()
 	if not world.towns.is_empty():
 		var first_town: Dictionary = world.towns[0]
@@ -93,16 +83,6 @@ func _process(delta: float) -> void:
 		ui_timer = 0.0
 		_refresh_ui()
 	queue_redraw()
-	if character_view and is_instance_valid(character_world):
-		character_world.sync_trees()
-		var actor: Dictionary = world.get_actor(controlled_id)
-		if not actor.is_empty():
-			character_world.follow(actor, look_yaw, look_pitch)
-		character_world.update_people()
-		if ui_timer == 0.0:
-			character_world._refresh_people_models()
-		if character_world.last_build_signature != character_world._build_signature():
-			character_world.rebuild()
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST:
@@ -138,7 +118,7 @@ func _build_ui() -> void:
 	speed_button = _button("1x", Vector2(737, 15), Vector2(72, 38), Callable(self, "_change_speed"))
 	pause_button = _button("Pausar", Vector2(813, 15), Vector2(82, 38), Callable(self, "_toggle_pause"))
 	_button("Construir", Vector2(899, 15), Vector2(112, 38), Callable(self, "_show_construction"))
-	view_button = _button("Explorar", Vector2(1015, 15), Vector2(100, 38), Callable(self, "_toggle_view"))
+	view_button = _button("Controlar", Vector2(1015, 15), Vector2(100, 38), Callable(self, "_toggle_view"))
 	_button("Mundo", Vector2(1119, 15), Vector2(73, 38), Callable(self, "_show_options"))
 	_button("Atualizar", Vector2(1196, 15), Vector2(80, 38), Callable(self, "_check_updates"))
 	info_label = _label("", Vector2(32, 660), Vector2(1150, 26), 16, Color("#fff0bb"))
@@ -215,7 +195,7 @@ func _refresh_ui() -> void:
 	speed_button.text = "0.5x" if display_speed == 0.5 else "%.0fx" % display_speed
 
 	if is_instance_valid(view_button):
-		view_button.text = "Mapa" if character_view else "Explorar"
+		view_button.text = "Soltar" if controlled_id > 0 else "Controlar"
 	info_label.visible = selected_person_id > 0 or selected_beast_id > 0 or selected_town_id > 0
 	if selected_beast_id > 0:
 		var beast: Dictionary = world.get_beast(selected_beast_id)
@@ -300,7 +280,7 @@ func _make_landscape() -> void:
 	if landscape_texture != null and signature == landscape_signature:
 		return
 	landscape_signature = signature
-	const DETAIL := 24
+	const DETAIL := 16
 	var img := Image.create(World.WIDTH * DETAIL, World.SIZE * DETAIL, false, Image.FORMAT_RGB8)
 	var noise := FastNoiseLite.new()
 	noise.seed = 527
@@ -319,16 +299,16 @@ func _make_landscape() -> void:
 			var b: Color = _landscape_color(str(world.tiles[y0][x1]), season)
 			var d: Color = _landscape_color(str(world.tiles[y1][x0]), season)
 			var e: Color = _landscape_color(str(world.tiles[y1][x1]), season)
-			var col: Color = a.lerp(b, tx).lerp(d.lerp(e, tx), ty)
+			var col: Color = a if tx<0.5 and ty<0.5 else (b if ty<0.5 else (d if tx<0.5 else e))
 			var water: float = lerpf(lerpf(float(str(world.tiles[y0][x0]) == "water"), float(str(world.tiles[y0][x1]) == "water"), tx), lerpf(float(str(world.tiles[y1][x0]) == "water"), float(str(world.tiles[y1][x1]) == "water"), tx), ty)
 			var grain: float = float(posmod(px * 79 + py * 131 + px * py * 17, 97)) / 97.0
-			var shade: float = noise.get_noise_2d(px, py) * 0.14 + (grain - 0.5) * 0.12
+			var shade: float = roundf((noise.get_noise_2d(px, py)*0.20+(grain-0.5)*0.20)*12.0)/12.0
 			if water > 0.46:
 				col = Color("#237c9e").lerp(Color("#52b6ca"), clampf((1.0-water)*1.5 + shade, 0.0, 0.85))
-				if water < 0.60: col = col.lerp(Color("#b6c9a0"), 0.32)
+				if water < 0.60: col = Color("#6ebbc0")
 				elif grain > 0.89 and py % 5 == 0: col = col.lightened(0.20)
 			elif water > 0.28:
-				col = col.lerp(Color("#c1b17a"), 0.38)
+				col = Color("#b6a274")
 			col = col.lightened(shade) if shade > 0.0 else col.darkened(-shade)
 			img.set_pixel(px, py, col)
 	landscape_texture = ImageTexture.create_from_image(img)
@@ -415,13 +395,8 @@ func _draw() -> void:
 	draw_line(Vector2(0, 74), Vector2(1280, 74), Color("#ae8c54"), 2.0)
 	_draw_clock()
 	draw_rect(MAP_AREA, Color("#355943"), true)
-	if character_view:
-		if is_instance_valid(viewport_3d):
-			draw_texture_rect(viewport_3d.get_texture(), MAP_AREA, false)
-		draw_rect(MAP_AREA, Color("#af986c", 0.28), false, 2.0)
-		_draw_character_hud()
-		return
 	_draw_landscape()
+	_draw_rivers()
 	_draw_world_sites()
 	# Quantidade real de casas e fazendas aparece no mapa, conforme o estoque da vila.
 	var house_spots: Array[Vector2] = [
@@ -526,20 +501,54 @@ func _draw_dirt_path(a: Vector2,b: Vector2,unit: float) -> void:
 
 
 func _draw_world_sites() -> void:
-	var unit: float=TILE_SIZE*zoom
+	var unit:float=TILE_SIZE*zoom
 	for site in world.sites:
-		var p: Vector2=_world_to_screen(Vector2(float(site["x"])+0.5,float(site["y"])+0.5))
-		var kind: String=str(site["kind"])
-		_draw_landscape_object(kind,p,unit*(1.55 if kind in ["mine","waterfall"] else 0.95))
-		if kind=="waterfall" and MAP_AREA.grow(-unit*0.3).has_point(p):
-			for i in range(5):
-				var f:float=fposmod(float(Time.get_ticks_msec())*0.001+float(i)*0.19,1.0)
-				draw_rect(Rect2(p+Vector2((i-2)*unit*0.06,-unit*0.75+f*unit*0.72),Vector2(unit*0.025,unit*0.12)),Color("#d1faff",0.8))
+		var p:Vector2=_world_to_screen(Vector2(float(site["x"])+0.5,float(site["y"])+0.5))
+		var kind:String=str(site["kind"])
+		if kind!="waterfall":
+			_draw_landscape_object(kind,p,unit*(1.45 if kind=="mine" else 0.95))
+		else:
+			_draw_waterfall(p,unit)
+
+func _draw_rivers() -> void:
+	var unit:float=TILE_SIZE*zoom
+	var time:float=float(Time.get_ticks_msec())*0.00055
+	for y in range(World.SIZE):
+		for x in range(World.WIDTH):
+			if str(world.tiles[y][x])!="water": continue
+			var p:Vector2=_world_to_screen(Vector2(x+0.5,y+0.5))
+			if not MAP_AREA.grow(-unit*0.65).has_point(p): continue
+			var flow:Vector2=world.water_flow(Vector2(x,y))
+			for i in range(4):
+				var phase:float=fposmod(time+float(i)*0.25+float(x)*0.13,1.0)
+				var q:Vector2=p+flow*(phase-0.5)*unit*0.8+Vector2(flow.y,-flow.x)*(float(i)-1.5)*unit*0.14
+				draw_rect(Rect2(q,Vector2(unit*0.12, maxf(1.0,unit*0.027))),Color("#8edbe1",0.6))
+			if world.is_bridge(x,y):
+				var left:Vector2=p-Vector2(unit*0.66,unit*0.20)
+				draw_rect(Rect2(left,Vector2(unit*1.32,unit*0.40)),Color("#513a25"))
+				for n in range(9):
+					draw_rect(Rect2(left+Vector2(n*unit*0.145,unit*0.035),Vector2(unit*0.126,unit*0.32)),Color("#b88a52" if n%2==0 else "#967047"))
+				draw_line(left,left+Vector2(unit*1.32,0),Color("#e0b478"),maxf(2,unit*0.04))
+
+func _draw_waterfall(p:Vector2,u:float) -> void:
+	if not MAP_AREA.grow(-u).has_point(p): return
+	for side in [-1,1]:
+		_draw_landscape_object("rock",p+Vector2(float(side)*u*0.46,-u*0.16),u*0.83)
+	var base:Vector2=p-Vector2(u*0.23,u*0.67)
+	draw_rect(Rect2(base,Vector2(u*0.46,u*0.78)),Color("#248db1"))
+	for i in range(7):
+		var x:float=float(i)*u*0.065
+		var f:float=fposmod(float(Time.get_ticks_msec())*0.0014+float(i)*0.19,1.0)
+		draw_rect(Rect2(base+Vector2(x,f*u*0.56),Vector2(u*0.035,u*0.19)),Color("#b8f2f2" if i%2==0 else "#65c8dc"))
+	for i in range(9):
+		var f:float=fposmod(float(Time.get_ticks_msec())*0.0005+float(i)*0.12,1.0)
+		var q:Vector2=p+Vector2((float(i%3)-1.0)*u*0.17,f*u*0.33)
+		draw_rect(Rect2(q,Vector2(u*0.10,u*0.035)),Color("#def9f4",1.0-f))
 
 func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
 	var stage: int = world.life_stage(p)
 	var variant: int = posmod(int(p.get("appearance",p["id"])),10)
-	var s: float = 19.0*zoom*[0.44,0.68,1.0,0.92][stage]
+	var s: float = 29.0*zoom*[0.44,0.68,1.0,0.92][stage]
 	if not landscape_objects.has("people_atlas"):
 		landscape_objects["people_atlas"] = load("res://assets/landscape/people_atlas.svg")
 	var atlas: Texture2D = landscape_objects["people_atlas"]
@@ -857,8 +866,7 @@ func _move_controlled(delta: float) -> void:
 	var toward := Vector2(float(actor["target_x"]) - float(actor["x"]), float(actor["target_y"]) - float(actor["y"]))
 	if toward.length() > 0.04:
 		var step := toward.limit_length(delta * world.speed * 2.4)
-		actor["x"] = clampf(float(actor["x"]) + step.x, 1.0, float(World.WIDTH - 2))
-		actor["y"] = clampf(float(actor["y"]) + step.y, 1.0, float(World.SIZE - 2))
+		world.move_actor(actor,step,delta*world.speed)
 
 func _clamp_map() -> void:
 	zoom = maxf(zoom, maxf(MAP_AREA.size.x / (float(World.WIDTH) * TILE_SIZE), MAP_AREA.size.y / (float(World.SIZE) * TILE_SIZE)))
@@ -907,43 +915,29 @@ func _zoom_out() -> void:
 	_zoom_around(MAP_AREA.get_center(), zoom / 1.25)
 
 func _sync_character_ui() -> void:
-	if is_instance_valid(action_button):
-		action_button.visible = character_view
-	if is_instance_valid(inventory_button):
-		inventory_button.visible = character_view
-	if viewport_3d != null:
-		viewport_3d.render_target_update_mode = SubViewport.UPDATE_ALWAYS if character_view else SubViewport.UPDATE_DISABLED
-	if not character_view:
-		joystick_touch = -1
-		look_touch = -1
-		joystick_direction = Vector2.ZERO
+	action_button.visible = controlled_id > 0
+	inventory_button.visible = controlled_id > 0
 
 func _toggle_view() -> void:
-	if not character_view and controlled_id <= 0:
-		var candidate_id: int = selected_person_id if selected_person_id > 0 else selected_beast_id
-		if candidate_id <= 0:
-			for p in world.people:
-				if bool(p["alive"]) and float(p["age"]) >= 16.0:
-					candidate_id = int(p["id"])
-					selected_person_id = candidate_id
-					break
-		var candidate: Dictionary = world.get_actor(candidate_id)
-		if not candidate.is_empty() and bool(candidate["alive"]):
-			controlled_id = candidate_id
-	if controlled_id <= 0:
-		world.news = "Escolha um habitante ou animal para explorar."
-		character_view = false
+	if controlled_id>0:
+		controlled_id=0
+		world.news="Observando o mundo."
 	else:
-		character_view = not character_view
-		world.news = "Use o analogico para andar. Arraste no lado direito para olhar." if character_view else "De volta ao mundo."
-	joystick_touch = -1
-	look_touch = -1
-	joystick_direction = Vector2.ZERO
+		var candidate_id:int=selected_person_id if selected_person_id>0 else selected_beast_id
+		if candidate_id<=0:
+			for p in world.people:
+				if bool(p["alive"]) and float(p["age"])>=16:
+					candidate_id=int(p["id"])
+					selected_person_id=candidate_id
+					break
+		var candidate:Dictionary=world.get_actor(candidate_id)
+		if not candidate.is_empty() and bool(candidate["alive"]):
+			controlled_id=candidate_id
+			candidate["target_x"]=candidate["x"]
+			candidate["target_y"]=candidate["y"]
+			_focus_at(Vector2(float(candidate["x"])+0.5,float(candidate["y"])+0.5))
+			world.news="Toque no mapa para andar. Use Coletar e Inventario."
 	_sync_character_ui()
-	if character_view:
-		character_world.rebuild()
-		var actor: Dictionary = world.get_actor(controlled_id)
-		character_world.follow(actor, look_yaw, look_pitch)
 	_refresh_ui()
 
 func _focus_at(point: Vector2) -> void:
@@ -979,6 +973,7 @@ func _toggle_control() -> void:
 		if not actor.is_empty() and bool(actor["alive"]):
 			controlled_id = target_id
 			world.news = "Agora voce controla " + str(actor["name"]) + ". Toque no mapa para andar."
+	_sync_character_ui()
 	_refresh_ui()
 
 func _toggle_war() -> void:
@@ -1139,7 +1134,7 @@ func _show_diplomacy() -> void:
 func _show_options() -> void:
 	var popup := PopupMenu.new()
 	popup.add_item("Construir casas / fazendas", 5)
-	popup.add_item("Explorar em primeira pessoa / Voltar ao mapa", 11)
+	popup.add_item("Controlar personagem / Soltar", 11)
 	popup.add_item("Inventario do personagem", 12)
 	popup.add_separator()
 	popup.add_item("Ver biomas", 10)
@@ -1351,7 +1346,7 @@ func _new_world() -> void:
 		character_view = false
 		_sync_character_ui()
 		map_offset = Vector2.ZERO
-		zoom = 0.92
+		zoom = 1.25
 		world.save_world()
 		_refresh_ui()
 	)
