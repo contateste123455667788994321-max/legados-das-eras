@@ -31,7 +31,7 @@ var actor_textures: Dictionary = {}
 var texture_missing := false
 var update_manager: Node
 var viewport_3d: SubViewport
-var character_world: Node3D
+var character_world
 var character_view := false
 var look_yaw := 0.0
 var joystick_touch := -1
