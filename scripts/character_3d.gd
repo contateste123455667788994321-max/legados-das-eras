@@ -22,25 +22,32 @@ func _ready() -> void:
 	camera.near = 0.08
 	camera.far = 125.0
 	add_child(camera)
-	# Machado em primeiro plano: modelo 3D acompanha a camera, como no conceito visual.
-	var grip := _box(camera, Vector3(0.62, -0.54, -0.96), Vector3(0.11, 0.90, 0.11), "#75462e")
-	grip.rotation.z = 0.28
-	var wood_stripe := _box(camera, Vector3(0.60, -0.54, -0.86), Vector3(0.035, 0.77, 0.04), "#c79557")
-	wood_stripe.rotation.z = 0.28
-	var head := _box(camera, Vector3(0.49, -0.13, -0.98), Vector3(0.42, 0.24, 0.14), "#718381")
-	head.rotation.z = -0.10
-	_box(camera, Vector3(0.30, -0.11, -0.97), Vector3(0.11, 0.20, 0.13), "#d4dfd6")
+	# Ferramenta com silhueta de pedra lascada e mao segurando o cabo.
+	var tool := Node3D.new()
+	camera.add_child(tool)
+	tool.position = Vector3(0.61, -0.43, -1.10)
+	tool.rotation.z = 0.34
+	var grip := _cylinder(tool, Vector3(0, -0.13, 0), 0.87, 0.055, "#775033", 9)
+	grip.rotation.z = -0.10
+	var blade := PackedVector2Array([Vector2(-0.28,0.24),Vector2(-0.38,0.10),Vector2(-0.31,-0.07),Vector2(-0.09,-0.13),Vector2(0.12,-0.05),Vector2(0.15,0.11),Vector2(-0.02,0.19)])
+	_extruded_blade(tool, Vector3(0,0.27,0), blade)
+	for band in range(4):
+		_cylinder(tool, Vector3(0.01,0.17+band*0.032,0),0.025,0.079,"#a5885c",8)
+	_sphere(tool, Vector3(0,-0.32,0.025),Vector3(0.09,0.13,0.09),"#bb8965")
+	_box(tool,Vector3(0.035,-0.55,0.07),Vector3(0.14,0.36,0.15),"#976747")
 
 	sun = DirectionalLight3D.new()
-	sun.light_energy = 1.15
-	sun.light_color = Color("#fff0cf")
+	sun.light_energy = 0.73
+	sun.light_color = Color("#fff3dd")
 	sun.shadow_enabled = true
 	sun.rotation_degrees = Vector3(-53.0, -34.0, 0.0)
 	add_child(sun)
 	world_env = WorldEnvironment.new()
 	var env := Environment.new()
 	var sky_material := ProceduralSkyMaterial.new()
-	sky_material.sky_top_color = Color("#397cae")
+	sky_material.sky_top_color = Color("#397eae")
+	sky_material.sky_curve = 0.45
+	sky_material.sun_angle_max = 12.0
 	sky_material.sky_horizon_color = Color("#b8d9df")
 	sky_material.ground_horizon_color = Color("#a7b9a0")
 	var sky := Sky.new()
@@ -49,11 +56,11 @@ func _ready() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.fog_enabled = true
 	env.fog_light_color = Color("#b5cbd0")
-	env.fog_density = 0.008
+	env.fog_density = 0.004
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("#afc8bf")
-	env.ambient_light_energy = 0.58
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.ambient_light_color = Color("#9db6cb")
+	env.ambient_light_energy = 0.32
+	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
 	world_env.environment = env
 	add_child(world_env)
 
@@ -134,16 +141,109 @@ func _sphere(parent: Node3D, pos: Vector3, size: Vector3, color: String) -> Mesh
 func _rng(x: int, y: int, salt: int) -> float:
 	return float(posmod(x * 1567 + y * 4187 + salt * 3571, 997)) / 997.0
 
+# Um unico mesh colorido por arvore: folhagem irregular, galhos e sombras,
+# em vez de tres esferas gigantes. As faces menores criam textura pixelada.
+func _triangle(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, tint: Color) -> void:
+	st.set_color(tint)
+	st.add_vertex(a)
+	st.set_color(tint)
+	st.add_vertex(b)
+	st.set_color(tint)
+	st.add_vertex(c)
+
+func _colored_mesh(parent: Node3D, p: Vector3, st: SurfaceTool) -> MeshInstance3D:
+	st.generate_normals()
+	var instance := MeshInstance3D.new()
+	instance.mesh = st.commit()
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.roughness = 1.0
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	instance.material_override = mat
+	instance.position = p
+	parent.add_child(instance)
+	return instance
+
+func _irregular_cluster(st: SurfaceTool, center: Vector3, radii: Vector3, rng: RandomNumberGenerator, tint: Color, segments: int = 8) -> void:
+	var rings: Array[PackedVector3Array] = []
+	for j in range(5):
+		var lat: float = -PI*0.5 + PI*float(j)/4.0
+		var ring := PackedVector3Array()
+		for i in range(segments):
+			var angle: float = TAU*float(i)/float(segments)
+			var jitter: float = rng.randf_range(0.75,1.15)
+			ring.append(center + Vector3(cos(angle)*cos(lat)*radii.x*jitter, sin(lat)*radii.y, sin(angle)*cos(lat)*radii.z*jitter))
+		rings.append(ring)
+	for j in range(4):
+		for i in range(segments):
+			var n: int = (i+1)%segments
+			var shade: float = rng.randf_range(-0.16,0.18) + float(j-1)*0.025
+			var col: Color = tint.lightened(shade) if shade > 0 else tint.darkened(-shade)
+			_triangle(st, rings[j][i], rings[j+1][i], rings[j+1][n],col)
+			_triangle(st, rings[j][i], rings[j+1][n], rings[j][n],col)
+
+func _branch(parent: Node3D, start: Vector3, end: Vector3, radius: float) -> void:
+	var d: Vector3 = end-start
+	var branch := _cylinder(parent,(start+end)*0.5,d.length(),radius,"#6d4d32",7)
+	branch.quaternion = Quaternion(Vector3.UP,d.normalized())
+
 func _tree(parent: Node3D, p: Vector3, pine: bool, height: float, snowy: bool = false) -> void:
-	_cylinder(parent, p + Vector3(0, height * 0.25, 0), height * 0.52, 0.12, "#624832")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = absi(int(p.x*1138+p.z*7919))
+	_cylinder(parent,p+Vector3(0,height*0.46,0),height*0.92,height*0.048,"#6b4930",9)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	if pine:
-		_cone(parent, p + Vector3(0, height * 0.68, 0), height * 0.70, height * 0.35, "#234b3b", 7)
-		_cone(parent, p + Vector3(0, height * 0.97, 0), height * 0.55, height * 0.27, "#357451" if not snowy else "#b8d7cd", 7)
-		_cone(parent, p + Vector3(0, height * 1.20, 0), height * 0.42, height * 0.18, "#4b9871" if not snowy else "#e7f4ed", 7)
+		for tier in range(5):
+			var y: float = height*(0.38+float(tier)*0.155)
+			var radius: float = height*(0.32-float(tier)*0.045)
+			for k in range(7):
+				var angle: float = TAU*float(k)/7.0+float(tier)*0.6
+				var off := Vector3(cos(angle)*radius*0.66,y,sin(angle)*radius*0.66)
+				var tint := Color("#285940").lerp(Color("#5e8d4e"),float(tier)/5.0)
+				_irregular_cluster(st,off,Vector3(radius*0.58,height*0.16,radius*0.58),rng,tint,6)
+				if snowy:
+					_irregular_cluster(st,off+Vector3(0,height*0.095,0),Vector3(radius*0.46,height*0.075,radius*0.46),rng,Color("#c4d6d6"),6)
 	else:
-		_sphere(parent, p + Vector3(0, height * 0.87, 0), Vector3(height * 0.44, height * 0.35, height * 0.42), "#285a38")
-		_sphere(parent, p + Vector3(-height * 0.18, height * 0.98, 0.0), Vector3(height * 0.27, height * 0.30, height * 0.29), "#3c814d")
-		_sphere(parent, p + Vector3(height * 0.13, height * 1.10, 0.06), Vector3(height * 0.28, height * 0.26, height * 0.31), "#5c9b53")
+		for k in range(7):
+			var angle: float = TAU*float(k)/7.0+rng.randf_range(-0.2,0.2)
+			var off := Vector3(cos(angle)*height*0.21,height*rng.randf_range(0.65,0.84),sin(angle)*height*0.21)
+			_branch(parent,p+Vector3(0,height*0.4,0),p+off,height*0.024)
+			for leaf in range(4):
+				var q: Vector3 = off+Vector3(rng.randf_range(-0.13,0.13),rng.randf_range(-0.05,0.18),rng.randf_range(-0.13,0.13))*height
+				var tint := Color("#305f2e").lerp(Color("#81a943"),rng.randf())
+				_irregular_cluster(st,q,Vector3(height*0.14,height*0.12,height*0.14),rng,tint,7)
+		for k in range(5):
+			_irregular_cluster(st,Vector3(rng.randf_range(-0.1,0.1),rng.randf_range(0.84,1.02),rng.randf_range(-0.1,0.1))*height,Vector3(height*0.17,height*0.13,height*0.17),rng,Color("#5a8b39"),7)
+	_colored_mesh(parent,p,st)
+
+func _rock_mass(parent: Node3D,p: Vector3,height: float,width: float,snowy: bool) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = absi(int(p.x*431+p.z*1973))
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for k in range(7):
+		var off := Vector3(rng.randf_range(-0.5,0.5)*width,height*rng.randf_range(0.18,0.5),rng.randf_range(-0.5,0.5)*width)
+		var scale_factor: float = rng.randf_range(0.45,0.8)
+		_irregular_cluster(st,off,Vector3(width*scale_factor,height*scale_factor,width*scale_factor),rng,Color("#666c64").lerp(Color("#969b8c"),rng.randf()),7)
+		if snowy and k%3==0:
+			_irregular_cluster(st,off+Vector3(0,height*scale_factor*0.68,0),Vector3(width*scale_factor*0.72,height*0.15,width*scale_factor*0.72),rng,Color("#d1dedb"),7)
+	_colored_mesh(parent,p,st)
+
+func _extruded_blade(parent: Node3D,p: Vector3,points: PackedVector2Array) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in range(points.size()):
+		var j: int = (i+1)%points.size()
+		var a := Vector3(points[i].x,points[i].y,0.05)
+		var b := Vector3(points[j].x,points[j].y,0.05)
+		var c := Vector3(points[i].x,points[i].y,-0.05)
+		var d := Vector3(points[j].x,points[j].y,-0.05)
+		_triangle(st,Vector3(0,0.05,0.078),a,b,Color("#929c9d").darkened(float(i%3)*0.13))
+		_triangle(st,Vector3(0,0.05,-0.078),d,c,Color("#727d80"))
+		_triangle(st,a,c,d,Color("#b7c3c1"))
+		_triangle(st,a,d,b,Color("#b7c3c1"))
+	_colored_mesh(parent,p,st)
 
 func _hut(parent: Node3D, p: Vector3, size: float = 1.0, era: int = 1) -> void:
 	if era > 1:
@@ -291,6 +391,7 @@ func rebuild() -> void:
 	ground.mesh = plane
 	var ground_material := StandardMaterial3D.new()
 	ground_material.albedo_texture = game.landscape_texture
+	ground_material.albedo_color = Color("#c1c5b4")
 	ground_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	ground_material.roughness = 0.95
 	ground.material_override = ground_material
@@ -304,8 +405,7 @@ func rebuild() -> void:
 			var px: float = (float(x) + 0.5) * SPACING
 			var pz: float = (float(y) + 0.5) * SPACING
 			if biome == "mountain":
-				_cone(root_mesh, Vector3(px, 1.12, pz), 2.5, 1.5, "#56675f", 5)
-				_cone(root_mesh, Vector3(px, 2.15, pz), 1.25, 0.75, "#bfcbc5", 5)
+				_rock_mass(root_mesh,Vector3(px,0,pz),2.6+_rng(x,y,31)*1.6,1.25,season==3 or y<8)
 			elif biome == "forest" and _rng(x, y, 1) > 0.27:
 				_tree(root_mesh, Vector3(px - 0.50, 0.0, pz - 0.35), _rng(x,y,2)>0.50, 2.0 + _rng(x,y,3) * 1.5)
 				if _rng(x, y, 4) > 0.73:
