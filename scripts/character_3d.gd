@@ -20,6 +20,15 @@ func _ready() -> void:
 	camera.near = 0.08
 	camera.far = 125.0
 	add_child(camera)
+	# Machado em primeiro plano: modelo 3D acompanha a camera, como no conceito visual.
+	var grip := _box(camera, Vector3(0.62, -0.54, -0.96), Vector3(0.11, 0.90, 0.11), "#75462e")
+	grip.rotation.z = 0.28
+	var wood_stripe := _box(camera, Vector3(0.60, -0.54, -0.86), Vector3(0.035, 0.77, 0.04), "#c79557")
+	wood_stripe.rotation.z = 0.28
+	var head := _box(camera, Vector3(0.49, -0.13, -0.98), Vector3(0.42, 0.24, 0.14), "#718381")
+	head.rotation.z = -0.10
+	_box(camera, Vector3(0.30, -0.11, -0.97), Vector3(0.11, 0.20, 0.13), "#d4dfd6")
+
 	sun = DirectionalLight3D.new()
 	sun.light_energy = 1.4
 	sun.shadow_enabled = true
