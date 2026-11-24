@@ -619,8 +619,7 @@ func _move_controlled(delta: float) -> void:
 	if actor.is_empty() or not bool(actor["alive"]):
 		controlled_id = 0
 		character_view = false
-		if viewport_3d != null:
-			viewport_3d.render_target_update_mode = SubViewport.UPDATE_DISABLED
+		_sync_character_ui()
 		return
 	if character_view:
 		var direction := joystick_direction
@@ -696,6 +695,18 @@ func _zoom_in() -> void:
 func _zoom_out() -> void:
 	_zoom_around(MAP_AREA.get_center(), zoom / 1.25)
 
+func _sync_character_ui() -> void:
+	if is_instance_valid(action_button):
+		action_button.visible = character_view
+	if is_instance_valid(inventory_button):
+		inventory_button.visible = character_view
+	if viewport_3d != null:
+		viewport_3d.render_target_update_mode = SubViewport.UPDATE_ALWAYS if character_view else SubViewport.UPDATE_DISABLED
+	if not character_view:
+		joystick_touch = -1
+		look_touch = -1
+		joystick_direction = Vector2.ZERO
+
 func _toggle_view() -> void:
 	if not character_view and controlled_id <= 0:
 		var candidate_id: int = selected_person_id if selected_person_id > 0 else selected_beast_id
@@ -717,12 +728,7 @@ func _toggle_view() -> void:
 	joystick_touch = -1
 	look_touch = -1
 	joystick_direction = Vector2.ZERO
-	if is_instance_valid(action_button):
-		action_button.visible = character_view
-	if is_instance_valid(inventory_button):
-		inventory_button.visible = character_view
-	if viewport_3d != null:
-		viewport_3d.render_target_update_mode = SubViewport.UPDATE_ALWAYS if character_view else SubViewport.UPDATE_DISABLED
+	_sync_character_ui()
 	if character_view:
 		character_world.rebuild()
 		var actor: Dictionary = world.get_actor(controlled_id)
@@ -735,8 +741,7 @@ func _focus_at(point: Vector2) -> void:
 
 func _focus_biome(kind: String) -> void:
 	character_view = false
-	if viewport_3d != null:
-		viewport_3d.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	_sync_character_ui()
 	var found := false
 	for y in range(world.tiles.size()):
 		var row: Array = world.tiles[y]
@@ -755,8 +760,7 @@ func _toggle_control() -> void:
 	if controlled_id > 0:
 		controlled_id = 0
 		character_view = false
-		if viewport_3d != null:
-			viewport_3d.render_target_update_mode = SubViewport.UPDATE_DISABLED
+		_sync_character_ui()
 		world.news = "Voce voltou a observar o mundo."
 	elif selected_person_id > 0 or selected_beast_id > 0:
 		var target_id := selected_person_id if selected_person_id > 0 else selected_beast_id
@@ -948,8 +952,7 @@ func _show_options() -> void:
 				if not world.towns.is_empty():
 					var t: Dictionary = world.towns[0]
 					character_view = false
-					if viewport_3d != null:
-						viewport_3d.render_target_update_mode = SubViewport.UPDATE_DISABLED
+					_sync_character_ui()
 					_focus_at(Vector2(float(t["x"]) + 0.5, float(t["y"]) + 0.5))
 			4: _show_details()
 			5: _show_construction()
@@ -1088,8 +1091,7 @@ func _new_world() -> void:
 		selected_town_id = 0
 		controlled_id = 0
 		character_view = false
-		if viewport_3d != null:
-			viewport_3d.render_target_update_mode = SubViewport.UPDATE_DISABLED
+		_sync_character_ui()
 		map_offset = Vector2.ZERO
 		zoom = 1.43
 		world.save_world()
