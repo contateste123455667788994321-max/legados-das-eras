@@ -4,8 +4,8 @@ class_name WorldSim
 const AgentAI = preload("res://scripts/ai.gd")
 const Politics = preload("res://scripts/politics.gd")
 const SIZE := 20
-# Um ano leva aproximadamente 12 minutos a 1x (antes levava ~20 segundos).
-const DAYS_PER_REAL_SECOND := 0.5
+# Um dia dura dez segundos a 1x; um ano dura cerca de 61 minutos.
+const DAYS_PER_REAL_SECOND := 0.10
 const NAMES := ["Ari", "Nara", "Taro", "Lia", "Breno", "Iara", "Dara", "Enzo", "Kira", "Suri", "Davi", "Maya", "Ravi", "Luna", "Rael", "Yara", "Cael", "Tina", "Eron", "Ayla"]
 var rng := RandomNumberGenerator.new()
 var agent_ai = AgentAI.new()
@@ -14,6 +14,9 @@ var tiles: Array = []
 var towns: Array = []
 var people: Array = []
 var beasts: Array = []
+var trees: Dictionary = {}
+var tree_revision := 0
+var next_seed_day := 15.0
 var next_id := 1
 var day := 0.0
 var next_birth := 120.0
@@ -37,6 +40,9 @@ func generate_world() -> void:
 	towns.clear()
 	people.clear()
 	beasts.clear()
+	trees.clear()
+	tree_revision += 1
+	next_seed_day = 15.0
 	next_id = 1
 	day = 0.0
 	next_birth = 120.0
@@ -81,6 +87,7 @@ func generate_world() -> void:
 	make_town("Vale Verde", 5, 5, false)
 	make_town("Pedra Alta", 15, 5, false)
 	make_town("Campo do Sol", 16, 15, false)
+	_seed_initial_trees()
 	politics.prepare(self)
 	news = "Tres aldeias vivem em paz. Voce decide o futuro."
 
@@ -131,6 +138,7 @@ func make_person(town_id: int, x: float, y: float, age: int = 20, father: int = 
 		"partner": 0, "role": "Aldeao", "alive": true,
 		"health": 100.0, "wood": 0, "food": 2,
 		"temper": rng.randi_range(0, 100), "color": rng.randi_range(0, 5),
+		"appearance": rng.randi_range(0, 9), "skin": rng.randi_range(0, 4), "hair": rng.randi_range(0, 5),
 		"wander": rng.randf_range(0.2, 2.0), "target_x": x, "target_y": y
 	}
 	people.append(person)
@@ -196,6 +204,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 	var dt := minf(delta, 0.1) * speed
 	var elapsed_days := dt * DAYS_PER_REAL_SECOND
 	day += elapsed_days
+	_update_trees(dt)
 	for t in towns:
 		# Avanco vinculado aos dias do mundo e a geracoes, nao aos quadros por segundo.
 		t["knowledge"] = float(t["knowledge"]) + elapsed_days * (0.012 + float(active_population(int(t["id"]))) * 0.00035)
@@ -209,11 +218,11 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 		if not bool(p["alive"]):
 			continue
 		p["age"] = float(p["age"]) + elapsed_days / 365.0
-		if float(p["age"]) > 79 and rng.randf() < dt * 0.015:
+		if float(p["age"]) > 79 and rng.randf() < elapsed_days * 0.0008:
 			kill_person(p)
 			continue
 		if int(p["id"]) != controlled_id:
-			_wander(p, dt, 0.65)
+			_wander(p, dt, 0.65 * life_speed(p))
 	for b in beasts:
 		if bool(b["alive"]) and int(b["id"]) != controlled_id:
 			_wander(b, dt, 1.0)
@@ -434,6 +443,7 @@ func save_world() -> bool:
 		return false
 	var data := {
 		"tiles": tiles, "towns": towns, "people": people, "beasts": beasts,
+		"trees": trees, "next_seed_day": next_seed_day,
 		"next_id": next_id, "day": day, "next_birth": next_birth,
 		"next_growth": next_growth, "wars": wars, "rivals": rivals, "predators": predators
 	}
@@ -466,6 +476,92 @@ func load_world() -> bool:
 	predators = bool(value.get("predators", false))
 	news = "Mundo salvo carregado."
 	if tiles.size() == SIZE:
+		trees = value.get("trees", {})
+		next_seed_day = float(value.get("next_seed_day", day + 15.0))
+		if not value.has("trees"):
+			_seed_initial_trees()
+		tree_revision += 1
+		for p in people:
+			if not p.has("appearance"): p["appearance"] = posmod(int(p["id"]), 10)
+			if not p.has("skin"): p["skin"] = posmod(int(p["id"])*3,5)
+			if not p.has("hair"): p["hair"] = posmod(int(p["id"])*7,6)
 		politics.prepare(self)
 		return true
 	return false
+
+func life_stage(person: Dictionary) -> int:
+	var age: float = float(person.get("age", 25.0))
+	if age < 3: return 0
+	if age < 16: return 1
+	if age >= 60: return 3
+	return 2
+
+func life_speed(person: Dictionary) -> float:
+	return [0.28, 0.68, 1.0, 0.64][life_stage(person)]
+
+func tree_key(x: int, y: int) -> String:
+	return "%d:%d" % [x,y]
+
+func _tree_allowed(x: int, y: int) -> bool:
+	var kind: String = str(tiles[y][x])
+	if kind not in ["forest","grass","snow"]: return false
+	for town in towns:
+		if Vector2(x,y).distance_to(Vector2(float(town["x"]),float(town["y"]))) < 2.8: return false
+	return true
+
+func _plant_tree(x: int,y: int,mature: bool) -> void:
+	var kind: String = str(tiles[y][x])
+	trees[tree_key(x,y)] = {"x":x,"y":y,"ox":rng.randf_range(-0.23,0.23),"oy":rng.randf_range(-0.23,0.23),"pine":kind=="snow" or rng.randf()<0.28,"state":"live","born":day-100.0 if mature else day,"fall":0.0,"regrow":0.0}
+	tree_revision += 1
+
+func _seed_initial_trees() -> void:
+	for y in range(SIZE):
+		for x in range(SIZE):
+			if not _tree_allowed(x,y): continue
+			var kind: String = str(tiles[y][x])
+			if rng.randf() < (0.93 if kind=="forest" else (0.78 if kind=="snow" else 0.14)):
+				_plant_tree(x,y,true)
+
+func tree_scale(tree: Dictionary) -> float:
+	return 0.25 + 0.75*clampf((day-float(tree.get("born",day)))/100.0,0.0,1.0)
+
+func cut_tree(actor: Dictionary, x: int,y: int) -> bool:
+	var key: String = tree_key(x,y)
+	if not trees.has(key): return false
+	var tree: Dictionary = trees[key]
+	if str(tree["state"])!="live" or tree_scale(tree)<0.65: return false
+	tree["state"]="falling"
+	tree["fall"]=0.0
+	tree["regrow"]=day+rng.randf_range(50.0,100.0)
+	actor["wood"]=int(actor.get("wood",0))+3
+	tree_revision+=1
+	news=str(actor["name"])+" derrubou uma arvore e recolheu 3 madeiras."
+	return true
+
+func _update_trees(dt: float) -> void:
+	for key in trees.keys():
+		var tree: Dictionary = trees[key]
+		match str(tree["state"]):
+			"falling":
+				tree["fall"]=minf(1.0,float(tree["fall"])+dt/1.1)
+				if float(tree["fall"])>=1.0:
+					tree["state"]="stump"
+					tree_revision+=1
+			"stump":
+				if day>=float(tree["regrow"]):
+					if _tree_allowed(int(tree["x"]),int(tree["y"])):
+						tree["state"]="live"
+						tree["born"]=day
+						tree["fall"]=0.0
+						tree_revision+=1
+					else:
+						trees.erase(key)
+						tree_revision+=1
+	if day>=next_seed_day:
+		next_seed_day=day+15.0
+		for attempt in range(18):
+			var x: int=rng.randi_range(1,SIZE-2)
+			var y: int=rng.randi_range(1,SIZE-2)
+			if _tree_allowed(x,y) and not trees.has(tree_key(x,y)):
+				_plant_tree(x,y,false)
+				break
