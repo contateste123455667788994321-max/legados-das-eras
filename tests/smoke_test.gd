@@ -243,16 +243,25 @@ func _run_tests() -> void:
 	world.speed = 1.0
 	world.toggle_predators()
 	_check(world.predators and world.beasts.size() == 8, "Animais ativaveis")
-	var victim:Dictionary=world.people[0]
-	var wolf:Dictionary=world.beasts[0]
-	world.tiles[5][5]="grass"
+	var attack_world=World.new()
+	attack_world.generate_world()
+	attack_world.predators=true
+	var victim:Dictionary=attack_world.people[0]
+	attack_world.people=[victim]
+	victim["alive"]=true
+	victim["health"]=100.0
 	victim["x"]=5.0
 	victim["y"]=5.0
-	wolf["x"]=5.3
-	wolf["y"]=5.0
+	var wolf:Dictionary={"id":-401,"species":"Lobo","alive":true,"health":85.0,"max_health":85.0,"x":6.2,"y":5.0}
 	var victim_hp:float=float(victim["health"])
-	_check(world._hostile_animal_step(wolf,0.1) and float(victim["health"])<victim_hp,"Lobo ataca humano ao alcance")
-	victim["health"]=victim_hp
+	_check(attack_world._hostile_animal_step(wolf,0.1) and float(wolf["x"])<6.2 and float(victim["health"])==victim_hp,"Lobo persegue alvo sem causar dano a distancia")
+	wolf["x"]=5.3
+	_check(attack_world._hostile_animal_step(wolf,0.1) and float(victim["health"])<victim_hp,"Lobo ataca humano ao alcance")
+	var after_hit:float=float(victim["health"])
+	attack_world._hostile_animal_step(wolf,0.1)
+	_check(float(victim["health"])==after_hit,"Lobo respeita intervalo entre ataques")
+	attack_world.predators=false
+	_check(not attack_world._hostile_animal_step(wolf,1.0),"Ataques desativados respeitam controle do jogador")
 	world.toggle_predators()
 	_check(not world.predators, "Animais desativaveis")
 	world.toggle_rivals()

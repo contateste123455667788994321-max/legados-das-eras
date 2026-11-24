@@ -1767,10 +1767,8 @@ func _draw_natural_animal(animal:Dictionary,p:Vector2) -> void:
 		var atlas:Texture2D=landscape_objects["reference_characters"]
 		var walking:bool=moving and species not in ["frog","crocodile","duck"]
 		_draw_walk_sprite(atlas,Rect2(int(indices[species])*48,0,48,48),p,s,face,phase,walking,bounce)
-	elif species=="boar":
-		if not landscape_objects.has("boar_walk"): landscape_objects["boar_walk"]=load("res://assets/landscape/boar_walk.svg")
-		var frame:int=int(fposmod(phase,TAU)/TAU*4) if moving else 0
-		_draw_walk_sprite(landscape_objects["boar_walk"],Rect2(frame*64,0,64,64),p,s,face,phase,moving,0.0)
+	elif species in ["boar","fox","turtle","heron","camel","lizard"]:
+		_draw_animal_frames(species,p,s,face,phase,moving)
 	else:
 		if not landscape_objects.has(species): landscape_objects[species]=load("res://assets/landscape/"+species+".svg")
 		var texture:Texture2D=landscape_objects[species]
@@ -1817,8 +1815,7 @@ func _draw_animated_beast(b:Dictionary,p:Vector2,key:String) -> void:
 	var moving:bool=bool(movement.get("moving",false)) and world.speed>0
 	var phase:float=float(movement.get("phase",0))
 	_contact_shadow(p,s*0.29,s*0.09)
-	var texture:Texture2D=actor_textures[key]
-	_draw_walk_sprite(texture,Rect2(Vector2.ZERO,texture.get_size()),p,s,float(movement.get("face",1.0)),phase,moving,absf(sin(phase))*s*0.025 if moving else 0.0)
+	_draw_animal_frames(key,p,s,float(movement.get("face",1.0)),phase,moving)
 
 # Variacoes de roupas e cabelo preservam o rosto e os contornos dos sprites.
 func _prepare_people_variants() -> void:
@@ -1848,3 +1845,12 @@ func _prepare_people_variants() -> void:
 						var changed:=Color.from_hsv(color.h,color.s,pixel.v,pixel.a)
 						img.set_pixel(index*48+x,y,pixel.lerp(changed,0.72))
 		people_variants.append(ImageTexture.create_from_image(img))
+
+func _draw_animal_frames(species:String,p:Vector2,s:float,face:float,phase:float,moving:bool) -> void:
+	var key:String=species+"_walk"
+	if not landscape_objects.has(key):
+		landscape_objects[key]=load("res://assets/landscape/"+key+".svg")
+	var texture:Texture2D=landscape_objects[key]
+	if texture==null: return
+	var frame:int=int(fposmod(phase,TAU)/TAU*4) if moving else 0
+	_draw_walk_sprite(texture,Rect2(frame*64,0,64,64),p,s,face,phase,false,0.0)
