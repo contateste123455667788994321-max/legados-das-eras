@@ -153,6 +153,25 @@ func _explorer() -> void:
 	game._toggle_view()
 	_assert(game.character_view, "Explorador: entra na visao do personagem")
 	_assert(game.viewport_3d.render_target_update_mode == SubViewport.UPDATE_ALWAYS, "Explorador: renderizacao 3D ligada")
+
+	var controlled: Dictionary = game.world.get_actor(game.controlled_id)
+	controlled["x"] = 10.0
+	controlled["y"] = 10.0
+	game.world.tiles[10][10] = "grass"
+	game.world.tiles[9][10] = "grass"
+	game.world.tiles[9][9] = "grass"
+	game.joystick_direction = Vector2(0, -1)
+	game.look_yaw = 0.0
+	game._move_controlled(0.2)
+	_assert(float(controlled["y"]) < 10.0, "Explorador: analogico move personagem no mundo 3D")
+	game.look_yaw = PI * 0.5
+	var old_x: float = float(controlled["x"])
+	game._move_controlled(0.2)
+	_assert(float(controlled["x"]) < old_x, "Explorador: personagem muda direcao junto com a camera")
+	game.joystick_direction = Vector2.ZERO
+	game.character_world.follow(controlled, game.look_yaw)
+	_assert(game.character_world.camera.position.x > 0.0, "Explorador: camera 3D acompanha corpo do personagem")
+
 	game._toggle_view()
 	_assert(not game.character_view, "Explorador: volta ao mapa")
 	_assert(game.viewport_3d.render_target_update_mode == SubViewport.UPDATE_DISABLED, "Explorador: voltar economiza bateria")
