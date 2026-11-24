@@ -39,6 +39,8 @@ var look_touch := -1
 var joystick_center := Vector2.ZERO
 var joystick_direction := Vector2.ZERO
 var view_button: Button
+var action_button: Button
+var inventory_button: Button
 
 var info_label: Label
 var stats_label: Label
@@ -129,6 +131,10 @@ func _build_ui() -> void:
 	_button("Atualizar", Vector2(1196, 15), Vector2(80, 38), Callable(self, "_check_updates"))
 	info_label = _label("", Vector2(32, 660), Vector2(1150, 26), 16, Color("#fff0bb"))
 	info_label.visible = false
+	action_button = _button("Coletar", Vector2(1104, 590), Vector2(143, 52), Callable(self, "_character_action"))
+	inventory_button = _button("Inventario", Vector2(929, 590), Vector2(166, 52), Callable(self, "_show_inventory"))
+	action_button.visible = false
+	inventory_button.visible = false
 
 func _add_biome_touch(kind: String, pos: Vector2) -> void:
 	var btn := Button.new()
@@ -711,6 +717,10 @@ func _toggle_view() -> void:
 	joystick_touch = -1
 	look_touch = -1
 	joystick_direction = Vector2.ZERO
+	if is_instance_valid(action_button):
+		action_button.visible = character_view
+	if is_instance_valid(inventory_button):
+		inventory_button.visible = character_view
 	if viewport_3d != null:
 		viewport_3d.render_target_update_mode = SubViewport.UPDATE_ALWAYS if character_view else SubViewport.UPDATE_DISABLED
 	if character_view:
@@ -976,6 +986,31 @@ func _show_world_cycle() -> void:
 	add_child(dialog)
 	dialog.popup_centered(Vector2i(610, 390))
 	dialog.confirmed.connect(dialog.queue_free)
+
+func _character_action() -> void:
+	var actor: Dictionary = world.get_actor(controlled_id)
+	if actor.is_empty():
+		world.news = "Escolha um personagem para agir."
+		return
+	var px: int = clampi(int(float(actor["x"])), 0, World.SIZE - 1)
+	var py: int = clampi(int(float(actor["y"])), 0, World.SIZE - 1)
+	var biome: String = str(world.tiles[py][px])
+	if biome == "forest":
+		actor["wood"] = int(actor.get("wood", 0)) + 3
+		world.news = str(actor["name"]) + " coletou 3 madeiras na floresta."
+	elif biome == "grass":
+		actor["wood"] = int(actor.get("wood", 0)) + 1
+		world.news = str(actor["name"]) + " coletou galhos no campo."
+	elif biome == "sand":
+		actor["food"] = int(actor.get("food", 0)) + 1
+		world.news = str(actor["name"]) + " encontrou mantimentos no deserto."
+	elif biome == "snow":
+		actor["wood"] = int(actor.get("wood", 0)) + 1
+		world.news = str(actor["name"]) + " guardou lenha para o frio."
+	else:
+		world.news = "Aqui nao ha recursos faceis de recolher."
+	world.save_world()
+	_refresh_ui()
 
 func _show_inventory() -> void:
 	var actor: Dictionary = world.get_actor(controlled_id)
