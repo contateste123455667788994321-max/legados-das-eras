@@ -181,10 +181,18 @@ func _explorer() -> void:
 	var previous_wood: int = int(controlled.get("wood", 0))
 	game._character_action()
 	_assert(int(controlled.get("wood", 0)) == previous_wood + 3, "Explorador: coletar madeira realmente altera inventario")
+	game.world.tiles[9][9] = "mountain"
+	var previous_stone: int = int(controlled.get("stone", 0))
+	game._character_action()
+	_assert(int(controlled.get("stone", 0)) == previous_stone + 2, "Explorador: coleta de pedra entra na mochila")
+	game.world.tiles[9][9] = "water"
+	var previous_water: int = int(controlled.get("water", 0))
+	game._character_action()
+	_assert(int(controlled.get("water", 0)) == previous_water + 2, "Explorador: coleta de agua entra na mochila")
 	game._show_inventory()
 	var inventory_open := false
 	for overlay in game.get_children():
-		if overlay is AcceptDialog and overlay.title == "Mochila e condicao":
+		if overlay is AcceptDialog and overlay.title == "Inventario":
 			inventory_open = true
 	_assert(inventory_open, "Explorador: inventario abre durante a caminhada")
 
