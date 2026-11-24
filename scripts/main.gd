@@ -122,6 +122,9 @@ func _load_art() -> void:
 			actor_textures[actor] = texture
 		else:
 			texture_missing = true
+	for key in ["hut","farm"]:
+		var new_art: Resource = load("res://assets/landscape/reference_"+key+".png")
+		if new_art is Texture2D: actor_textures[key] = new_art
 	if texture_missing:
 		push_warning("Alguns desenhos do mapa ainda nao foram carregados.")
 
@@ -349,7 +352,21 @@ func _draw_landscape() -> void:
 					near_house = true
 					break
 			if near_house: continue
-			if kind == "mountain":
+			if kind == "water":
+				var phase: float = fposmod(float(Time.get_ticks_msec())*0.00016+float(seed)*0.017,1.0)
+				var wave: Vector2 = pos+Vector2((phase-0.5)*side*0.38,side*0.04)
+				if MAP_AREA.grow(-side*0.2).has_point(wave):
+					draw_rect(Rect2(wave,Vector2(side*0.12,maxf(1,side*0.018))),Color("#94e4eb",0.66))
+			elif kind == "grass" or kind == "forest":
+				for n in range(5):
+					var k: int = posmod(seed*31+n*127,997)
+					var q: Vector2 = pos+Vector2(float(k%23)/23.0-0.5,float(k%17)/17.0-0.5)*side*0.85
+					if not MAP_AREA.grow(-side*0.08).has_point(q): continue
+					var ss: float = maxf(1.0,side*0.026)
+					draw_rect(Rect2(q,Vector2(ss,ss*2)),Color("#496c2c"))
+					draw_rect(Rect2(q+Vector2(ss,ss),Vector2(ss,ss)),Color("#91a94e"))
+					if k%7==0: draw_rect(Rect2(q-Vector2(0,ss),Vector2(ss,ss)),Color("#ead0a5"))
+			elif kind == "mountain":
 				_draw_landscape_object("rock", pos, side*1.18)
 			elif kind == "sand" and seed % 4 == 0:
 				_draw_landscape_object("cactus", pos, side*0.66)
@@ -419,16 +436,17 @@ func _draw() -> void:
 		if not MAP_AREA.grow(140.0).has_point(center):
 			continue
 		var unit := TILE_SIZE * zoom
+		_draw_village_paths(town, center, unit, house_spots, farm_spots)
 		# A terra cultivada cresce quando uma fazenda fica pronta.
 		for i in range(mini(int(town.get("farms", 1)), farm_spots.size())):
 			var spot: Vector2 = farm_spots[i]
-			_draw_sprite("farm", center + spot * unit, Vector2(1.32, 1.32) * unit, true)
+			_draw_sprite("farm", center + spot * unit, Vector2(1.45, 0.96) * unit, true)
 		for i in range(mini(int(town.get("houses", 2)), house_spots.size())):
 			var spot: Vector2 = house_spots[i]
 			var house_size: float = 1.62 if i == 0 else 1.35
 			var era: int = clampi(int(town.get("level", 1)), 1, 5)
 			if era == 1:
-				_draw_sprite("hut", center + spot * unit, Vector2(house_size, house_size) * unit, true)
+				_draw_sprite("hut", center + spot * unit, Vector2(house_size, house_size*0.82) * unit, true)
 			else:
 				_draw_landscape_object("house_" + str(era), center + spot * unit + Vector2(0, house_size * unit * 0.27), house_size * unit * (1.0 + float(era-1)*0.10))
 		_draw_sprite("fire", center + Vector2(0.7, 1.0) * unit, Vector2(1.2, 1.2) * unit, true)
@@ -484,15 +502,36 @@ func _draw() -> void:
 		draw_rect(Rect2(17, 650, 1207, 41), Color("#172219", 0.86), true)
 		draw_rect(Rect2(17, 650, 1207, 41), Color("#d1ab6c"), false, 1.0)
 
+func _draw_village_paths(town: Dictionary, center: Vector2, unit: float, houses: Array[Vector2], farms: Array[Vector2]) -> void:
+	for i in range(mini(int(town.get("houses",2)),houses.size())):
+		_draw_dirt_path(center+Vector2(0.7,1.0)*unit,center+houses[i]*unit+Vector2(0,unit*0.30),unit)
+	for i in range(mini(int(town.get("farms",1)),farms.size())):
+		_draw_dirt_path(center+Vector2(0.7,1.0)*unit,center+farms[i]*unit,unit)
+
+func _draw_dirt_path(a: Vector2,b: Vector2,unit: float) -> void:
+	var count: int = maxi(2,int(a.distance_to(b)/(unit*0.07)))
+	for i in range(count+1):
+		var t: float = float(i)/float(count)
+		var p: Vector2 = a.lerp(b,t)
+		var size: float = unit*(0.19+0.04*sin(t*19.0))
+		if not MAP_AREA.grow(-size).has_point(p): continue
+		draw_rect(Rect2(p-Vector2.ONE*size*0.5,Vector2.ONE*size),Color("#a78a4f"))
+		if i%3==0:
+			draw_rect(Rect2(p-Vector2(size*0.2,size*0.25),Vector2(size*0.23,size*0.18)),Color("#d4b477"))
+
+
 func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
 	var stage: int = world.life_stage(p)
 	var variant: int = posmod(int(p.get("appearance",p["id"])),10)
-	var s: float = 38.0*zoom*[0.44,0.68,1.0,0.92][stage]
+	var s: float = 19.0*zoom*[0.44,0.68,1.0,0.92][stage]
 	if not landscape_objects.has("people_atlas"):
 		landscape_objects["people_atlas"] = load("res://assets/landscape/people_atlas.svg")
 	var atlas: Texture2D = landscape_objects["people_atlas"]
 	var source := Rect2(float(variant%5)*64.0+16.0,float(int(p["gender"])*2+floori(float(variant)/5.0))*48.0,32.0,48.0)
-	var dest := Rect2(center-Vector2(s/3.0,s*0.7),Vector2(s*2.0/3.0,s))
+	var target := Vector2(float(p.get("target_x",p["x"])),float(p.get("target_y",p["y"])))
+	var moving: bool = target.distance_to(Vector2(float(p["x"]),float(p["y"])))>0.08 and world.speed>0.0
+	var bounce: float = floorf(absf(sin(float(Time.get_ticks_msec())*0.014+float(p["id"])))) * 2.0*zoom if moving else 0.0
+	var dest := Rect2(center-Vector2(s/3.0,s*0.7+bounce),Vector2(s*2.0/3.0,s))
 	var clipped := dest.intersection(MAP_AREA)
 	if clipped.has_area():
 		draw_texture_rect_region(atlas,clipped,Rect2(source.position+(clipped.position-dest.position)/dest.size*source.size,clipped.size/dest.size*source.size))
