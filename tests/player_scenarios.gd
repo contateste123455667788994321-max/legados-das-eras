@@ -171,10 +171,25 @@ func _explorer() -> void:
 	game.joystick_direction = Vector2.ZERO
 	game.character_world.follow(controlled, game.look_yaw)
 	_assert(game.character_world.camera.position.x > 0.0, "Explorador: camera 3D acompanha corpo do personagem")
+	_assert(game.action_button.visible and game.inventory_button.visible, "Explorador: acoes e inventario aparecem apenas no 3D")
+	controlled["x"] = 9.5
+	controlled["y"] = 9.5
+	game.world.tiles[9][9] = "forest"
+	var previous_wood: int = int(controlled.get("wood", 0))
+	game._character_action()
+	_assert(int(controlled.get("wood", 0)) == previous_wood + 3, "Explorador: coletar madeira realmente altera inventario")
+	game._show_inventory()
+	var inventory_open := false
+	for overlay in game.get_children():
+		if overlay is AcceptDialog and overlay.title == "Mochila e condicao":
+			inventory_open = true
+	_assert(inventory_open, "Explorador: inventario abre durante a caminhada")
+
 
 	game._toggle_view()
 	_assert(not game.character_view, "Explorador: volta ao mapa")
 	_assert(game.viewport_3d.render_target_update_mode == SubViewport.UPDATE_DISABLED, "Explorador: voltar economiza bateria")
+	_assert(not game.action_button.visible and not game.inventory_button.visible, "Explorador: mapa fica limpo sem botoes de inventario")
 	game.queue_free()
 
 func _chaos() -> void:
