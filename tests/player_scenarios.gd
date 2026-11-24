@@ -170,7 +170,9 @@ func _explorer() -> void:
 	game._move_controlled(0.2)
 	_assert(float(controlled["x"]) < old_x, "Explorador: personagem muda direcao junto com a camera")
 	game.joystick_direction = Vector2.ZERO
-	game.character_world.follow(controlled, game.look_yaw)
+	game.look_pitch = -0.21
+	game.character_world.follow(controlled, game.look_yaw, game.look_pitch)
+	_assert(is_equal_approx(game.character_world.camera.rotation.x, -0.21), "Explorador: camera olha para cima e baixo")
 	_assert(game.character_world.camera.position.x > 0.0, "Explorador: camera 3D acompanha corpo do personagem")
 	_assert(game.action_button.visible and game.inventory_button.visible, "Explorador: acoes e inventario aparecem apenas no 3D")
 	controlled["x"] = 9.5
