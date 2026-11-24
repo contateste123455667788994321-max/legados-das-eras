@@ -112,7 +112,7 @@ func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
 		"law": "primogenitura", "water": 18.0,
 		"home_biome": founding_biome,
 		"clothing": 0.0, "drought_preparation": false,
-		"houses": 2, "farms": 1, "construction": {}, "historical_events": []
+		"houses": 2, "farms": 1, "oven":false, "forge":false, "crossing":false, "stone":0.0, "construction": {}, "historical_events": []
 	}
 	towns.append(town)
 	tiles[y][x] = "grass"
@@ -257,6 +257,9 @@ func construction_cost(kind: String) -> float:
 	match kind:
 		"house": return 14.0
 		"farm": return 18.0
+		"oven": return 8.0
+		"forge": return 20.0
+		"crossing": return 16.0
 	return -1.0
 
 func start_construction(town_id: int, kind: String) -> bool:
@@ -277,12 +280,32 @@ func start_construction(town_id: int, kind: String) -> bool:
 	if kind == "farm" and int(town.get("farms", 1)) >= 6:
 		news = "Esta aldeia atingiu o limite de fazendas."
 		return false
+	if kind in ["oven","forge","crossing"]:
+		if bool(town.get(kind,false)): return false
+		if kind=="forge" and (int(town["level"])<3 or not bool(town.get("oven",false))):
+			news="A forja exige a terceira era e um forno."
+			return false
+		if float(town.get("stone",0))<workshop_stone_cost(kind):
+			news="Pedra insuficiente para a obra."
+			return false
 	if float(town["wood"]) < cost:
 		news = "Madeira insuficiente: precisa de %d, tem %d." % [int(cost), int(float(town["wood"]))]
 		return false
 	town["wood"] = float(town["wood"]) - cost
-	var label: String = "casa" if kind == "house" else "fazenda"
-	town["construction"] = {"kind": kind, "progress": 0.0, "duration": 12.0 if kind == "house" else 15.0}
+	var label:String={"house":"casa","farm":"fazenda","oven":"forno","forge":"forja","crossing":"ponte"}[kind]
+	town["construction"]={"kind":kind,"progress":0.0,"duration":float({"house":12,"farm":15,"oven":20,"forge":32,"crossing":26}[kind])}
+	if kind in ["oven","forge","crossing"]:
+		town["stone"]=float(town.get("stone",0))-workshop_stone_cost(kind)
+		var pos:Vector2=workshop_position(town,kind)
+		town["construction"]["x"]=pos.x
+		town["construction"]["y"]=pos.y
+		var worker:Dictionary={}
+		for p in people:
+			if bool(p["alive"]) and int(p["town"])==town_id and float(p["age"])>=16.0:
+				if worker.is_empty() or str(p.get("profession",""))=="Construtor": worker=p
+		if not worker.is_empty():
+			worker["profession"]="Construtor"
+			worker["specialty_v57"]=true
 	news = str(town["name"]) + " iniciou uma " + label + "."
 	return true
 
@@ -291,21 +314,27 @@ func progress_construction(town: Dictionary, dt: float) -> void:
 	if site.is_empty() or dt <= 0.0:
 		return
 	var helpers := 0
+	var workshop:bool=str(site["kind"]) in ["oven","forge","crossing"]
 	for person in people:
 		if not bool(person["alive"]) or int(person["town"]) != int(town["id"]):
 			continue
 		if str(person.get("profession", "")) == "Construtor" and str(person.get("task", "")) == "Construindo":
-			helpers += 1
+			if not workshop or Vector2(float(person["x"]),float(person["y"])).distance_to(Vector2(float(site.get("x",town["x"])),float(site.get("y",town["y"]))))<1.1:
+				helpers += 1
+	if workshop and helpers==0: return
 	site["progress"] = float(site.get("progress", 0.0)) + dt * (1.0 + minf(float(helpers) * 0.3, 0.9))
 	if float(site["progress"]) < float(site.get("duration", 12.0)):
 		return
 	var kind: String = str(site["kind"])
 	if kind == "house":
 		town["houses"] = int(town.get("houses", 2)) + 1
+	elif kind=="farm":
+		town["farms"]=int(town.get("farms",1))+1
 	else:
-		town["farms"] = int(town.get("farms", 1)) + 1
-	town["construction"] = {}
-	var label: String = "Casa pronta" if kind == "house" else "Fazenda pronta"
+		town[kind]=true
+		sites.append({"kind":kind,"x":site["x"],"y":site["y"],"town":town["id"]})
+	town["construction"]={}
+	var label:String={"house":"Casa pronta","farm":"Fazenda pronta","oven":"Forno construido","forge":"Forja construida","crossing":"Ponte construida"}[kind]
 	var history: Array = town.get("historical_events", [])
 	history.append({"day": int(day), "event": label + "."})
 	if history.size() > 12:
@@ -507,6 +536,11 @@ func load_world() -> bool:
 			_connect_rivers()
 			_prepare_sites()
 		elif sites.is_empty(): _prepare_sites()
+		for i in range(sites.size()-1,-1,-1):
+			var site:Dictionary=sites[i]
+			if str(site["kind"]) in ["oven","forge","crossing"]:
+				var owner:Dictionary=get_town(int(site["town"]))
+				if not bool(owner.get(str(site["kind"]),false)): sites.remove_at(i)
 		if not value.has("wildlife"): _seed_wildlife()
 		tree_revision += 1
 		for p in people:
@@ -616,7 +650,10 @@ func _prepare_sites() -> void:
 	sites.clear()
 	for town in towns:
 		var origin:=Vector2(float(town["x"]),float(town["y"]))
-		sites.append({"kind":"oven","x":origin.x+0.85,"y":origin.y+1.95,"town":town["id"]})
+		for kind in ["oven","forge","crossing"]:
+			if bool(town.get(kind,false)):
+				var pos:Vector2=workshop_position(town,kind)
+				sites.append({"kind":kind,"x":pos.x,"y":pos.y,"town":town["id"]})
 		for kind in ["fish","mine"]:
 			var best: float=10000.0
 			var chosen:=Vector2(-1,-1)
@@ -632,7 +669,7 @@ func _prepare_sites() -> void:
 					if d<best:
 						best=d
 						chosen=Vector2(x,y)
-			if chosen.x>=0: sites.append({"kind":kind,"x":chosen.x,"y":chosen.y,"town":town["id"]})
+			if chosen.x>=0: sites.append({"kind":kind,"x":chosen.x,"y":chosen.y,"town":town["id"],"developed":false,"work":0.0})
 	for x in range(1,WIDTH-1):
 		if str(tiles[2][x])=="water" and str(tiles[3][x])=="water":
 			sites.append({"kind":"waterfall","x":x,"y":2})
@@ -682,7 +719,9 @@ func _connect_rivers() -> void:
 	tree_revision+=1
 
 func is_bridge(x:int,y:int) -> bool:
-	return y in [6,14] and (x==river_x(y,0) or x==river_x(y,1))
+	for site in sites:
+		if str(site["kind"])=="crossing" and int(site["x"])==x and int(site["y"])==y: return true
+	return false
 
 func water_flow(p:Vector2) -> Vector2:
 	var y:int=clampi(int(p.y),0,SIZE-1)
@@ -701,3 +740,29 @@ func move_actor(actor:Dictionary,step:Vector2,dt:float) -> void:
 	q.y=clampf(q.y,1.0,SIZE-2.0)
 	actor["x"]=q.x
 	actor["y"]=q.y
+
+func workshop_stone_cost(kind:String) -> float:
+	return float({"oven":12,"forge":24,"crossing":4}.get(kind,0))
+
+func workshop_position(town:Dictionary,kind:String) -> Vector2:
+	var origin:=Vector2(float(town["x"]),float(town["y"]))
+	if kind=="crossing":
+		var best:=Vector2(river_x(6,0),6)
+		for y in [6,14]:
+			for index in range(2):
+				var p:=Vector2(river_x(y,index),y)
+				if p.distance_squared_to(origin)<best.distance_squared_to(origin): best=p
+		return best
+	var offsets:Array[Vector2]=[Vector2(1.8,2.3),Vector2(-1.9,2.9),Vector2(2.8,-2.1),Vector2(-2.8,-2.3)]
+	if kind=="forge": offsets.reverse()
+	for offset in offsets:
+		var p:Vector2=origin+offset
+		var x:int=clampi(roundi(p.x),0,WIDTH-1)
+		var y:int=clampi(roundi(p.y),0,SIZE-1)
+		if str(tiles[y][x]) in ["grass","forest","snow","sand"]: return p
+	return origin+Vector2(0.0,2.3)
+
+func local_site(kind:String,town_id:int) -> Dictionary:
+	for site in sites:
+		if str(site["kind"])==kind and int(site.get("town",-1))==town_id: return site
+	return {}

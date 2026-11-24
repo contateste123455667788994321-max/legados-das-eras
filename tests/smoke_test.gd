@@ -40,6 +40,9 @@ func _run_tests() -> void:
 	var original_houses: int = int(target_town.get("houses", 2))
 	var original_wood: float = float(target_town["wood"])
 	_check(not building_world.start_construction(target_id, "bridge"), "Nao aceita construcoes desconhecidas")
+	_check(not building_world.start_construction(target_id,"forge"),"Forja exige tecnologia e recursos")
+	_check(not bool(target_town.get("oven",false)) and building_world.local_site("oven",target_id).is_empty(),"Forno nao nasce pronto")
+	_check(not building_world.start_construction(target_id,"oven"),"Forno exige pedra e madeira")
 	_check(not building_world.start_construction(target_id, "house"), "Recusa obra sem madeira")
 	target_town["wood"] = 50.0
 	_check(building_world.start_construction(target_id, "house"), "Jogador inicia uma casa com recursos")

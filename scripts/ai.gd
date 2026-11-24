@@ -83,6 +83,12 @@ func _manage_town(sim, town: Dictionary, step: float) -> void:
 			sim.start_construction(int(town["id"]), "house")
 		elif float(town["food"]) < float(pop) * 1.5 and float(town["wood"]) >= 18.0 and int(town["farms"]) < 6:
 			sim.start_construction(int(town["id"]), "farm")
+		elif not bool(town.get("oven",false)) and float(town.get("stone",0))>=12 and float(town["wood"])>=8:
+			sim.start_construction(int(town["id"]),"oven")
+		elif not bool(town.get("crossing",false)) and float(town.get("stone",0))>=4 and float(town["wood"])>=16:
+			sim.start_construction(int(town["id"]),"crossing")
+		elif int(town["level"])>=3 and bool(town.get("oven",false)) and not bool(town.get("forge",false)) and float(town.get("stone",0))>=24 and float(town["wood"])>=20:
+			sim.start_construction(int(town["id"]),"forge")
 	var harvest: float = step * float(town["farms"]) * 0.15
 	town["food"] = maxf(0.0, float(town["food"]) + harvest)
 	town["morale"] = clampf(float(town["morale"]) + (0.07 if float(town["food"]) > pop else -0.18) * step, 0.0, 100.0)
@@ -134,22 +140,39 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 				home["food"]=float(home["food"])+step*0.14
 		"Minerador":
 			if _site_work(sim,p,home,"mine","Minerando"):
+				var deposit:Dictionary=sim.local_site("mine",int(home["id"]))
 				home["stone"]=float(home.get("stone",0))+step*0.27
-				if int(home["level"])>=3: home["ore"]=float(home.get("ore",0))+step*0.12
+				if not bool(deposit.get("developed",false)):
+					deposit["work"]=float(deposit.get("work",0))+step
+					if float(deposit["work"])>=16 and float(home["wood"])>=6:
+						home["wood"]=float(home["wood"])-6
+						deposit["developed"]=true
+						sim.news=str(home["name"])+" abriu uma mina."
+				elif int(home["level"])>=3:
+					home["ore"]=float(home.get("ore",0))+step*0.12
 		"Cozinheiro":
-			if _site_work(sim,p,home,"oven","Cozinhando"):
+			if bool(home.get("forge",false)) and float(home.get("ore",0))>0:
+				if _site_work(sim,p,home,"forge","Forjando"):
+					var fuel:float=minf(float(home["wood"]),step*0.08)
+					var ore:float=minf(float(home.get("ore",0)),fuel)
+					home["wood"]=float(home["wood"])-fuel
+					home["ore"]=float(home.get("ore",0))-ore
+					home["metal"]=float(home.get("metal",0))+ore
+			elif not bool(home.get("oven",false)):
+				_set_task(sim,p,home,"Preparando alimentos",0.6)
+			elif _site_work(sim,p,home,"oven","Cozinhando"):
 				var fuel: float=minf(float(home["wood"]),step*0.05)
 				var fish: float=minf(float(home.get("fish",0)),fuel*4.0)
 				home["wood"]=float(home["wood"])-fuel
 				home["fish"]=float(home.get("fish",0))-fish
 				home["food"]=float(home["food"])+fish*1.5
-				if int(home["level"])>=3:
-					var ore: float=minf(float(home.get("ore",0)),fuel)
-					home["ore"]=float(home.get("ore",0))-ore
-					home["metal"]=float(home.get("metal",0))+ore
 		"Construtor":
 			if not home.get("construction", {}).is_empty():
-				_set_task(sim, p, home, "Construindo", 0.65)
+				var project:Dictionary=home["construction"]
+				_set_task(sim,p,home,"Construindo",0.65)
+				if project.has("x"):
+					p["target_x"]=float(project["x"])-(0.7 if str(project["kind"])=="crossing" else 0.0)
+					p["target_y"]=float(project["y"])
 			else:
 				_set_task(sim, p, home, "Coletando madeira", 2.4)
 				home["wood"] = float(home["wood"]) + step * (0.3 + float(m["ambition"]) * 0.6)
@@ -263,7 +286,7 @@ func on_death(sim, person: Dictionary) -> void:
 			n["company"] = minf(100.0, float(n["company"]) + 38.0)
 
 func _site_work(sim,p:Dictionary,home:Dictionary,kind:String,task:String) -> bool:
-	var site: Dictionary=sim.nearest_site(kind,Vector2(float(home["x"]),float(home["y"])))
+	var site: Dictionary=sim.local_site(kind,int(home["id"]))
 	if site.is_empty():
 		_set_task(sim,p,home,"Procurando recursos",1.0)
 		return false

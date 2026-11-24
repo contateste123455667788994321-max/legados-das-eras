@@ -426,7 +426,7 @@ func _draw() -> void:
 				_draw_sprite("hut", center + spot * unit, Vector2(house_size, house_size*0.82) * unit, true)
 			else:
 				_draw_landscape_object("house_" + str(era), center + spot * unit + Vector2(0, house_size * unit * 0.27), house_size * unit * (1.0 + float(era-1)*0.10))
-		_draw_sprite("fire", center + Vector2(0.7, 1.0) * unit, Vector2(1.2, 1.2) * unit, true)
+		_draw_sprite("fire", center + Vector2(0.7, 1.0) * unit, Vector2(0.70, 0.70) * unit, true)
 		var site: Dictionary = town.get("construction", {})
 		if not site.is_empty() and MAP_AREA.grow(-35.0).has_point(center):
 			var kind: String = str(site.get("kind", "house"))
@@ -438,7 +438,7 @@ func _draw() -> void:
 			draw_rect(Rect2(line_start, Vector2(size.x * progress, size.y)), Color("#e6bd72"), true)
 			draw_rect(Rect2(line_start, size), Color("#f4d8a1"), false, maxf(1.0, zoom))
 			var build_spot: Vector2 = house_spots[mini(int(town.get("houses", 2)), house_spots.size()-1)] if kind == "house" else farm_spots[mini(int(town.get("farms", 1)), farm_spots.size()-1)]
-			var scaffold: Vector2 = center + build_spot * unit
+			var scaffold: Vector2 = _world_to_screen(Vector2(float(site["x"])+0.5,float(site["y"])+0.5)) if site.has("x") else center + build_spot * unit
 			if MAP_AREA.has_point(scaffold):
 				draw_line(scaffold + Vector2(-15, 10) * zoom, scaffold + Vector2(15, -21) * zoom, Color("#ddbe7e"), maxf(1.0, 3.0 * zoom))
 				draw_line(scaffold + Vector2(15, 10) * zoom, scaffold + Vector2(-15, -21) * zoom, Color("#b78c5d"), maxf(1.0, 3.0 * zoom))
@@ -505,10 +505,14 @@ func _draw_world_sites() -> void:
 	for site in world.sites:
 		var p:Vector2=_world_to_screen(Vector2(float(site["x"])+0.5,float(site["y"])+0.5))
 		var kind:String=str(site["kind"])
-		if kind!="waterfall":
-			_draw_landscape_object(kind,p,unit*(1.45 if kind=="mine" else 0.95))
-		else:
+		if kind=="waterfall":
 			_draw_waterfall(p,unit)
+		elif kind=="crossing":
+			_draw_landscape_object("bridge",p,unit*1.9)
+		elif kind=="mine" and not bool(site.get("developed",false)):
+			_draw_landscape_object("rock",p,unit*0.95)
+		else:
+			_draw_landscape_object(kind,p,unit*(1.45 if kind=="mine" else 0.95))
 
 func _draw_rivers() -> void:
 	var unit:float=TILE_SIZE*zoom
@@ -523,12 +527,6 @@ func _draw_rivers() -> void:
 				var phase:float=fposmod(time+float(i)*0.25+float(x)*0.13,1.0)
 				var q:Vector2=p+flow*(phase-0.5)*unit*0.8+Vector2(flow.y,-flow.x)*(float(i)-1.5)*unit*0.14
 				draw_rect(Rect2(q,Vector2(unit*0.12, maxf(1.0,unit*0.027))),Color("#8edbe1",0.6))
-			if world.is_bridge(x,y):
-				var left:Vector2=p-Vector2(unit*0.66,unit*0.20)
-				draw_rect(Rect2(left,Vector2(unit*1.32,unit*0.40)),Color("#513a25"))
-				for n in range(9):
-					draw_rect(Rect2(left+Vector2(n*unit*0.145,unit*0.035),Vector2(unit*0.126,unit*0.32)),Color("#b88a52" if n%2==0 else "#967047"))
-				draw_line(left,left+Vector2(unit*1.32,0),Color("#e0b478"),maxf(2,unit*0.04))
 
 func _draw_waterfall(p:Vector2,u:float) -> void:
 	if not MAP_AREA.grow(-u).has_point(p): return
