@@ -135,6 +135,11 @@ func _hut(parent: Node3D, p: Vector3, size: float = 1.0) -> void:
 	_box(parent, p + Vector3(-0.56, 0.65, 0.665) * size, Vector3(0.16, 0.55, 0.065) * size, "#cba56d")
 	_box(parent, p + Vector3(0.0, 0.39, 0.67) * size, Vector3(0.45, 0.78, 0.075) * size, "#372a22")
 	_box(parent, p + Vector3(0.0, 1.26, 0.0) * size, Vector3(1.9, 0.16, 1.65) * size, "#5b3927")
+	for plank in range(7):
+		var yy: float = (0.12 + float(plank) * 0.16) * size
+		_box(parent, p + Vector3(0, yy, -0.657 * size), Vector3(1.56 * size, 0.035 * size, 0.035 * size), "#68472e")
+		for side in [-1, 1]:
+			_box(parent, p + Vector3(float(side) * 0.78 * size, yy, 0), Vector3(0.035, 0.035, 1.31) * size, "#68472e")
 	var roof := _cone(parent, p + Vector3(0.0, 1.63, 0.0) * size, 0.83 * size, 1.26 * size, "#c68c47", 4)
 	roof.rotation.y = PI * 0.25
 	_box(parent, p + Vector3(0.0, 1.82, 0.0) * size, Vector3(0.28, 0.15, 0.28) * size, "#efb956")
@@ -250,7 +255,8 @@ func rebuild() -> void:
 				"snow": base_color = "#cfddd5"
 				"mountain": base_color = "#687d76"
 				_: base_color = "#8e994e" if season == 2 else "#638d51"
-			_box(root_mesh, Vector3(px, -0.13, pz), Vector3(SPACING + 0.025, 0.26, SPACING + 0.025), base_color)
+			var shade: Color = Color(base_color).lerp(Color("#344a32"), _rng(x, y, 21) * 0.09)
+			_box(root_mesh, Vector3(px, -0.13, pz), Vector3(SPACING + 0.025, 0.26, SPACING + 0.025), "#" + shade.to_html(false))
 			if biome == "mountain":
 				_cone(root_mesh, Vector3(px, 1.12, pz), 2.5, 1.5, "#56675f", 5)
 				_cone(root_mesh, Vector3(px, 2.15, pz), 1.25, 0.75, "#bfcbc5", 5)
