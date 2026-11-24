@@ -34,6 +34,7 @@ var viewport_3d: SubViewport
 var character_world
 var character_view := false
 var look_yaw := 0.0
+var look_pitch := 0.0
 var joystick_touch := -1
 var look_touch := -1
 var joystick_center := Vector2.ZERO
@@ -92,7 +93,7 @@ func _process(delta: float) -> void:
 	if character_view and is_instance_valid(character_world):
 		var actor: Dictionary = world.get_actor(controlled_id)
 		if not actor.is_empty():
-			character_world.follow(actor, look_yaw)
+			character_world.follow(actor, look_yaw, look_pitch)
 		character_world.update_people()
 		if ui_timer == 0.0:
 			character_world._refresh_people_models()
@@ -516,10 +517,12 @@ func _character_input(event: InputEvent) -> void:
 			joystick_direction = ((motion.position - joystick_center) / 63.0).limit_length(1.0)
 		elif motion.index == look_touch:
 			look_yaw -= motion.relative.x * 0.005
+			look_pitch = clampf(look_pitch - motion.relative.y * 0.004, -0.55, 0.55)
 	elif event is InputEventMouseMotion:
 		var mouse: InputEventMouseMotion = event
 		if (mouse.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0 and MAP_AREA.has_point(mouse.position):
 			look_yaw -= mouse.relative.x * 0.004
+			look_pitch = clampf(look_pitch - mouse.relative.y * 0.0035, -0.55, 0.55)
 
 func _reset_pinch() -> void:
 	if active_touches.size() < 2:
@@ -735,7 +738,7 @@ func _toggle_view() -> void:
 	if character_view:
 		character_world.rebuild()
 		var actor: Dictionary = world.get_actor(controlled_id)
-		character_world.follow(actor, look_yaw)
+		character_world.follow(actor, look_yaw, look_pitch)
 	_refresh_ui()
 
 func _focus_at(point: Vector2) -> void:
