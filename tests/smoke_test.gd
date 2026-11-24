@@ -19,6 +19,16 @@ func _run_tests() -> void:
 	world.generate_world()
 	_check(world.tiles.size() == World.SIZE, "Mapa gerado")
 	_check(world.towns.size() == 3, "Tres aldeias iniciais")
+	# Civilizacoes nao podem evoluir para Era 4 no primeiro ano.
+	var rate_world = World.new()
+	rate_world.generate_world()
+	rate_world.towns[0]["knowledge"] = 1000.0
+	rate_world.update_world(0.1)
+	_check(int(rate_world.towns[0]["level"]) == 1, "Pesquisa nao permite saltar eras no primeiro ano")
+	rate_world.day = 730.0
+	rate_world.update_world(0.1)
+	_check(int(rate_world.towns[0]["level"]) == 2, "Segunda era depende da passagem de geracoes")
+
 
 	# Um jogador deve poder mandar construir, ver o trabalho e manter os recursos.
 	var building_world = World.new()
