@@ -31,17 +31,27 @@ func _ready() -> void:
 	_box(camera, Vector3(0.30, -0.11, -0.97), Vector3(0.11, 0.20, 0.13), "#d4dfd6")
 
 	sun = DirectionalLight3D.new()
-	sun.light_energy = 1.4
+	sun.light_energy = 1.15
+	sun.light_color = Color("#fff0cf")
 	sun.shadow_enabled = true
 	sun.rotation_degrees = Vector3(-53.0, -34.0, 0.0)
 	add_child(sun)
 	world_env = WorldEnvironment.new()
 	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color("#83bed1")
+	var sky_material := ProceduralSkyMaterial.new()
+	sky_material.sky_top_color = Color("#397cae")
+	sky_material.sky_horizon_color = Color("#b8d9df")
+	sky_material.ground_horizon_color = Color("#a7b9a0")
+	var sky := Sky.new()
+	sky.sky_material = sky_material
+	env.sky = sky
+	env.background_mode = Environment.BG_SKY
+	env.fog_enabled = true
+	env.fog_light_color = Color("#b5cbd0")
+	env.fog_density = 0.008
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("#afc8bf")
-	env.ambient_light_energy = 0.75
+	env.ambient_light_energy = 0.58
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	world_env.environment = env
 	add_child(world_env)
@@ -97,8 +107,8 @@ func _sphere(parent: Node3D, pos: Vector3, size: Vector3, color: String) -> Mesh
 	var mesh := SphereMesh.new()
 	mesh.radius = 0.9
 	mesh.height = 1.8
-	mesh.radial_segments = 9
-	mesh.rings = 5
+	mesh.radial_segments = 16
+	mesh.rings = 9
 	instance.mesh = mesh
 	instance.material_override = _mat(color)
 	instance.position = pos
