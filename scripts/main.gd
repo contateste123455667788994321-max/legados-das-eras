@@ -407,7 +407,11 @@ func _draw() -> void:
 		for i in range(mini(int(town.get("houses", 2)), house_spots.size())):
 			var spot: Vector2 = house_spots[i]
 			var house_size: float = 1.62 if i == 0 else 1.35
-			_draw_sprite("hut", center + spot * unit, Vector2(house_size, house_size) * unit, true)
+			var era: int = clampi(int(town.get("level", 1)), 1, 5)
+			if era == 1:
+				_draw_sprite("hut", center + spot * unit, Vector2(house_size, house_size) * unit, true)
+			else:
+				_draw_landscape_object("house_" + str(era), center + spot * unit + Vector2(0, house_size * unit * 0.27), house_size * unit * (1.0 + float(era-1)*0.10))
 		_draw_sprite("fire", center + Vector2(0.7, 1.0) * unit, Vector2(1.2, 1.2) * unit, true)
 		var site: Dictionary = town.get("construction", {})
 		if not site.is_empty() and MAP_AREA.grow(-35.0).has_point(center):
