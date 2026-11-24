@@ -42,6 +42,11 @@ func _run_tests() -> void:
 	var target_town: Dictionary = building_world.towns[0]
 	var target_id: int = int(target_town["id"])
 	var original_houses: int = int(target_town.get("houses", 2))
+	_check(building_world.housing_capacity(target_town)==8,"Duas cabanas abrigam oito moradores")
+	target_town["house_levels"]=[1,2]
+	_check(building_world.housing_capacity(target_town)==10,"Casa ampliada aumenta capacidade")
+	target_town["house_levels"]=[1,1]
+	_check(not building_world.start_construction(target_id,"castle"),"Castelo exige tecnologia")
 	var original_wood: float = float(target_town["wood"])
 	_check(not building_world.start_construction(target_id, "bridge"), "Nao aceita construcoes desconhecidas")
 	_check(not building_world.start_construction(target_id,"forge"),"Forja exige tecnologia e recursos")

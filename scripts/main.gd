@@ -424,7 +424,7 @@ func _draw() -> void:
 		for i in range(mini(int(town.get("houses", 2)), house_spots.size())):
 			var spot: Vector2 = house_spots[i]
 			var house_size: float = 1.62 if i == 0 else 1.35
-			var era: int = clampi(int(town.get("level", 1)), 1, 5)
+			var era: int = clampi(int(world.house_levels(town)[i]), 1, 4)
 			if era == 1:
 				_draw_sprite("hut", center + spot * unit, Vector2(house_size, house_size*0.82) * unit, true)
 			else:
@@ -508,7 +508,9 @@ func _draw_world_sites() -> void:
 	for site in world.sites:
 		var p:Vector2=_world_to_screen(Vector2(float(site["x"])+0.5,float(site["y"])+0.5))
 		var kind:String=str(site["kind"])
-		if kind=="campfire":
+		if kind=="castle":
+			_draw_landscape_object("castle",p,unit*3.1)
+		elif kind=="campfire":
 			_draw_sprite("fire",p,Vector2.ONE*unit*0.70,true)
 		elif kind=="waterfall":
 			_draw_waterfall(p,unit)
@@ -563,6 +565,7 @@ func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
 	var clipped := dest.intersection(MAP_AREA)
 	if clipped.has_area():
 		draw_texture_rect_region(atlas,clipped,Rect2(source.position+(clipped.position-dest.position)/dest.size*source.size,clipped.size/dest.size*source.size))
+	_draw_equipment(p,center,s,bounce)
 	var cargo:Dictionary=p.get("cargo",{})
 	if not cargo.is_empty() and MAP_AREA.grow(-s).has_point(center):
 		_draw_landscape_object("cart" if str(p.get("transport","hands"))=="cart" else ("basket" if str(p.get("transport","hands"))=="basket" else ("log_bundle" if str(cargo["kind"])=="wood" else "sack")),center+Vector2(s*0.28,s*0.12),s*0.60)
@@ -1324,6 +1327,9 @@ func _show_details() -> void:
 			lines.append("%s • %d anos" % [p["name"], int(float(p["age"]))])
 			lines.append("Aldeia: %s  |  Profissao: %s" % [home.get("name", "?"), p.get("profession", "?")])
 			lines.append("Vida: %d  |  Funcao: %s" % [int(float(p["health"])), p["role"]])
+			lines.append("Forca: %.0f | Dano: %.1f | Defesa: %.0f" % [world.strength(p),world.attack_damage(p),world.defense(p)])
+			lines.append("Armadura: nivel %d | Arma: nivel %d | Ferramenta: nivel %d" % [int(p.get("armor",0)),int(p.get("weapon",0)),int(p.get("tool",0))])
+			lines.append("Saciedade: %d%%" % int(100-float(p.get("needs",{}).get("hunger",0))))
 			var father: Dictionary = world.get_person(int(p["father"]))
 			var mother: Dictionary = world.get_person(int(p["mother"]))
 			lines.append("Pai: %s  |  Mae: %s" % [father.get("name", "?"), mother.get("name", "?")])
@@ -1337,7 +1343,7 @@ func _show_details() -> void:
 		var town: Dictionary = world.get_town(selected_town_id)
 		if not town.is_empty():
 			lines.append(str(town["name"]) + " • Era " + str(town["level"]))
-			lines.append("Populacao: %d" % world.active_population(selected_town_id))
+			lines.append("Populacao: %d / %d vagas" % [world.active_population(selected_town_id),world.housing_capacity(town)])
 			lines.append("Alimentos %d  |  Madeira %d" % [int(float(town["food"])), int(float(town["wood"]))])
 			for event in town.get("historical_events", []):
 				lines.append("• " + str(event.get("event", "")))
@@ -1390,7 +1396,7 @@ func _draw_project_marker(site:Dictionary,p:Vector2,unit:float) -> void:
 	var received:float=float(delivered.get("wood",0))+float(delivered.get("stone",0))
 	var portion:float=clampf(received/total,0,1)
 	var ratio:float=clampf(float(site.get("progress",0))/maxf(1,float(site["duration"])),0,1)
-	var icon:String={"house":"hut","farm":"farm","campfire":"fire","oven":"oven","forge":"forge","crossing":"bridge"}.get(kind,"hut")
+	var icon:String={"castle":"castle","upgrade":"hut","house":"hut","farm":"farm","campfire":"fire","oven":"oven","forge":"forge","crossing":"bridge"}.get(kind,"hut")
 	var badge_pos:Vector2=p-Vector2(0,unit*0.85)
 	draw_rect(Rect2(badge_pos-Vector2.ONE*unit*0.29,Vector2.ONE*unit*0.58),Color("#302c24",0.92))
 	draw_rect(Rect2(badge_pos-Vector2.ONE*unit*0.29,Vector2.ONE*unit*0.58),Color("#dab477"),false,1.5)
@@ -1402,3 +1408,27 @@ func _draw_project_marker(site:Dictionary,p:Vector2,unit:float) -> void:
 	draw_rect(bar,Color("#362b23"))
 	draw_rect(Rect2(bar.position,Vector2(bar.size.x*ratio,bar.size.y)),Color("#e8bd65"))
 	draw_string(ThemeDB.fallback_font,p+Vector2(-unit*0.48,unit*0.36),"%d/%d"%[int(received),int(total)],HORIZONTAL_ALIGNMENT_CENTER,unit,12,Color("#ffedb8"))
+
+func _draw_equipment(p:Dictionary,c:Vector2,s:float,bounce:float) -> void:
+	if float(p["age"])<16 or not MAP_AREA.grow(-s).has_point(c): return
+	var armor:int=clampi(int(p.get("armor",0)),0,4)
+	var weapon:int=clampi(int(p.get("weapon",0)),0,4)
+	var tool:int=clampi(int(p.get("tool",0)),0,4)
+	var colors:Array[Color]=[Color("#705338"),Color("#956139"),Color("#ad8c56"),Color("#9ba6ad"),Color("#c7cdd0")]
+	if armor>0:
+		var torso:Vector2=c+Vector2(-s*0.13,-s*0.35-bounce)
+		draw_rect(Rect2(torso,Vector2(s*0.26,s*0.29)),Color("#443b30"))
+		draw_rect(Rect2(torso+Vector2(s*0.025,s*0.025),Vector2(s*0.21,s*0.23)),colors[armor])
+		draw_rect(Rect2(torso+Vector2(s*0.06,s*0.06),Vector2(s*0.14,s*0.035)),colors[armor].lightened(0.35))
+		draw_rect(Rect2(c+Vector2(-s*0.13,-s*0.68-bounce),Vector2(s*0.26,s*0.10)),colors[armor])
+	if weapon>0:
+		draw_line(c+Vector2(s*0.23,s*0.15),c+Vector2(s*0.31,-s*0.55),Color("#674b2b"),maxf(1.0,s*0.045))
+		draw_line(c+Vector2(s*0.31,-s*0.55),c+Vector2(s*0.34,-s*0.70),colors[weapon],maxf(1.0,s*0.09))
+	elif tool>0:
+		draw_line(c+Vector2(s*0.22,s*0.14),c+Vector2(s*0.32,-s*0.38),Color("#886039"),maxf(1.0,s*0.05))
+		draw_line(c+Vector2(s*0.24,-s*0.38),c+Vector2(s*0.43,-s*0.38),colors[tool],maxf(1.0,s*0.09))
+	if str(p.get("role","")) in ["Rei","Rainha","Lider tribal"]:
+		var crown:Vector2=c+Vector2(-s*0.15,-s*0.77-bounce)
+		draw_rect(Rect2(crown,Vector2(s*0.30,s*0.07)),Color("#d9af54"))
+		for i in range(3):
+			draw_rect(Rect2(crown+Vector2(s*(0.02+i*0.11),-s*0.045),Vector2(s*0.045,s*0.06)),Color("#f1d489"))

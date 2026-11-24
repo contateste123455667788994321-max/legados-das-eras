@@ -116,7 +116,7 @@ func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
 		"law": "primogenitura", "water": 18.0,
 		"home_biome": founding_biome,
 		"clothing": 0.0, "drought_preparation": false,
-		"houses": 2, "farms": 1, "campfire":false, "oven":false, "forge":false, "crossing":false, "stone":0.0, "construction": {}, "historical_events": []
+		"houses": 2, "house_levels":[1,1], "castle":false, "farms": 1, "campfire":false, "oven":false, "forge":false, "crossing":false, "stone":0.0, "construction": {}, "historical_events": []
 	}
 	towns.append(town)
 	tiles[y][x] = "grass"
@@ -131,7 +131,7 @@ func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
 		if i == 0:
 			town["leader"] = person_id
 	var ruler: Dictionary = people[original_count]
-	ruler["role"] = "Rei" if int(ruler["gender"]) == 0 else "Rainha"
+	ruler["role"] = "Lider tribal"
 	var father: Dictionary = people[original_count + 1]
 	var mother: Dictionary = people[original_count + 2]
 	father["gender"] = 0
@@ -261,6 +261,8 @@ func construction_cost(kind: String) -> float:
 	match kind:
 		"campfire": return 10.0
 		"house": return 14.0
+		"upgrade": return 18.0
+		"castle": return 80.0
 		"farm": return 18.0
 		"oven": return 8.0
 		"forge": return 20.0
@@ -285,6 +287,13 @@ func start_construction(town_id: int, kind: String) -> bool:
 	if kind == "farm" and int(town.get("farms", 1)) >= 6:
 		news = "Esta aldeia atingiu o limite de fazendas."
 		return false
+	if kind=="upgrade" and upgrade_index(town)<0: return false
+	if kind=="castle" and (int(town["level"])<4 or bool(town.get("castle",false)) or not bool(town.get("forge",false))):
+		news="Castelo exige era 4 e forja."
+		return false
+	if float(town.get("stone",0))<workshop_stone_cost(kind):
+		news="Pedra insuficiente para a obra."
+		return false
 	if kind in ["campfire","oven","forge","crossing"]:
 		if bool(town.get(kind,false)): return false
 		if kind=="forge" and (int(town["level"])<3 or not bool(town.get("oven",false))):
@@ -297,8 +306,8 @@ func start_construction(town_id: int, kind: String) -> bool:
 		news = "Madeira insuficiente: precisa de %d, tem %d." % [int(cost), int(float(town["wood"]))]
 		return false
 	town["wood"] = float(town["wood"]) - cost
-	var label:String={"campfire":"fogueira","house":"casa","farm":"fazenda","oven":"forno","forge":"forja","crossing":"ponte"}[kind]
-	town["construction"]={"kind":kind,"progress":0.0,"duration":float({"campfire":8,"house":12,"farm":15,"oven":20,"forge":32,"crossing":26}[kind])}
+	var label:String={"castle":"castelo","upgrade":"melhoria de casa","campfire":"fogueira","house":"casa","farm":"fazenda","oven":"forno","forge":"forja","crossing":"ponte"}[kind]
+	town["construction"]={"kind":kind,"progress":0.0,"duration":float({"castle":85,"upgrade":24,"campfire":8,"house":12,"farm":15,"oven":20,"forge":32,"crossing":26}[kind])}
 	var stone_cost:float=workshop_stone_cost(kind)
 	town["stone"]=float(town.get("stone",0))-stone_cost
 	_prepare_project(town)
@@ -326,14 +335,20 @@ func progress_construction(town: Dictionary, dt: float) -> void:
 		return
 	var kind: String = str(site["kind"])
 	if kind == "house":
+		var levels:Array=house_levels(town)
+		levels.append(1)
 		town["houses"] = int(town.get("houses", 2)) + 1
+	elif kind=="upgrade":
+		var levels:Array=house_levels(town)
+		var index:int=int(site.get("house_index",0))
+		if index>=0 and index<levels.size(): levels[index]=mini(4,int(levels[index])+1)
 	elif kind=="farm":
 		town["farms"]=int(town.get("farms",1))+1
 	else:
 		town[kind]=true
 		sites.append({"kind":kind,"x":site["x"],"y":site["y"],"town":town["id"]})
 	town["construction"]={}
-	var label:String={"campfire":"Fogueira acesa","house":"Casa pronta","farm":"Fazenda pronta","oven":"Forno construido","forge":"Forja construida","crossing":"Ponte construida"}[kind]
+	var label:String={"castle":"Castelo construido","upgrade":"Casa ampliada","campfire":"Fogueira acesa","house":"Casa pronta","farm":"Fazenda pronta","oven":"Forno construido","forge":"Forja construida","crossing":"Ponte construida"}[kind]
 	var history: Array = town.get("historical_events", [])
 	history.append({"day": int(day), "event": label + "."})
 	if history.size() > 12:
@@ -382,7 +397,7 @@ func _grow_economies() -> void:
 func _new_children() -> void:
 	for town in towns:
 		var town_id: int = int(town["id"])
-		if active_population(town_id) >= 24 or float(town["food"]) < 8.0:
+		if active_population(town_id) >= housing_capacity(town) or float(town["food"]) < 8.0:
 			continue
 		var mothers: Array = []
 		for candidate in people:
@@ -451,7 +466,7 @@ func choose_successor(town: Dictionary, former_id: int) -> void:
 	pool.sort_custom(func(a, b): return float(a["age"]) > float(b["age"]))
 	var successor: Dictionary = pool[0]
 	town["leader"] = successor["id"]
-	successor["role"] = "Rei" if int(successor["gender"]) == 0 else "Rainha"
+	successor["role"] = ruler_title(town,successor)
 	news = str(successor["name"]) + " herdou o trono de " + str(town["name"]) + "."
 
 func _battle(dt: float) -> void:
@@ -472,7 +487,7 @@ func _predator_attacks(dt: float) -> void:
 			continue
 		for p in people:
 			if bool(p["alive"]) and Vector2(float(b["x"]), float(b["y"])).distance_to(Vector2(float(p["x"]), float(p["y"]))) < 0.75 and rng.randf() < dt * 0.1:
-				p["health"] = float(p["health"]) - (14.0 if b["species"] == "Urso" else 8.0)
+				p["health"] = float(p["health"]) - maxf(1.0,(14.0 if b["species"] == "Urso" else 8.0)-defense(p))
 				if float(p["health"]) <= 0.0:
 					kill_person(p)
 
@@ -541,7 +556,7 @@ func load_world() -> bool:
 		elif sites.is_empty(): _prepare_sites()
 		for i in range(sites.size()-1,-1,-1):
 			var site:Dictionary=sites[i]
-			if str(site["kind"]) in ["campfire","oven","forge","crossing"]:
+			if str(site["kind"]) in ["campfire","oven","forge","crossing","castle"]:
 				var owner:Dictionary=get_town(int(site["town"]))
 				if not bool(owner.get(str(site["kind"]),false)): sites.remove_at(i)
 		if not value.has("wildlife"): _seed_wildlife()
@@ -666,7 +681,7 @@ func _prepare_sites() -> void:
 	sites.clear()
 	for town in towns:
 		var origin:=Vector2(float(town["x"]),float(town["y"]))
-		for kind in ["campfire","oven","forge","crossing"]:
+		for kind in ["campfire","oven","forge","crossing","castle"]:
 			if bool(town.get(kind,false)):
 				var pos:Vector2=workshop_position(town,kind)
 				sites.append({"kind":kind,"x":pos.x,"y":pos.y,"town":town["id"]})
@@ -864,14 +879,15 @@ func move_actor(actor:Dictionary,step:Vector2,dt:float) -> void:
 	actor["y"]=q.y
 
 func workshop_stone_cost(kind:String) -> float:
-	return float({"oven":12,"forge":24,"crossing":4}.get(kind,0))
+	return float({"oven":12,"forge":24,"crossing":4,"upgrade":12,"castle":120}.get(kind,0))
 
 func workshop_position(town:Dictionary,kind:String) -> Vector2:
 	var origin:=Vector2(float(town["x"]),float(town["y"]))
 	if kind=="campfire": return origin+Vector2(0.7,1.0)
-	if kind=="house":
+	if kind=="castle": return origin+Vector2(0,-3.0)
+	if kind in ["house","upgrade"]:
 		var spots:Array[Vector2]=[Vector2(0,-0.35),Vector2(1.60,0.35),Vector2(-1.25,-0.75),Vector2(2.15,-0.85),Vector2(-2.4,0.15),Vector2(0.95,-1.65),Vector2(-1.35,1.45),Vector2(2.9,1.15)]
-		return origin+spots[clampi(int(town.get("houses",2)),0,7)]
+		return origin+spots[clampi(upgrade_index(town) if kind=="upgrade" else int(town.get("houses",2)),0,7)]
 	if kind=="farm":
 		var spots:Array[Vector2]=[Vector2(-1.4,1.15),Vector2(-2.2,2.20),Vector2(1.3,1.85),Vector2(2.9,2.0),Vector2(-2.8,-1.1),Vector2(3.1,-1.4)]
 		return origin+spots[clampi(int(town.get("farms",1)),0,5)]
@@ -960,6 +976,7 @@ func _prepare_project(town:Dictionary) -> void:
 	var pos:Vector2=workshop_position(town,kind)
 	project["x"]=pos.x
 	project["y"]=pos.y
+	if kind=="upgrade": project["house_index"]=upgrade_index(town)
 	project["required"]={"wood":construction_cost(kind),"stone":workshop_stone_cost(kind)}
 	project["delivered"]={"wood":0.0,"stone":0.0}
 	project["project_id"]=new_id()
@@ -1049,3 +1066,78 @@ func deposit_inventory(p:Dictionary) -> bool:
 		p[key]=0
 	news="Recursos entregues ao estoque da aldeia."
 	return true
+
+func house_levels(town:Dictionary) -> Array:
+	if not town.has("house_levels"): town["house_levels"]=[]
+	var levels:Array=town["house_levels"]
+	while levels.size()<int(town.get("houses",2)): levels.append(1)
+	return levels
+
+func housing_capacity(town:Dictionary) -> int:
+	var total:int=0
+	for level in house_levels(town):
+		total+=[4,6,10,14][clampi(int(level)-1,0,3)]
+	if bool(town.get("castle",false)): total+=8
+	return total
+
+func upgrade_index(town:Dictionary) -> int:
+	var levels:Array=house_levels(town)
+	var cap:int=mini(4,int(town["level"]))
+	for i in range(levels.size()):
+		if int(levels[i])<cap: return i
+	return -1
+
+func ruler_title(town:Dictionary,p:Dictionary) -> String:
+	if int(town["level"])<4: return "Lider tribal"
+	return "Rei" if int(p["gender"])==0 else "Rainha"
+
+func strength(p:Dictionary) -> float:
+	return float(p.get("strength",35+posmod(int(p["id"])*37,61)))
+
+func defense(p:Dictionary) -> float:
+	return float([0,2,5,9,14][clampi(int(p.get("armor",0)),0,4)])
+
+func attack_damage(p:Dictionary) -> float:
+	return 2.0+strength(p)*0.05+float([0,2,5,9,14][clampi(int(p.get("weapon",0)),0,4)])
+
+func update_roles(town:Dictionary) -> void:
+	var adults:Array=[]
+	var leader:Dictionary=get_person(int(town["leader"]))
+	if not leader.is_empty() and bool(leader["alive"]):
+		leader["role"]=ruler_title(town,leader)
+	for p in people:
+		if not bool(p["alive"]) or int(p["town"])!=int(town["id"]) or int(p["id"])==int(town["leader"]): continue
+		if float(p["age"])>=16 and float(p["age"])<65: adults.append(p)
+	adults.sort_custom(func(a,b): return strength(a)>strength(b))
+	var count:int=mini(adults.size(),maxi(1,int(active_population(int(town["id"]))/8.0)))
+	for i in range(adults.size()):
+		var p:Dictionary=adults[i]
+		if i<count:
+			if not p.has("civil_profession"): p["civil_profession"]=str(p.get("profession","Agricultor"))
+			p["profession"]="Guarda"
+			p["role"]="Guarda real" if int(town["level"])>=4 else "Guerreiro tribal"
+			p["specialty_v57"]=true
+		elif str(p.get("role","")) in ["Guarda real","Guerreiro tribal"]:
+			p["role"]="Aldeao"
+			p["profession"]=str(p.get("civil_profession","Agricultor"))
+
+func equip_worker(town:Dictionary,p:Dictionary) -> void:
+	if float(p["age"])<16: return
+	var era:int=clampi(int(town["level"]),1,4)
+	var is_guard:bool=str(p.get("profession",""))=="Guarda"
+	var is_ruler:bool=int(p["id"])==int(town["leader"])
+	if is_guard or is_ruler:
+		var target:int=era if bool(town.get("forge",false)) else mini(era,2)
+		if int(p.get("armor",0))<target and float(town.get("wood",0))>=2 and (target<=2 or float(town.get("metal",0))>=4):
+			town["wood"]=float(town["wood"])-2
+			if target>2: town["metal"]=float(town["metal"])-4
+			p["armor"]=target
+		if int(p.get("weapon",0))<target and float(town.get("wood",0))>=2 and (target<=2 or float(town.get("metal",0))>=3):
+			town["wood"]=float(town["wood"])-2
+			if target>2: town["metal"]=float(town["metal"])-3
+			p["weapon"]=target
+	else:
+		if str(p.get("profession","")) in ["Agricultor","Minerador","Construtor","Pescador"] and int(p.get("tool",0))<era and float(town.get("wood",0))>=2 and (era<3 or float(town.get("metal",0))>=2):
+			town["wood"]=float(town["wood"])-2
+			if era>=3: town["metal"]=float(town["metal"])-2
+			p["tool"]=era
