@@ -41,6 +41,8 @@ var joystick_touch := -1
 var look_touch := -1
 var joystick_center := Vector2.ZERO
 var joystick_direction := Vector2.ZERO
+var spawn_species:String=""
+var spawn_button:Button
 var view_button: Button
 var action_button: Button
 var inventory_button: Button
@@ -117,7 +119,7 @@ func _build_ui() -> void:
 	news_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	speed_button = _button("1x", Vector2(737, 15), Vector2(72, 38), Callable(self, "_change_speed"))
 	pause_button = _button("Pausar", Vector2(813, 15), Vector2(82, 38), Callable(self, "_toggle_pause"))
-	_button("Construir", Vector2(899, 15), Vector2(112, 38), Callable(self, "_show_construction"))
+	spawn_button = _button("Criar", Vector2(899, 15), Vector2(112, 38), Callable(self, "_toggle_spawn"))
 	view_button = _button("Controlar", Vector2(1015, 15), Vector2(100, 38), Callable(self, "_toggle_view"))
 	_button("Mundo", Vector2(1119, 15), Vector2(73, 38), Callable(self, "_show_options"))
 	_button("Atualizar", Vector2(1196, 15), Vector2(80, 38), Callable(self, "_check_updates"))
@@ -189,7 +191,8 @@ func _refresh_ui() -> void:
 			living += 1
 	stats_label.text = "Ano %d · Dia %d · %s · %d moradores" % [years + 1, day_of_year, _season_name(), living]
 	last_news = world.news
-	news_label.text = world.news
+	news_label.text = world.news if spawn_species.is_empty() else str(World.SPAWN_NAMES.get(spawn_species,""))+" | Toque no mapa para criar. "+world.news
+	if is_instance_valid(spawn_button): spawn_button.text="Criar" if spawn_species.is_empty() else "Sair criacao"
 	pause_button.text = "Retomar" if world.speed == 0.0 else "Pausar"
 	var display_speed: float = resume_speed if world.speed == 0.0 else world.speed
 	speed_button.text = "0.5x" if display_speed == 0.5 else "%.0fx" % display_speed
@@ -784,6 +787,10 @@ func _touch_map(position: Vector2) -> void:
 				actor["target_y"] = clampf(float(actor["y"]) + d.y * 2.4, 1.0, float(World.SIZE - 2))
 		return
 	var point := _screen_to_world(position)
+	if not spawn_species.is_empty():
+		if MAP_AREA.has_point(position): world.spawn_creature(spawn_species,point-Vector2(0.5,0.5))
+		_refresh_ui()
+		return
 	if point.x < -0.5 or point.y < -0.5 or point.x > World.WIDTH or point.y > World.SIZE:
 		return
 	var nearest_id := 0
@@ -1143,6 +1150,7 @@ func _show_diplomacy() -> void:
 
 func _show_options() -> void:
 	var popup := PopupMenu.new()
+	popup.add_item("Criar humanos e animais", 14)
 	popup.add_item("Construir casas / fazendas", 5)
 	popup.add_item("Controlar personagem / Soltar", 11)
 	popup.add_item("Inventario do personagem", 12)
@@ -1180,6 +1188,7 @@ func _show_options() -> void:
 			11: _toggle_view()
 			12: _show_inventory()
 			13: _show_world_cycle()
+			14: _show_spawn_menu()
 		popup.queue_free()
 	)
 	add_child(popup)
@@ -1376,6 +1385,7 @@ func _new_world() -> void:
 	add_child(dialog)
 	dialog.confirmed.connect(func() -> void:
 		world.generate_world()
+		spawn_species=""
 		selected_person_id = 0
 		selected_beast_id = 0
 		selected_town_id = 0
@@ -1434,3 +1444,51 @@ func _draw_equipment(p:Dictionary,c:Vector2,s:float,bounce:float) -> void:
 		draw_rect(Rect2(crown,Vector2(s*0.30,s*0.07)),Color("#d9af54"))
 		for i in range(3):
 			draw_rect(Rect2(crown+Vector2(s*(0.02+i*0.11),-s*0.045),Vector2(s*0.045,s*0.06)),Color("#f1d489"))
+
+func _toggle_spawn() -> void:
+	if not spawn_species.is_empty():
+		spawn_species=""
+		world.news="Observando o mundo."
+		_refresh_ui()
+		return
+	_show_spawn_menu()
+
+func _show_spawn_menu() -> void:
+	var dialog:=AcceptDialog.new()
+	dialog.title="Criar vida"
+	dialog.ok_button_text="Fechar"
+	var body:=VBoxContainer.new()
+	body.custom_minimum_size=Vector2(640,360)
+	body.add_theme_constant_override("separation",9)
+	var hint:=Label.new()
+	hint.text="Escolha uma especie. Depois, cada toque no mapa cria um ser."
+	body.add_child(hint)
+	var grid:=GridContainer.new()
+	grid.columns=3
+	grid.add_theme_constant_override("h_separation",10)
+	grid.add_theme_constant_override("v_separation",8)
+	body.add_child(grid)
+	for species in World.SPAWN_NAMES.keys():
+		var key:String=str(species)
+		var button:=Button.new()
+		button.text=str(World.SPAWN_NAMES[key])
+		button.custom_minimum_size=Vector2(200,47)
+		button.add_theme_font_size_override("font_size",19)
+		button.pressed.connect(func() -> void:
+			spawn_species=key
+			controlled_id=0
+			character_view=false
+			selected_person_id=0
+			selected_beast_id=0
+			selected_town_id=0
+			_sync_character_ui()
+			world.news="Escolha um terreno adequado."
+			_refresh_ui()
+			dialog.queue_free()
+		)
+		grid.add_child(button)
+	dialog.add_child(body)
+	add_child(dialog)
+	dialog.confirmed.connect(dialog.queue_free)
+	dialog.canceled.connect(dialog.queue_free)
+	dialog.popup_centered(Vector2i(710,430))

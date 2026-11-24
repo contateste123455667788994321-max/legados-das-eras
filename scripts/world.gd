@@ -1172,3 +1172,92 @@ func leader_diplomacy(town:Dictionary) -> float:
 	if person.is_empty(): return 0.0
 	init_traits(person)
 	return float(person["diplomacy"])
+
+# Ferramenta criadora: cada toque cria exatamente um ser, sem fabricar aldeias prontas.
+const SPAWN_NAMES:Dictionary={
+	"human":"Humano","chicken":"Galinha","deer":"Veado","rabbit":"Coelho",
+	"frog":"Sapo","capybara":"Capivara","heron":"Garca","camel":"Camelo",
+	"lizard":"Lagarto","snow_hare":"Lebre da neve","crocodile":"Crocodilo",
+	"turtle":"Tartaruga","duck":"Pato","boar":"Javali","fox":"Raposa",
+	"wolf":"Lobo","bear":"Urso"
+}
+
+func spawn_creature(species:String,point:Vector2) -> bool:
+	if not SPAWN_NAMES.has(species): return false
+	if point.x<1.0 or point.x>WIDTH-2 or point.y<1.0 or point.y>SIZE-2:
+		news="Escolha um local dentro do mapa."
+		return false
+	var p:=point
+	var terrain:String=str(tiles[int(p.y)][int(p.x)])
+	if species=="human":
+		if terrain in ["water","mountain"]:
+			news="Humanos precisam de terra firme."
+			return false
+		var living:int=0
+		for person in people:
+			if bool(person["alive"]): living+=1
+		if living>=240:
+			news="Limite de moradores atingido para preservar o desempenho."
+			return false
+		var town:Dictionary={}
+		var best:float=5.0
+		for other in towns:
+			var distance:float=p.distance_to(Vector2(float(other["x"]),float(other["y"])))
+			if distance<best:
+				best=distance
+				town=other
+		if town.is_empty():
+			if towns.size()>=12:
+				news="Limite de aldeias. Crie um morador perto de uma aldeia existente."
+				return false
+			town=_found_empty_town(p)
+		var id:int=make_person(int(town["id"]),p.x,p.y,20)
+		var person:Dictionary=get_person(id)
+		if int(town["leader"])==0:
+			person["profession"]="Construtor"
+			person["specialty_v57"]=true
+			choose_successor(town,0)
+			town["merit_election"]=true
+		news="%s chegou a %s."%[person["name"],town["name"]]
+		return true
+	if wildlife.size()+beasts.size()>=160:
+		news="Limite de animais atingido."
+		return false
+	if species in ["wolf","bear"]:
+		if terrain not in ["grass","forest","snow"]:
+			news="Escolha floresta, campo ou neve."
+			return false
+		var id:int=new_id()
+		var label:String=str(SPAWN_NAMES[species])
+		beasts.append({"id":id,"name":label+" "+str(id),"species":label,"x":p.x,"y":p.y,"health":90.0 if species=="bear" else 55.0,"food":4,"wander":0.0,"target_x":p.x,"target_y":p.y,"alive":true,"temper":50,"color":0})
+	else:
+		if not animal_habitat(species,terrain):
+			news="Este animal precisa de um bioma compativel."
+			return false
+		wildlife.append({"id":100000+new_id(),"species":species,"x":p.x,"y":p.y,"tx":p.x,"ty":p.y,"timer":0.2,"hunger":15.0,"breed_timer":120.0,"state":"Explorando"})
+	news=str(SPAWN_NAMES[species])+" criado no mapa."
+	return true
+
+func _found_empty_town(p:Vector2) -> Dictionary:
+	var id:int=new_id()
+	var town:Dictionary={"id":id,"name":"Nova tribo "+str(id),"x":int(p.x),"y":int(p.y),"hostile":false,"leader":0,"food":10.0,"wood":0.0,"stone":0.0,"water":8.0,"knowledge":0.0,"level":1,"law":"merito","home_biome":str(tiles[int(p.y)][int(p.x)]),"clothing":0.0,"drought_preparation":false,"houses":0,"house_levels":[],"farms":0,"campfire":false,"oven":false,"forge":false,"crossing":false,"castle":false,"construction":{},"historical_events":[]}
+	towns.append(town)
+	# Novas tribos recebem locais naturais de coleta, nao estruturas prontas.
+	for kind in ["fish","mine"]:
+		var best:float=10000.0
+		var chosen:=Vector2(-1,-1)
+		var wanted:String="water" if kind=="fish" else "mountain"
+		for y in range(1,SIZE-1):
+			for x in range(1,WIDTH-1):
+				if str(tiles[y][x]) in ["water","mountain"]: continue
+				var adjacent:bool=false
+				for offset in [Vector2i(1,0),Vector2i(-1,0),Vector2i(0,1),Vector2i(0,-1)]:
+					if str(tiles[y+offset.y][x+offset.x])==wanted: adjacent=true
+				if not adjacent: continue
+				var distance:float=p.distance_squared_to(Vector2(x,y))
+				if distance<best:
+					best=distance
+					chosen=Vector2(x,y)
+		if chosen.x>=0: sites.append({"kind":kind,"x":chosen.x,"y":chosen.y,"town":id,"developed":false,"work":0.0})
+	politics.prepare(self)
+	return town

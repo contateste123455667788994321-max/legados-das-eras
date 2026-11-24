@@ -25,6 +25,22 @@ func _run_tests() -> void:
 	_check(world.animal_habitat("crocodile","water") and not world.animal_habitat("crocodile","sand"),"Crocodilo respeita habitat")
 	_check(world._animal_prey("crocodile","duck") and not world._animal_prey("deer","duck"),"Predacao especifica por especie")
 	_check(world.towns.size() == 3, "Tres aldeias iniciais")
+	var creator=World.new()
+	creator.generate_world()
+	var start:Dictionary=creator.towns[0]
+	var point:=Vector2(float(start["x"]),float(start["y"]))
+	var count:int=creator.people.size()
+	_check(creator.spawn_creature("human",point) and creator.people.size()==count+1,"Criador adiciona exatamente um humano")
+	_check(int(creator.people.back()["town"])==int(start["id"]),"Criador integra morador na aldeia proxima")
+	creator.tiles[10][37]="swamp"
+	var animals:int=creator.wildlife.size()
+	_check(creator.spawn_creature("crocodile",Vector2(37,10)) and creator.wildlife.size()==animals+1,"Criador adiciona crocodilo no pantano")
+	creator.tiles[10][38]="sand"
+	_check(not creator.spawn_creature("crocodile",Vector2(38,10)),"Criador respeita habitat")
+	var towns_count:int=creator.towns.size()
+	creator.tiles[10][40]="grass"
+	_check(creator.spawn_creature("human",Vector2(40,10)) and creator.towns.size()==towns_count+1,"Humano distante funda nova tribo")
+	_check(int(creator.towns.back()["houses"])==0 and int(creator.towns.back()["farms"])==0,"Nova tribo nao recebe edificios prontos")
 	# Civilizacoes nao podem evoluir para Era 4 no primeiro ano.
 	var rate_world = World.new()
 	rate_world.generate_world()
