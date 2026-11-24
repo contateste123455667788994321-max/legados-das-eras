@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validar:
@@ -127,3 +127,23 @@ jobs:
           name: log-exportacao-android
           path: godot-export.log
           if-no-files-found: ignore
+
+      - name: Publicar pacote e manifesto gratuitos
+        shell: bash
+        run: |
+          set -eo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p updates
+          cp build/Legado-das-Eras-conteudo.pck updates/
+          python3 - <<'PY'
+          import json, hashlib, pathlib
+          p = pathlib.Path("updates/Legado-das-Eras-conteudo.pck")
+          m = json.loads(pathlib.Path("manifest.json").read_text())
+          m.update(version_code=int(m["version_code"])+1, version_name="0.5."+str(int(m["version_code"])-4), pack_format="pck", pack_url="https://raw.githubusercontent.com/contateste123455667788994321-max/legados-das-eras/main/"+str(p), pack_sha256=hashlib.sha256(p.read_bytes()).hexdigest(), pack_pck_sha256=hashlib.sha256(p.read_bytes()).hexdigest(), pack_bytes=p.stat().st_size)
+          pathlib.Path("manifest.json").write_text(json.dumps(m, indent=2)+"\n")
+          PY
+          git add -f updates/Legado-das-Eras-conteudo.pck manifest.json
+          git commit -m "Publish validated in-game update"
+          git push origin HEAD:main
