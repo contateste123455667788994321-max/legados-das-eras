@@ -421,6 +421,9 @@ func _screen_to_world(screen_pos: Vector2) -> Vector2:
 	return (screen_pos - MAP_ORIGIN - map_offset) / (TILE_SIZE * zoom)
 
 func _unhandled_input(event: InputEvent) -> void:
+	if character_view:
+		_character_input(event)
+		return
 	if event is InputEventScreenTouch:
 		var touch: InputEventScreenTouch = event
 		if touch.pressed:
@@ -452,8 +455,7 @@ func _unhandled_input(event: InputEvent) -> void:
 						_touch_map(touch.position)
 					dragging = false
 					drag_touch_id = -1
-			elif RIGHT_VIEW.has_point(touch.position):
-				_toggle_view()
+
 	elif event is InputEventScreenDrag:
 		var motion: InputEventScreenDrag = event
 		if not active_touches.has(motion.index):
@@ -471,7 +473,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif mouse.button_index == MOUSE_BUTTON_WHEEL_DOWN and MAP_AREA.has_point(mouse.position):
 			_zoom_around(mouse.position, zoom / 1.13)
 		elif mouse.button_index == MOUSE_BUTTON_LEFT:
-			if mouse.pressed and (MAP_AREA.has_point(mouse.position) or RIGHT_VIEW.has_point(mouse.position)):
+			if mouse.pressed and MAP_AREA.has_point(mouse.position):
 				drag_started = mouse.position
 				dragging = true
 			elif not mouse.pressed and dragging:
@@ -482,6 +484,33 @@ func _unhandled_input(event: InputEvent) -> void:
 		if not character_view:
 			map_offset += event.relative
 			_clamp_map()
+
+func _character_input(event: InputEvent) -> void:
+	if event is InputEventScreenTouch:
+		var touch: InputEventScreenTouch = event
+		if touch.pressed and MAP_AREA.has_point(touch.position):
+			if touch.position.x < MAP_AREA.get_center().x and joystick_touch < 0:
+				joystick_touch = touch.index
+				joystick_center = touch.position
+				joystick_direction = Vector2.ZERO
+			elif look_touch < 0:
+				look_touch = touch.index
+		elif not touch.pressed:
+			if touch.index == joystick_touch:
+				joystick_touch = -1
+				joystick_direction = Vector2.ZERO
+			if touch.index == look_touch:
+				look_touch = -1
+	elif event is InputEventScreenDrag:
+		var motion: InputEventScreenDrag = event
+		if motion.index == joystick_touch:
+			joystick_direction = ((motion.position - joystick_center) / 63.0).limit_length(1.0)
+		elif motion.index == look_touch:
+			look_yaw -= motion.relative.x * 0.005
+	elif event is InputEventMouseMotion:
+		var mouse: InputEventMouseMotion = event
+		if (mouse.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0 and MAP_AREA.has_point(mouse.position):
+			look_yaw -= mouse.relative.x * 0.004
 
 func _reset_pinch() -> void:
 	if active_touches.size() < 2:
@@ -517,9 +546,6 @@ func _zoom_around(screen_point: Vector2, desired_zoom: float) -> void:
 	_clamp_map()
 
 func _touch_map(position: Vector2) -> void:
-	if RIGHT_VIEW.has_point(position):
-		_toggle_view()
-		return
 	if character_view:
 		if controlled_id > 0:
 			var actor: Dictionary = world.get_actor(controlled_id)
@@ -583,15 +609,42 @@ func _touch_map(position: Vector2) -> void:
 func _move_controlled(delta: float) -> void:
 	if controlled_id <= 0 or world.speed <= 0.0:
 		return
-	var p: Dictionary = world.get_actor(controlled_id)
-	if p.is_empty() or not bool(p["alive"]):
+	var actor: Dictionary = world.get_actor(controlled_id)
+	if actor.is_empty() or not bool(actor["alive"]):
 		controlled_id = 0
+		character_view = false
+		if viewport_3d != null:
+			viewport_3d.render_target_update_mode = SubViewport.UPDATE_DISABLED
 		return
-	var direction := Vector2(float(p["target_x"]) - float(p["x"]), float(p["target_y"]) - float(p["y"]))
-	if direction.length() > 0.04:
-		var step := direction.limit_length(delta * world.speed * 2.4)
-		p["x"] = clampf(float(p["x"]) + step.x, 1.0, float(World.SIZE - 2))
-		p["y"] = clampf(float(p["y"]) + step.y, 1.0, float(World.SIZE - 2))
+	if character_view:
+		var direction := joystick_direction
+		if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
+			direction.y -= 1.0
+		if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
+			direction.y += 1.0
+		if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
+			direction.x -= 1.0
+		if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
+			direction.x += 1.0
+		if direction.length_squared() > 0.01:
+			direction = direction.normalized() * minf(direction.length(), 1.0)
+			var forward := Vector2(-sin(look_yaw), -cos(look_yaw))
+			var right := Vector2(cos(look_yaw), -sin(look_yaw))
+			var movement: Vector2 = (right * direction.x - forward * direction.y) * delta * 2.25
+			var nx: float = clampf(float(actor["x"]) + movement.x, 1.0, float(World.SIZE - 2))
+			var ny: float = clampf(float(actor["y"]) + movement.y, 1.0, float(World.SIZE - 2))
+			var kind: String = str(world.tiles[clampi(int(ny), 0, World.SIZE - 1)][clampi(int(nx), 0, World.SIZE - 1)])
+			if kind != "water" and kind != "mountain":
+				actor["x"] = nx
+				actor["y"] = ny
+				actor["target_x"] = nx
+				actor["target_y"] = ny
+		return
+	var toward := Vector2(float(actor["target_x"]) - float(actor["x"]), float(actor["target_y"]) - float(actor["y"]))
+	if toward.length() > 0.04:
+		var step := toward.limit_length(delta * world.speed * 2.4)
+		actor["x"] = clampf(float(actor["x"]) + step.x, 1.0, float(World.SIZE - 2))
+		actor["y"] = clampf(float(actor["y"]) + step.y, 1.0, float(World.SIZE - 2))
 
 func _clamp_map() -> void:
 	var side: float = float(World.SIZE) * TILE_SIZE * zoom
@@ -646,17 +699,24 @@ func _toggle_view() -> void:
 					candidate_id = int(p["id"])
 					selected_person_id = candidate_id
 					break
-		var actor: Dictionary = world.get_actor(candidate_id)
-		if not actor.is_empty() and bool(actor["alive"]):
+		var candidate: Dictionary = world.get_actor(candidate_id)
+		if not candidate.is_empty() and bool(candidate["alive"]):
 			controlled_id = candidate_id
 	if controlled_id <= 0:
-		world.news = "Escolha um habitante ou animal para entrar na visao de personagem."
+		world.news = "Escolha um habitante ou animal para explorar."
 		character_view = false
 	else:
 		character_view = not character_view
-		world.news = "Toque na paisagem para caminhar." if character_view else "Observando a civilizacao."
-	if is_instance_valid(character_clip):
-		character_clip.visible = character_view
+		world.news = "Use o analogico para andar. Arraste no lado direito para olhar." if character_view else "De volta ao mundo."
+	joystick_touch = -1
+	look_touch = -1
+	joystick_direction = Vector2.ZERO
+	if viewport_3d != null:
+		viewport_3d.render_target_update_mode = SubViewport.UPDATE_ALWAYS if character_view else SubViewport.UPDATE_DISABLED
+	if character_view:
+		character_world.rebuild()
+		var actor: Dictionary = world.get_actor(controlled_id)
+		character_world.follow(actor, look_yaw)
 	_refresh_ui()
 
 func _focus_at(point: Vector2) -> void:
@@ -665,8 +725,8 @@ func _focus_at(point: Vector2) -> void:
 
 func _focus_biome(kind: String) -> void:
 	character_view = false
-	if is_instance_valid(character_clip):
-		character_clip.visible = false
+	if viewport_3d != null:
+		viewport_3d.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	var found := false
 	for y in range(world.tiles.size()):
 		var row: Array = world.tiles[y]
@@ -685,8 +745,8 @@ func _toggle_control() -> void:
 	if controlled_id > 0:
 		controlled_id = 0
 		character_view = false
-		if is_instance_valid(character_clip):
-			character_clip.visible = false
+		if viewport_3d != null:
+			viewport_3d.render_target_update_mode = SubViewport.UPDATE_DISABLED
 		world.news = "Voce voltou a observar o mundo."
 	elif selected_person_id > 0 or selected_beast_id > 0:
 		var target_id := selected_person_id if selected_person_id > 0 else selected_beast_id
