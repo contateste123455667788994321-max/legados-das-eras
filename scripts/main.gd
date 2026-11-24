@@ -113,6 +113,7 @@ func _load_art() -> void:
 		var new_art: Resource = load("res://assets/landscape/reference_"+key+".png")
 		if new_art is Texture2D: actor_textures[key] = new_art
 	landscape_objects["tree"] = load("res://assets/landscape/reference_tree.png")
+	landscape_objects["reference_characters"] = load("res://assets/landscape/reference_characters.png")
 	if texture_missing:
 		push_warning("Alguns desenhos do mapa ainda nao foram carregados.")
 
@@ -292,11 +293,11 @@ func _make_landscape() -> void:
 	if landscape_texture != null and signature == landscape_signature:
 		return
 	landscape_signature = signature
-	const DETAIL := 16
+	const DETAIL := 24
 	var img := Image.create(World.WIDTH * DETAIL, World.SIZE * DETAIL, false, Image.FORMAT_RGB8)
 	var noise := FastNoiseLite.new()
 	noise.seed = 527
-	noise.frequency = 0.055
+	noise.frequency = 0.039
 	for py in range(img.get_height()):
 		for px in range(img.get_width()):
 			var fx: float = float(px) / DETAIL - 0.5 + noise.get_noise_2d(px, py) * 0.65
@@ -314,13 +315,19 @@ func _make_landscape() -> void:
 			var col: Color = a if tx<0.5 and ty<0.5 else (b if ty<0.5 else (d if tx<0.5 else e))
 			var water: float = lerpf(lerpf(float(str(world.tiles[y0][x0]) == "water"), float(str(world.tiles[y0][x1]) == "water"), tx), lerpf(float(str(world.tiles[y1][x0]) == "water"), float(str(world.tiles[y1][x1]) == "water"), tx), ty)
 			var grain: float = float(posmod(px * 79 + py * 131 + px * py * 17, 97)) / 97.0
-			var shade: float = roundf((noise.get_noise_2d(px, py)*0.20+(grain-0.5)*0.20)*12.0)/12.0
+			var shade:float=roundf((noise.get_noise_2d(px,py)*0.26+(grain-0.5)*0.075)*22.0)/22.0
+			var wetland:bool=fx>=31.5 and fx<=43.2 and fy>=5.5 and fy<=15.6
+			var wet:float=noise.get_noise_2d(px*0.48+803,py*0.48+301)
+			if col==Color("#536e47"):
+				col=Color("#455b36").lerp(Color("#797c45"),clampf(wet+0.45,0.0,1.0))
+				if wet>0.04: col=Color("#3c5d48").lerp(Color("#244e49"),clampf(wet*1.7,0.0,1.0))
+				if wet>0.26 and grain>0.9 and py%4==0: col=col.lightened(0.15)
 			if water > 0.46:
-				col = Color("#237c9e").lerp(Color("#52b6ca"), clampf((1.0-water)*1.5 + shade, 0.0, 0.85))
-				if water < 0.60: col = Color("#6ebbc0")
+				col = (Color("#214f47").lerp(Color("#537d65"),clampf((1.0-water)*1.4+shade,0.0,0.9)) if wetland else Color("#176583").lerp(Color("#54adc0"),clampf((1.0-water)*1.5+shade,0.0,0.85)))
+				if water < 0.60: col = Color("#6d8a62") if wetland else Color("#7ebfc7")
 				elif grain > 0.89 and py % 5 == 0: col = col.lightened(0.20)
 			elif water > 0.28:
-				col = Color("#b6a274")
+				col = Color("#706342") if wetland else (Color("#b8cfd4") if season==3 else Color("#b6a274"))
 			col = col.lightened(shade) if shade > 0.0 else col.darkened(-shade)
 			img.set_pixel(px, py, col)
 	landscape_texture = ImageTexture.create_from_image(img)
@@ -360,9 +367,9 @@ func _draw_landscape() -> void:
 					draw_rect(Rect2(q+Vector2(ss,ss),Vector2(ss,ss)),Color("#91a94e"))
 					if k%7==0: draw_rect(Rect2(q-Vector2(0,ss),Vector2(ss,ss)),Color("#ead0a5"))
 			elif kind == "swamp":
-				_draw_landscape_object("marsh",pos,side*0.85)
-				if seed%4==0: _draw_landscape_object("swamp_reeds",pos+Vector2(side*0.13,side*0.16),side*0.60)
-				_draw_mosquitoes(pos,seed,side)
+				if seed%3==0: _draw_landscape_object("swamp_reeds",pos,side*(0.44+float(seed%5)*0.07))
+				elif seed%7==0: _draw_landscape_object("swamp_flowers",pos,side*0.55)
+				if seed%13==0: _draw_mosquitoes(pos,seed,side)
 			elif kind == "mountain":
 				if seed%3!=0: _draw_landscape_object("rock", pos, side*(0.7+float(seed%5)*0.14))
 			elif kind == "sand" and seed % 4 == 0:
@@ -371,12 +378,13 @@ func _draw_landscape() -> void:
 	for tree in world.trees.values():
 		var p: Vector2 = _world_to_screen(Vector2(float(tree["x"])+0.5+float(tree["ox"]),float(tree["y"])+0.5+float(tree["oy"])))
 		if not MAP_AREA.grow(-side*0.3).has_point(p): continue
-		var s: float = side*1.12*world.tree_scale(tree)
+		var s: float = side*(1.43 if world.swamp_at(Vector2(float(tree["x"]),float(tree["y"]))) else 1.22)*world.tree_scale(tree)
+		var tree_key:String=_natural_tree_key(tree)
 		var state: String = str(tree["state"])
 		if state == "stump":
 			draw_ellipse_stump(p,s)
 		elif state == "falling":
-			var key: String = "swamp_tree" if world.swamp_at(Vector2(float(tree["x"]),float(tree["y"]))) else ("pine" if bool(tree["pine"]) else "tree")
+			var key: String = tree_key
 			if not landscape_objects.has(key):
 				landscape_objects[key] = load("res://assets/landscape/"+key+".svg")
 			if MAP_AREA.grow(-s*1.2).has_point(p):
@@ -385,7 +393,7 @@ func _draw_landscape() -> void:
 				draw_set_transform(Vector2.ZERO)
 			draw_ellipse_stump(p,s)
 		else:
-			_draw_landscape_object("swamp_tree" if world.swamp_at(Vector2(float(tree["x"]),float(tree["y"]))) else ("pine" if bool(tree["pine"]) else "tree"),p,s)
+			_draw_landscape_object(tree_key,p,s)
 
 func draw_ellipse_stump(p: Vector2,s: float) -> void:
 	draw_circle(p,s*0.11,Color("#513b25"))
@@ -445,25 +453,17 @@ func _draw() -> void:
 		var site: Dictionary = town.get("construction", {})
 		if not site.is_empty() and MAP_AREA.grow(-35.0).has_point(center):
 			var kind: String = str(site.get("kind", "house"))
-			var total: float = maxf(1.0, float(site.get("duration", 12.0)))
-			var progress: float = clampf(float(site.get("progress", 0.0)) / total, 0.0, 1.0)
-			var line_start: Vector2 = center + Vector2(-35.0, -58.0) * zoom
-			var size: Vector2 = Vector2(70.0, 7.0) * zoom
-			draw_rect(Rect2(line_start, size), Color("#392c20"), true)
-			draw_rect(Rect2(line_start, Vector2(size.x * progress, size.y)), Color("#e6bd72"), true)
-			draw_rect(Rect2(line_start, size), Color("#f4d8a1"), false, maxf(1.0, zoom))
 			var build_spot: Vector2 = house_spots[mini(int(town.get("houses", 2)), house_spots.size()-1)] if kind == "house" else farm_spots[mini(int(town.get("farms", 1)), farm_spots.size()-1)]
 			var scaffold: Vector2 = _world_to_screen(Vector2(float(site["x"])+0.5,float(site["y"])+0.5)) if site.has("x") else center + build_spot * unit
 			if MAP_AREA.grow(-unit).has_point(scaffold):
 				_draw_project_marker(site,scaffold,unit)
-				draw_line(scaffold + Vector2(-15, 10) * zoom, scaffold + Vector2(15, -21) * zoom, Color("#ddbe7e"), maxf(1.0, 3.0 * zoom))
-				draw_line(scaffold + Vector2(15, 10) * zoom, scaffold + Vector2(-15, -21) * zoom, Color("#b78c5d"), maxf(1.0, 3.0 * zoom))
+					_draw_landscape_object("construction_site",scaffold,unit*0.85)
 		if int(town["id"]) == selected_town_id and MAP_AREA.has_point(center):
 			draw_arc(center, 35.0 * zoom, 0.0, TAU, 32, Color("#fff0a0"), 3.0)
 	for animal in world.wildlife:
 		if float(animal.get("health",1))<=0: continue
 		var p: Vector2 = _world_to_screen(Vector2(float(animal["x"])+0.5,float(animal["y"])+0.5))
-		_draw_landscape_object(str(animal["species"]),p,zoom*(32.0 if str(animal["species"]) in ["deer","camel","crocodile"] else (24.0 if str(animal["species"]) in ["capybara","heron","boar","fox"] else 17.0)))
+		_draw_natural_animal(animal,p)
 	_draw_resource_drops()
 	_draw_swamp_creatures()
 	# Personagens separados visualmente por idade e aparencia.
@@ -547,8 +547,8 @@ func _draw_rivers() -> void:
 			var p:Vector2=_world_to_screen(Vector2(x+0.5,y+0.5))
 			if not MAP_AREA.grow(-unit*0.65).has_point(p): continue
 			if world.swamp_water(x,y):
-				_draw_landscape_object("algae",p+Vector2(0,unit*0.25),unit*0.90)
-				_draw_mosquitoes(p,x*31+y*71,unit)
+				if posmod(x*19+y*13,5)<2: _draw_landscape_object("lilies",p+Vector2(0,unit*0.25),unit*0.75)
+				if posmod(x*31+y*71,11)==0: _draw_mosquitoes(p,x*31+y*71,unit)
 				continue
 			var flow:Vector2=world.water_flow(Vector2(x,y))
 			for i in range(4):
@@ -573,35 +573,31 @@ func _draw_waterfall(p:Vector2,u:float) -> void:
 
 func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
 	var stage: int = world.life_stage(p)
-	var variant: int = posmod(int(p.get("appearance",p["id"])),10)
-	var s: float = 29.0*zoom*[0.44,0.68,1.0,0.92][stage]
-	if not landscape_objects.has("people_atlas"):
-		landscape_objects["people_atlas"] = load("res://assets/landscape/people_atlas.svg")
-	var atlas: Texture2D = landscape_objects["people_atlas"]
-	var source := Rect2(float(variant%5)*64.0+16.0,float(int(p["gender"])*2+floori(float(variant)/5.0))*48.0,32.0,48.0)
-	var target := Vector2(float(p.get("target_x",p["x"])),float(p.get("target_y",p["y"])))
-	var moving: bool = target.distance_to(Vector2(float(p["x"]),float(p["y"])))>0.08 and world.speed>0.0
-	var bounce: float = roundf(absf(sin(float(Time.get_ticks_msec())*0.014+float(p["id"])))) * 2.0*zoom if moving else 0.0
-	var dest := Rect2(center-Vector2(s*0.23,s*0.7+bounce),Vector2(s*0.46,s))
-	var clipped := dest.intersection(MAP_AREA)
-	if clipped.has_area():
-		draw_texture_rect_region(atlas,clipped,Rect2(source.position+(clipped.position-dest.position)/dest.size*source.size,clipped.size/dest.size*source.size))
-	_draw_equipment(p,center,s,bounce)
+	var profession:String=str(p.get("profession",""))
+	var index:int=2 if stage<2 else (3 if profession in ["Agricultor","Minerador","Construtor"] else int(p["gender"]))
+	var s:float=36.0*zoom*[0.48,0.78,1.0,0.93][stage]
+	var atlas:Texture2D=landscape_objects["reference_characters"]
+	var target:=Vector2(float(p.get("target_x",p["x"])),float(p.get("target_y",p["y"])))
+	var pos:=Vector2(float(p["x"]),float(p["y"]))
+	var moving:bool=target.distance_to(pos)>0.08 and world.speed>0
+	var bounce:float=roundf(sin(float(Time.get_ticks_msec())*0.012+float(p["id"]))*0.6)*zoom if moving else 0.0
+	var dest:=Rect2(center-Vector2(s*0.5,s*0.91+bounce),Vector2.ONE*s)
+	if MAP_AREA.encloses(dest):
+		var face:float=-1.0 if target.x<pos.x-0.08 else 1.0
+		draw_set_transform(center,0,Vector2(face,1))
+		draw_texture_rect_region(atlas,Rect2(-s*0.5,-s*0.91-bounce,s,s),Rect2(index*48,0,48,48))
+		draw_set_transform(Vector2.ZERO)
+	_draw_equipment(p,center,s*0.78,bounce)
 	if bool(p.get("witch_staff",false)):
-		_draw_landscape_object("magic_staff",center+Vector2(s*0.28,s*0.12),s*1.05)
+		_draw_landscape_object("magic_staff",center+Vector2(s*0.30,0),s*0.8)
 	var cargo:Dictionary=p.get("cargo",{})
 	if not cargo.is_empty() and MAP_AREA.grow(-s).has_point(center):
-		_draw_landscape_object("cart" if str(p.get("transport","hands"))=="cart" else ("basket" if str(p.get("transport","hands"))=="basket" else ("log_bundle" if str(cargo["kind"])=="wood" else "sack")),center+Vector2(s*0.28,s*0.12),s*0.60)
-	if str(p.get("profession",""))=="Pescador" and stage>=2:
-		draw_rect(Rect2(dest.position+Vector2(s*0.12,s*0.05),Vector2(s*0.42,s*0.09)),Color("#c9a255"))
+		_draw_landscape_object("cart" if str(p.get("transport","hands"))=="cart" else ("log_bundle" if str(cargo["kind"])=="wood" else "sack"),center+Vector2(s*0.30,0),s*0.53)
+	if profession=="Pescador" and stage>=2:
+		draw_line(center+Vector2(s*0.17,-s*0.30),center+Vector2(s*0.70,-s*0.52),Color("#78532d"),maxf(1.0,zoom))
 		if str(p.get("task",""))=="Pescando":
-			draw_line(center,center+Vector2(s*0.9,-s*0.45),Color("#79522d"),maxf(1.0,zoom))
-			draw_line(center+Vector2(s*0.9,-s*0.45),center+Vector2(s*0.9,s*0.3),Color("#c9d9d4"),1.0)
-	if stage==3:
-		draw_line(center+Vector2(-s*0.10,-s*0.21),center+Vector2(s*0.11,-s*0.21),Color("#e1ded2"),maxf(1,s*0.10))
-		draw_line(center+Vector2(s*0.15,0),center+Vector2(s*0.25,s*0.25),Color("#795433"),maxf(1,s*0.055))
-	elif stage==0:
-		draw_circle(center+Vector2(0,s*0.08),s*0.11,Color("#d9c7a2"))
+			draw_line(center+Vector2(s*0.70,-s*0.52),center+Vector2(s*0.70,s*0.25),Color("#b9d6d2"),1.0)
+
 
 func _draw_clock() -> void:
 	var c := Vector2(705, 34)
@@ -1491,14 +1487,10 @@ func _draw_project_marker(site:Dictionary,p:Vector2,unit:float) -> void:
 	var portion:float=clampf(received/total,0,1)
 	var ratio:float=clampf(float(site.get("progress",0))/maxf(1,float(site["duration"])),0,1)
 	var icon:String={"castle":"castle","upgrade":"hut","house":"hut","farm":"farm","campfire":"fire","oven":"oven","forge":"forge","crossing":"bridge"}.get(kind,"hut")
-	var badge_pos:Vector2=p-Vector2(0,unit*0.85)
-	draw_rect(Rect2(badge_pos-Vector2.ONE*unit*0.29,Vector2.ONE*unit*0.58),Color("#302c24",0.92))
-	draw_rect(Rect2(badge_pos-Vector2.ONE*unit*0.29,Vector2.ONE*unit*0.58),Color("#dab477"),false,1.5)
-	if icon in ["hut","farm","fire"]: _draw_sprite(icon,badge_pos,Vector2.ONE*unit*0.5,true)
-	else: _draw_landscape_object(icon,badge_pos+Vector2(0,unit*0.13),unit*0.50)
+	var badge_pos:Vector2=p-Vector2(0,unit*0.58)
 	for n in range(int(ceil(portion*6))):
 		draw_rect(Rect2(p+Vector2((n%3-1)*unit*0.15,(n/3-0.3)*unit*0.12),Vector2(unit*0.13,unit*0.08)),Color("#ad8150"))
-	var bar:=Rect2(p-Vector2(unit*0.44,unit*0.52),Vector2(unit*0.88,5.0))
+	var bar:=Rect2(p-Vector2(unit*0.30,unit*0.38),Vector2(unit*0.60,3.0))
 	draw_rect(bar,Color("#362b23"))
 	draw_rect(Rect2(bar.position,Vector2(bar.size.x*ratio,bar.size.y)),Color("#e8bd65"))
 	draw_string(ThemeDB.fallback_font,p+Vector2(-unit*0.48,unit*0.36),"%d/%d"%[int(received),int(total)],HORIZONTAL_ALIGNMENT_CENTER,unit,12,Color("#ffedb8"))
@@ -1513,11 +1505,9 @@ func _draw_equipment(p:Dictionary,c:Vector2,s:float,bounce:float) -> void:
 	elif str(p.get("armor_material",""))=="bone": colors[armor]=Color("#d5c5a0")
 	elif str(p.get("armor_material",""))=="shell": colors[armor]=Color("#867f55")
 	if armor>0:
-		var torso:Vector2=c+Vector2(-s*0.13,-s*0.35-bounce)
-		draw_rect(Rect2(torso,Vector2(s*0.26,s*0.29)),Color("#443b30"))
-		draw_rect(Rect2(torso+Vector2(s*0.025,s*0.025),Vector2(s*0.21,s*0.23)),colors[armor])
-		draw_rect(Rect2(torso+Vector2(s*0.06,s*0.06),Vector2(s*0.14,s*0.035)),colors[armor].lightened(0.35))
-		draw_rect(Rect2(c+Vector2(-s*0.13,-s*0.68-bounce),Vector2(s*0.26,s*0.10)),colors[armor])
+		var shoulder:Vector2=c+Vector2(-s*0.22,-s*0.45-bounce)
+		draw_line(shoulder,shoulder+Vector2(s*0.20,s*0.06),colors[armor],maxf(1.0,s*0.08))
+		draw_line(shoulder+Vector2(s*0.07,s*0.11),shoulder+Vector2(s*0.19,s*0.16),colors[armor],maxf(1.0,s*0.07))
 	if str(p.get("military_role",""))=="royal":
 		draw_rect(Rect2(c+Vector2(-s*0.20,-s*0.57-bounce),Vector2(s*0.08,s*0.50)),Color("#bba05a"))
 	elif str(p.get("military_role",""))=="general":
@@ -1716,3 +1706,28 @@ func _inspect_building(point:Vector2) -> bool:
 			dialog.popup_centered(Vector2i(440,400))
 			return true
 	return false
+
+func _natural_tree_key(tree:Dictionary) -> String:
+	var x:int=int(tree["x"])
+	var y:int=int(tree["y"])
+	if world.swamp_at(Vector2(x,y)): return "swamp_tree_"+str(posmod(x*13+y*7,3))
+	var winter:bool=int(world.day/90.0)%4==3 or str(world.tiles[y][x])=="snow"
+	if winter: return "pine_snow" if bool(tree["pine"]) else "tree_snow"
+	return "pine" if bool(tree["pine"]) else "tree"
+
+func _draw_natural_animal(animal:Dictionary,p:Vector2) -> void:
+	var species:String=str(animal["species"])
+	var indices:Dictionary={"deer":4,"rabbit":5,"snow_hare":5,"chicken":6,"capybara":7,"duck":8,"crocodile":9,"frog":10}
+	if not indices.has(species):
+		_draw_landscape_object(species,p,zoom*(32.0 if species=="camel" else (24.0 if species in ["heron","boar","fox"] else 17.0)))
+		return
+	var s:float=zoom*float({"deer":39,"rabbit":23,"snow_hare":23,"chicken":22,"capybara":37,"duck":26,"crocodile":42,"frog":19}[species])
+	var dest:=Rect2(p-Vector2(s*0.5,s*0.91),Vector2.ONE*s)
+	if not MAP_AREA.encloses(dest): return
+	var source:=Rect2(int(indices[species])*48,0,48,48)
+	var atlas:Texture2D=landscape_objects["reference_characters"]
+	var face:float=-1.0 if float(animal.get("tx",animal["x"]))<float(animal["x"])-0.08 else 1.0
+	if species=="deer": face=-face
+	draw_set_transform(p,0,Vector2(face,1))
+	draw_texture_rect_region(atlas,Rect2(-s*0.5,-s*0.91,s,s),source)
+	draw_set_transform(Vector2.ZERO)
