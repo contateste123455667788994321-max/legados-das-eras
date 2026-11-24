@@ -1297,6 +1297,18 @@ func _show_inventory() -> void:
 			var stock := Label.new()
 			stock.text = "Estoque da aldeia (separado da mochila)\nMadeira: %d   Comida: %d   Agua: %d" % [int(town.get("wood", 0)), int(town.get("food", 0)), int(town.get("water", 0))]
 			content.add_child(stock)
+			var transport:=Label.new()
+			transport.text="Transporte: "+str({"hands":"Maos","basket":"Cesta","cart":"Carrinho"}.get(str(actor.get("transport","hands")),"Maos"))
+			content.add_child(transport)
+			var unload:=Button.new()
+			unload.text="Depositar recursos na aldeia"
+			content.add_child(unload)
+			unload.pressed.connect(func() -> void:
+				world.deposit_inventory(actor)
+				world.save_world()
+				_refresh_ui()
+				dialog.queue_free()
+			)
 		dialog.add_child(content)
 	add_child(dialog)
 	dialog.popup_centered(Vector2i(570, 350))

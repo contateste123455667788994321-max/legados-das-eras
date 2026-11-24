@@ -145,6 +145,10 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 			0, 3: p["profession"]="Pescador"
 			1, 4: p["profession"]="Minerador"
 			2: p["profession"]="Cozinheiro"
+	# Garante que uma aldeia sem madeira tenha pelo menos um coletor.
+	if float(p["age"])>=16 and float(home["wood"])<14.0 and int(p["id"])!=int(home["leader"]) and int(p["id"])%2==0:
+		_gather_wood(sim,p,home)
+		return
 	# A personalidade altera os objetivos de trabalho e as exploracoes.
 	match str(p["profession"]):
 		"Pescador":
@@ -153,15 +157,17 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 		"Minerador":
 			if _site_work(sim,p,home,"mine","Minerando"):
 				var deposit:Dictionary=sim.local_site("mine",int(home["id"]))
-				sim.collect_cargo(p,"stone",2.0)
 				if not bool(deposit.get("developed",false)):
+					sim.collect_cargo(p,"stone",2.0)
 					deposit["work"]=float(deposit.get("work",0))+step
 					if float(deposit["work"])>=16 and float(home["wood"])>=6:
 						home["wood"]=float(home["wood"])-6
 						deposit["developed"]=true
 						sim.news=str(home["name"])+" abriu uma mina."
-				elif int(home["level"])>=3:
+				elif int(home["level"])>=3 and float(home.get("stone",0))>=12:
 					sim.collect_cargo(p,"ore",2.0)
+				else:
+					sim.collect_cargo(p,"stone",2.0)
 		"Cozinheiro":
 			if bool(home.get("forge",false)) and float(home.get("ore",0))>0:
 				if _site_work(sim,p,home,"forge","Forjando"):

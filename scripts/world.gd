@@ -376,7 +376,6 @@ func _grow_economies() -> void:
 				food_factor = 0.65
 				wood_factor = 0.55
 		town["food"] = float(town["food"]) + (float(population) * 0.8 + 2.0) * food_factor
-		town["wood"] = float(town["wood"]) + 4.0 * wood_factor
 		if float(town["food"]) < float(population) * 0.6:
 			news = str(town["name"]) + " enfrenta dificuldades com alimentos."
 
@@ -1037,4 +1036,16 @@ func add_resource(p:Dictionary,kind:String,amount:int) -> bool:
 		news="Carga cheia. Deposite os recursos na aldeia."
 		return false
 	p[kind]=int(p.get(kind,0))+amount
+	return true
+
+func deposit_inventory(p:Dictionary) -> bool:
+	var town:Dictionary=get_town(int(p.get("town",0)))
+	if town.is_empty(): return false
+	if Vector2(float(p["x"]),float(p["y"])).distance_to(Vector2(float(town["x"]),float(town["y"])))>1.2:
+		news="Aproxime-se do centro da aldeia para descarregar."
+		return false
+	for key in ["wood","stone","ore","metal","food","water","fish","meat"]:
+		town[key]=float(town.get(key,0))+float(p.get(key,0))
+		p[key]=0
+	news="Recursos entregues ao estoque da aldeia."
 	return true
