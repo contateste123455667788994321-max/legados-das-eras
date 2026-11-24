@@ -474,6 +474,9 @@ func _draw() -> void:
 		if not MAP_AREA.has_point(center):
 			continue
 		_draw_person_variant(p,center)
+		if float(p.get("poison_remaining",0))>0 and MAP_AREA.grow(-12).has_point(center):
+			var pulse:float=0.55+0.25*sin(world.swamp_clock*8.0)
+			draw_arc(center,10.0*zoom,0,TAU,18,Color(0.48,0.78,0.24,pulse),1.5)
 		if int(p["id"]) == selected_person_id:
 			draw_arc(center, 14.0 * zoom, 0, TAU, 20, Color("#ffe890"), 2.0)
 			var task_name: String = "Nv. %d | %s" % [int(p.get("level",1)),str(p.get("task","Observando"))]
@@ -1389,6 +1392,7 @@ func _show_details() -> void:
 			world.init_traits(p)
 			lines.append("Nivel %d  |  XP %.0f / %.0f" % [int(p["level"]),float(p["xp"]),world.xp_required(p)])
 			lines.append("Vida: %d / %d  |  Funcao: %s" % [int(float(p["health"])),int(world.max_hp(p)),p["role"]])
+			if float(p.get("poison_remaining",0))>0: lines.append("Envenenado: %.1f s restantes"%float(p["poison_remaining"]))
 			lines.append("Forca: %.0f | Dano: %.1f | Defesa: %.0f" % [world.strength(p),world.attack_damage(p),world.defense(p)])
 			lines.append("Diplomacia: %d | Inteligencia: %d | Agressividade: %d" % [int(p["diplomacy"]),int(p["intelligence"]),int(p["aggression"])])
 			lines.append("Armadura: nivel %d | Arma: nivel %d | Ferramenta: nivel %d" % [int(p.get("armor",0)),int(p.get("weapon",0)),int(p.get("tool",0))])
@@ -1433,6 +1437,7 @@ func _show_details() -> void:
 		body.custom_minimum_size=Vector2(620,420)
 		body.add_theme_constant_override("separation",8)
 		_add_stat_bar(body,"Vida",float(person["health"]),world.max_hp(person),Color("#b95850"))
+		if float(person.get("poison_remaining",0))>0: _add_stat_bar(body,"Veneno (s)",float(person["poison_remaining"]),5.0,Color("#8eae4d"))
 		_add_stat_bar(body,"Saciedade",100.0-float(person.get("needs",{}).get("hunger",0)),100.0,Color("#d5a455"))
 		_add_stat_bar(body,"Experiencia",float(person.get("xp",0)),world.xp_required(person),Color("#6db7b3"))
 		var description:=Label.new()
@@ -1599,14 +1604,20 @@ func _draw_swamp_creatures() -> void:
 	var witch:Dictionary=world.swamp_witch
 	if bool(witch.get("alive",false)):
 		var p:Vector2=_world_to_screen(Vector2(float(witch["x"])+0.5,float(witch["y"])+0.5))
-		_draw_landscape_object("witch",p,38.0*zoom)
+		var summon:float=float(witch.get("summon_anim",0))
+		var lift:float=clampf(minf((1.2-summon)/0.30,summon/0.30),0,1) if summon>0 else 0.0
+		var pose:String="witch_summon" if lift>=0.65 else ("witch_lift" if lift>0.15 else "witch")
+		_draw_landscape_object(pose,p,43.0*zoom)
 		if MAP_AREA.grow(-30*zoom).has_point(p):
 			var bar:=Rect2(p+Vector2(-16,-37)*zoom,Vector2(32,4)*zoom)
 			draw_rect(bar,Color("#2a202d"))
 			draw_rect(Rect2(bar.position,Vector2(bar.size.x*float(witch["health"])/500.0,bar.size.y)),Color("#a16dc7"))
 	for spider in world.swamp_spiders:
 		var p:Vector2=_world_to_screen(Vector2(float(spider["x"])+0.5,float(spider["y"])+0.5))
-		_draw_landscape_object("swamp_spider",p,17.0*zoom)
+		var emerge:float=float(spider.get("emerge",0))
+		var s:float=21.0*zoom*(1.0-0.35*clampf(emerge/0.6,0,1))
+		var frame:int=int(world.swamp_clock*10+float(spider["id"]))%2
+		_draw_landscape_object("swamp_spider_walk" if frame==1 else "swamp_spider",p,s)
 	for bolt in world.magic_bolts:
 		var p:Vector2=_world_to_screen(Vector2(float(bolt["x"])+0.5,float(bolt["y"])+0.5))
 		if MAP_AREA.grow(-12).has_point(p):

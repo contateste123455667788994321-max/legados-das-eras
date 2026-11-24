@@ -60,6 +60,17 @@ func _run_tests() -> void:
 	swamp.generate_world()
 	swamp._seed_swamp_witch(true)
 	_check(float(swamp.swamp_witch["health"])==500.0,"Bruxa possui cinco vezes a vida humana")
+	swamp._spawn_spider_pair(swamp.swamp_witch)
+	_check(swamp.swamp_spiders.size()==2 and float(swamp.swamp_spiders[0]["health"])==50.0 and float(swamp.swamp_spiders[1]["health"])==50.0,"Invocacao de duas aranhas com 50 de vida")
+	swamp.swamp_spiders.clear()
+	var poisoned:Dictionary=swamp.people[1]
+	var before_poison:float=float(poisoned["health"])
+	swamp.apply_spider_poison(poisoned)
+	swamp._update_spider_poison(poisoned,2.0)
+	swamp.apply_spider_poison(poisoned)
+	swamp._update_spider_poison(poisoned,3.0)
+	_check(is_equal_approx(float(poisoned["health"]),before_poison-15.0) and float(poisoned["poison_remaining"])==0.0,"Veneno dura cinco segundos e causa 15 de dano sem acumular")
+	poisoned["health"]=before_poison
 	var champion:Dictionary=swamp.people[0]
 	champion["x"]=swamp.swamp_witch["x"]
 	champion["y"]=swamp.swamp_witch["y"]

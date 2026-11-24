@@ -587,6 +587,10 @@ func load_world() -> bool:
 				if _tree_allowed(x,y) and not trees.has(tree_key(x,y)) and rng.randf()<0.55: _plant_tree(x,y,true)
 		swamp_witch=value.get("swamp_witch",{})
 		swamp_spiders=value.get("swamp_spiders",[])
+		for spider in swamp_spiders:
+			if not spider.has("max_health"):
+				spider["health"]=clampf(float(spider.get("health",35))/35.0*50.0,0,50)
+				spider["max_health"]=50.0
 		resource_drops=value.get("resource_drops",[])
 		swamp_clock=float(value.get("swamp_clock",0))
 		magic_bolts.clear()
@@ -1691,6 +1695,8 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 	swamp_clock+=dt
 	for person in people:
 		if not bool(person["alive"]): continue
+		_update_spider_poison(person,dt)
+		if not bool(person["alive"]): continue
 		if person.has("witch_attack_cd"): person["witch_attack_cd"]=maxf(0,float(person["witch_attack_cd"])-dt)
 		if bool(person.get("witch_staff",false)):
 			person["staff_cd"]=maxf(0,float(person.get("staff_cd",0))-dt)
@@ -1702,7 +1708,13 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 		witch["summon"]=maxf(0,float(witch["summon"])-dt)
 		witch["wander"]=float(witch["wander"])-dt
 		var target:Dictionary=_swamp_human(p,3.8)
-		if not target.is_empty() and float(witch["cast"])<=0:
+		if float(witch.get("summon_anim",0))>0:
+			var previous:float=float(witch["summon_anim"])
+			witch["summon_anim"]=maxf(0,previous-dt)
+			witch["state"]="Invocando aranhas"
+			if previous>0.60 and float(witch["summon_anim"])<=0.60:
+				_spawn_spider_pair(witch)
+		elif not target.is_empty() and float(witch["cast"])<=0:
 			magic_bolts.append({"x":p.x+0.22,"y":p.y-0.15,"target":target["id"],"kind":"human","life":4.0,"damage":24.0})
 			sound_at("magic",witch)
 			witch["cast"]=4.5
@@ -1718,12 +1730,11 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 			if swamp_at(n):
 				witch["x"]=n.x
 				witch["y"]=n.y
-		if float(witch["summon"])<=0:
+		if float(witch["summon"])<=0 and float(witch.get("summon_anim",0))<=0 and swamp_spiders.size()<=6:
 			witch["summon"]=18.0
-			if swamp_spiders.size()<7:
-				var q:Vector2=_swamp_target(p,1.3)
-				sound_at("summon",witch)
-				swamp_spiders.append({"id":new_id(),"x":q.x,"y":q.y,"tx":q.x,"ty":q.y,"health":35.0,"timer":0.0,"bite":0.0})
+			witch["summon_anim"]=1.2
+			witch["state"]="Invocando aranhas"
+			sound_at("summon",witch)
 		for person in people:
 			if int(person["id"])!=controlled_id and bool(person.get("alive",false)) and float(person["age"])>=16 and str(person.get("task",""))=="Combatendo bruxa": strike_witch(person)
 	for i in range(swamp_spiders.size()-1,-1,-1):
@@ -1732,6 +1743,14 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 			swamp_spiders.remove_at(i)
 			continue
 		var p:=Vector2(float(spider["x"]),float(spider["y"]))
+		if float(spider.get("emerge",0))>0:
+			spider["emerge"]=maxf(0,float(spider["emerge"])-dt)
+			var exit:=Vector2(float(spider["tx"]),float(spider["ty"]))
+			var crawled:=p.move_toward(exit,dt*1.3)
+			if swamp_at(crawled):
+				spider["x"]=crawled.x
+				spider["y"]=crawled.y
+			continue
 		spider["bite"]=maxf(0,float(spider["bite"])-dt)
 		spider["timer"]=float(spider["timer"])-dt
 		var target:Dictionary=_swamp_human(p,2.3)
@@ -1739,7 +1758,9 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 		if not target.is_empty():
 			goal=Vector2(float(target["x"]),float(target["y"]))
 			if p.distance_to(goal)<0.4 and float(spider["bite"])<=0:
-				_swamp_damage(target,6.0)
+				_swamp_damage(target,10.0)
+				if bool(target["alive"]): apply_spider_poison(target)
+				sound_at("hit",spider)
 				spider["bite"]=2.5
 				if bool(target.get("alive",false)) and float(target["age"])>=16.0:
 					spider["health"]=float(spider["health"])-attack_damage(target)
@@ -2193,3 +2214,28 @@ func sound_event(kind:String,pos:Vector2) -> void:
 
 func sound_at(kind:String,entity:Dictionary) -> void:
 	if entity.has("x") and entity.has("y"): sound_event(kind,Vector2(float(entity["x"]),float(entity["y"])))
+
+# Duas aranhas surgem debaixo do manto, e so depois procuram alvos.
+func _spawn_spider_pair(witch:Dictionary) -> void:
+	if swamp_spiders.size()>6 or not bool(witch.get("alive",false)): return
+	var origin:=Vector2(float(witch["x"]),float(witch["y"]))
+	for side in [-1,1]:
+		var start:=origin+Vector2(float(side)*0.08,0.10)
+		if not swamp_at(start): start=origin
+		var goal:=origin+Vector2(float(side)*0.68,0.32)
+		if not swamp_at(goal): goal=origin+Vector2(float(side)*0.20,0.25)
+		if not swamp_at(goal): goal=origin
+		swamp_spiders.append({"id":new_id(),"x":start.x,"y":start.y,"tx":goal.x,"ty":goal.y,"health":50.0,"max_health":50.0,"timer":0.0,"bite":0.0,"emerge":0.6})
+
+# Veneno nao acumula: uma dose completa causa 15 de dano em cinco segundos.
+func apply_spider_poison(person:Dictionary) -> void:
+	if bool(person.get("alive",false)) and float(person.get("poison_remaining",0))<=0:
+		person["poison_remaining"]=5.0
+
+func _update_spider_poison(person:Dictionary,dt:float) -> void:
+	var remaining:float=float(person.get("poison_remaining",0))
+	if remaining<=0 or not bool(person.get("alive",false)): return
+	var elapsed:float=minf(remaining,dt)
+	person["poison_remaining"]=maxf(0,remaining-elapsed)
+	person["health"]=maxf(0,float(person["health"])-3.0*elapsed)
+	if float(person["health"])<=0: kill_person(person)
