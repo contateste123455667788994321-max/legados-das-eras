@@ -8,6 +8,7 @@ var root_mesh: Node3D
 var sun: DirectionalLight3D
 var world_env: WorldEnvironment
 var materials: Dictionary = {}
+var material_grain: NoiseTexture2D
 var last_build_signature := ""
 var last_world_id := 0
 var actors_3d: Dictionary = {}
@@ -61,6 +62,20 @@ func _mat(hex_color: String) -> StandardMaterial3D:
 		return materials[hex_color]
 	var m := StandardMaterial3D.new()
 	m.albedo_color = Color(hex_color)
+	if material_grain == null:
+		var grain := FastNoiseLite.new()
+		grain.frequency = 0.15
+		material_grain = NoiseTexture2D.new()
+		material_grain.width = 128
+		material_grain.height = 128
+		material_grain.seamless = true
+		material_grain.noise = grain
+		var ramp := Gradient.new()
+		ramp.set_color(0, Color("#9a9a9a"))
+		ramp.set_color(1, Color.WHITE)
+		material_grain.color_ramp = ramp
+	m.albedo_texture = material_grain
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	m.roughness = 0.92
 	m.metallic = 0.0
 	materials[hex_color] = m
@@ -240,6 +255,20 @@ func rebuild() -> void:
 		root_mesh.remove_child(child)
 		child.queue_free()
 	actors_3d.clear()
+	# O solo inteiro usa o mesmo desenho continuo do mapa, sem centenas de cubos.
+	game._make_landscape()
+	var ground := MeshInstance3D.new()
+	var plane := PlaneMesh.new()
+	var length: float = float(game.world.SIZE) * SPACING
+	plane.size = Vector2(length, length)
+	ground.mesh = plane
+	var ground_material := StandardMaterial3D.new()
+	ground_material.albedo_texture = game.landscape_texture
+	ground_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	ground_material.roughness = 0.95
+	ground.material_override = ground_material
+	ground.position = Vector3(length * 0.5, -0.01, length * 0.5)
+	root_mesh.add_child(ground)
 	var season: int = int(game.world.day / 90.0) % 4
 	for y in range(game.world.tiles.size()):
 		var row: Array = game.world.tiles[y]
@@ -247,16 +276,6 @@ func rebuild() -> void:
 			var biome: String = str(row[x])
 			var px: float = (float(x) + 0.5) * SPACING
 			var pz: float = (float(y) + 0.5) * SPACING
-			var base_color := "#638d51"
-			match biome:
-				"water": base_color = "#327f9d"
-				"forest": base_color = "#366c42"
-				"sand": base_color = "#d3b476"
-				"snow": base_color = "#cfddd5"
-				"mountain": base_color = "#687d76"
-				_: base_color = "#8e994e" if season == 2 else "#638d51"
-			var shade: Color = Color(base_color).lerp(Color("#344a32"), _rng(x, y, 21) * 0.09)
-			_box(root_mesh, Vector3(px, -0.13, pz), Vector3(SPACING + 0.025, 0.26, SPACING + 0.025), "#" + shade.to_html(false))
 			if biome == "mountain":
 				_cone(root_mesh, Vector3(px, 1.12, pz), 2.5, 1.5, "#56675f", 5)
 				_cone(root_mesh, Vector3(px, 2.15, pz), 1.25, 0.75, "#bfcbc5", 5)
@@ -271,6 +290,10 @@ func rebuild() -> void:
 				_box(root_mesh, Vector3(px + 0.22, 0.52, pz), Vector3(0.36, 0.1, 0.13), "#4a8260")
 			elif biome == "grass" and _rng(x, y, 7) > 0.93:
 				_tree(root_mesh, Vector3(px - 0.15, 0.0, pz + 0.2), false, 2.35)
+			elif biome == "grass" and _rng(x, y, 8) > 0.55:
+				for clump in range(3):
+					var offset := Vector3(_rng(x, y, 11 + clump) * 1.8 - 0.9, 0.12, _rng(x, y, 18 + clump) * 1.8 - 0.9)
+					_cone(root_mesh, Vector3(px, 0, pz) + offset, 0.28, 0.14, "#628a36", 4)
 	for town in game.world.towns:
 		_settlement(town)
 	_refresh_people_models()
