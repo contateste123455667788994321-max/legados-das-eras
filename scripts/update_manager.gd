@@ -54,7 +54,9 @@ func check_now(silent: bool = false) -> void:
 		_request.request_completed.connect(_on_manifest_received)
 	_check_silent = silent
 	_busy = true
-	if _request.request(_manifest_url) != OK:
+	var separator := "&" if _manifest_url.contains("?") else "?"
+	var fresh_url := _manifest_url + separator + "check=" + str(Time.get_unix_time_from_system())
+	if _request.request(fresh_url, PackedStringArray(["Cache-Control: no-cache", "Pragma: no-cache"])) != OK:
 		_busy = false
 		if not silent:
 			_notice("Sem conexao", "Nao foi possivel iniciar a verificacao. O jogo continua offline.")
@@ -133,7 +135,10 @@ func _download_patch() -> void:
 		add_child(_pack_request)
 		_pack_request.request_completed.connect(_on_patch_received)
 	_busy = true
-	if _pack_request.request(str(_next_patch["pack_url"])) != OK:
+	var pack_url: String = str(_next_patch["pack_url"])
+	var separator := "&" if pack_url.contains("?") else "?"
+	pack_url += separator + "sha=" + str(_next_patch["pack_sha256"])
+	if _pack_request.request(pack_url, PackedStringArray(["Cache-Control: no-cache"])) != OK:
 		_busy = false
 		_notice("Falha na rede", "Nao foi possivel iniciar o download da atualizacao.")
 
