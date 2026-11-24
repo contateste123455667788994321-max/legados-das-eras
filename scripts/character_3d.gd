@@ -260,8 +260,8 @@ func rebuild() -> void:
 	_refresh_people_models()
 	last_build_signature = _build_signature()
 
-func follow(actor: Dictionary, yaw: float) -> void:
+func follow(actor: Dictionary, yaw: float, pitch: float = 0.0) -> void:
 	if camera == null or actor.is_empty():
 		return
 	camera.position = Vector3((float(actor["x"]) + 0.5) * SPACING, 1.7, (float(actor["y"]) + 0.5) * SPACING)
-	camera.rotation = Vector3(0.0, yaw, 0.0)
+	camera.rotation = Vector3(pitch, yaw, 0.0)
