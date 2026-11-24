@@ -128,6 +128,16 @@ jobs:
           path: godot-export.log
           if-no-files-found: ignore
 
+  publicar:
+    name: Publicar atualizacao validada
+    needs: apk_teste
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: legado-das-eras-pck-teste
+          path: build
       - name: Publicar pacote e manifesto gratuitos
         shell: bash
         run: |
