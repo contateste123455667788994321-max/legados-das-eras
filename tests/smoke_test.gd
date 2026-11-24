@@ -176,6 +176,10 @@ func _run_tests() -> void:
 	loaded.kill_person(leader)
 	_check(not bool(leader["alive"]), "Morte de lider")
 	_check(int(loaded.towns[0]["leader"]) != leader_id, "Sucessao de lideranca")
+	var new_leader:Dictionary=loaded.get_person(int(loaded.towns[0]["leader"]))
+	for candidate in loaded.people:
+		if bool(candidate["alive"]) and int(candidate["town"])==int(loaded.towns[0]["id"]) and float(candidate["age"])>=16:
+			_check(loaded.leadership_score(new_leader)>=loaded.leadership_score(candidate),"Lider eleito por merito")
 	# Exercita a janela de diplomacia em modo headless para verificar controles reais.
 	var game: Node2D = Main.new()
 	root.add_child(game)

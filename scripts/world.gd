@@ -113,7 +113,7 @@ func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
 		"id": town_id, "name": town_name, "x": x, "y": y,
 		"hostile": hostile, "leader": 0, "food": 25.0,
 		"wood": 12.0, "knowledge": 0.0, "level": 1,
-		"law": "primogenitura", "water": 18.0,
+		"law": "merito", "water": 18.0,
 		"home_biome": founding_biome,
 		"clothing": 0.0, "drought_preparation": false,
 		"houses": 2, "house_levels":[1,1], "castle":false, "farms": 1, "campfire":false, "oven":false, "forge":false, "crossing":false, "stone":0.0, "construction": {}, "historical_events": []
@@ -142,6 +142,8 @@ func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
 		var child: Dictionary = people[original_count + i]
 		child["father"] = father["id"]
 		child["mother"] = mother["id"]
+	choose_successor(town,0)
+	town["merit_election"]=true
 
 func make_person(town_id: int, x: float, y: float, age: int = 20, father: int = 0, mother: int = 0) -> int:
 	var person_id := new_id()
@@ -156,6 +158,7 @@ func make_person(town_id: int, x: float, y: float, age: int = 20, father: int = 
 		"appearance": rng.randi_range(0, 9), "skin": rng.randi_range(0, 4), "hair": rng.randi_range(0, 5),
 		"wander": rng.randf_range(0.2, 2.0), "target_x": x, "target_y": y
 	}
+	init_traits(person)
 	people.append(person)
 	return person_id
 
@@ -449,25 +452,25 @@ func kill_person(person: Dictionary) -> void:
 		choose_successor(town, int(person["id"]))
 
 func choose_successor(town: Dictionary, former_id: int) -> void:
-	var heirs: Array = []
-	var candidates: Array = []
-	for p in people:
-		if not bool(p["alive"]) or int(p["town"]) != int(town["id"]):
-			continue
-		if float(p["age"]) < 15.0:
-			continue
-		candidates.append(p)
-		if int(p["father"]) == former_id or int(p["mother"]) == former_id:
-			heirs.append(p)
-	var pool: Array = heirs if not heirs.is_empty() else candidates
-	if pool.is_empty():
-		town["leader"] = 0
+	var candidates:Array=[]
+	for person in people:
+		if not bool(person["alive"]) or int(person["town"])!=int(town["id"]) or int(person["id"])==former_id: continue
+		if float(person["age"])<16: continue
+		init_traits(person)
+		candidates.append(person)
+	if candidates.is_empty():
+		town["leader"]=0
 		return
-	pool.sort_custom(func(a, b): return float(a["age"]) > float(b["age"]))
-	var successor: Dictionary = pool[0]
-	town["leader"] = successor["id"]
-	successor["role"] = ruler_title(town,successor)
-	news = str(successor["name"]) + " herdou o trono de " + str(town["name"]) + "."
+	candidates.sort_custom(func(a,b): return leadership_score(a)>leadership_score(b))
+	var successor:Dictionary=candidates[0]
+	var former:Dictionary=get_person(int(town["leader"]))
+	if not former.is_empty() and bool(former["alive"]): former["role"]="Aldeao"
+	town["leader"]=successor["id"]
+	successor["role"]=ruler_title(town,successor)
+	news=str(successor["name"])+" foi escolhido para liderar "+str(town["name"])+"."
+	var history:Array=town.get("historical_events",[])
+	history.append({"day":int(day),"event":news})
+	town["historical_events"]=history
 
 func _battle(dt: float) -> void:
 	for town in towns:
@@ -1102,6 +1105,10 @@ func attack_damage(p:Dictionary) -> float:
 
 func update_roles(town:Dictionary) -> void:
 	var adults:Array=[]
+	if not bool(town.get("merit_election",false)) or int(town["leader"])==0:
+		choose_successor(town,0)
+		town["merit_election"]=true
+		town["law"]="merito"
 	var leader:Dictionary=get_person(int(town["leader"]))
 	if not leader.is_empty() and bool(leader["alive"]):
 		leader["role"]=ruler_title(town,leader)
@@ -1141,3 +1148,27 @@ func equip_worker(town:Dictionary,p:Dictionary) -> void:
 			town["wood"]=float(town["wood"])-2
 			if era>=3: town["metal"]=float(town["metal"])-2
 			p["tool"]=era
+
+func init_traits(person:Dictionary) -> void:
+	var id:int=int(person["id"])
+	if not person.has("diplomacy"): person["diplomacy"]=35+posmod(id*71+19,61)
+	if not person.has("intelligence"): person["intelligence"]=35+posmod(id*53+29,61)
+	if not person.has("strength"): person["strength"]=35+posmod(id*37,61)
+	if not person.has("aggression"): person["aggression"]=posmod(id*43+13,101)
+
+func leadership_score(person:Dictionary) -> float:
+	init_traits(person)
+	return float(person["diplomacy"])*0.40+float(person["intelligence"])*0.35+strength(person)*0.25
+
+func leader_aggression(town:Dictionary) -> float:
+	var person:Dictionary=get_person(int(town["leader"]))
+	if person.is_empty(): return 0.0
+	init_traits(person)
+	var mind:Dictionary=person.get("mind",{})
+	return clampf(float(person["aggression"])*0.70+(1.0-float(mind.get("kindness",0.5)))*30.0,0,100)
+
+func leader_diplomacy(town:Dictionary) -> float:
+	var person:Dictionary=get_person(int(town["leader"]))
+	if person.is_empty(): return 0.0
+	init_traits(person)
+	return float(person["diplomacy"])

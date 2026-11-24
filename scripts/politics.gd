@@ -75,12 +75,26 @@ func advance(sim, delta: float) -> void:
 			if not sim.wars or not sim.rivals:
 				continue
 			status = get_status(sim, int(a["id"]), int(b["id"]))
-			if status == "neutral" and (bool(a["hostile"]) != bool(b["hostile"])):
-				if sim.rng.randf() < 0.02:
-					set_treaty(sim, int(a["id"]), int(b["id"]), "war")
-			elif status == "war":
-				if sim.rng.randf() < 0.20:
-					_raid(sim, a, b)
+			var aggression:float=maxf(sim.leader_aggression(a),sim.leader_aggression(b))
+			var diplomacy:float=(sim.leader_diplomacy(a)+sim.leader_diplomacy(b))*0.5
+			var opinion:float=float(relation.get("opinion",0))
+			if status=="neutral":
+				var change:float=(diplomacy-aggression)*0.045
+				if bool(a["hostile"])!=bool(b["hostile"]): change-=1.0
+				opinion=clampf(opinion+change,-100,100)
+				relation["opinion"]=opinion
+				get_relation(sim,int(b["id"]),int(a["id"]))["opinion"]=opinion
+				var attacker:Dictionary=a if sim.leader_aggression(a)>=sim.leader_aggression(b) else b
+				var target:Dictionary=b if int(attacker["id"])==int(a["id"]) else a
+				if aggression>=70 and opinion< -25 and sim.rng.randf()<0.015+(aggression-70)*0.001:
+					set_treaty(sim,int(attacker["id"]),int(target["id"]),"war")
+				elif opinion>65 and diplomacy>=65 and aggression<55 and sim.rng.randf()<0.03:
+					set_treaty(sim,int(a["id"]),int(b["id"]),"alliance")
+			elif status=="war":
+				if diplomacy>aggression and sim.rng.randf()<0.05:
+					set_treaty(sim,int(a["id"]),int(b["id"]),"peace")
+				elif sim.rng.randf()<0.08+aggression*0.0016:
+					_raid(sim,a,b)
 
 func _change_status(sim, a: Dictionary, b: Dictionary, status: String) -> void:
 	for town in [a, b]:
