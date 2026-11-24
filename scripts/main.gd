@@ -1387,7 +1387,9 @@ func _show_details() -> void:
 			lines.append("Diplomacia: %d | Inteligencia: %d | Agressividade: %d" % [int(p["diplomacy"]),int(p["intelligence"]),int(p["aggression"])])
 			lines.append("Armadura: nivel %d | Arma: nivel %d | Ferramenta: nivel %d" % [int(p.get("armor",0)),int(p.get("weapon",0)),int(p.get("tool",0))])
 			if p.has("armor_material"): lines.append("Material: "+str(World.RESOURCE_NAMES.get(str(p["armor_material"]),p["armor_material"])))
-			if bool(p.get("feather_arrows",false)): lines.append("Flechas com penas: +2 dano")
+			if p.has("weapon_kind"): lines.append("Arma: "+str(World.RESOURCE_NAMES.get(p["weapon_kind"],p["weapon_kind"])))
+			if p.has("tool_kind"): lines.append("Ferramenta: "+str(World.RESOURCE_NAMES.get(p["tool_kind"],p["tool_kind"])))
+			if str(p.get("weapon_kind",""))=="bow": lines.append("Flechas: "+str(int(p.get("ammo",0))))
 			lines.append("Saciedade: %d%%" % int(100-float(p.get("needs",{}).get("hunger",0))))
 			if bool(p.get("witch_staff",false)): lines.append("Artefato unico: Cajado do brejo | Magia 24 | Recarga 4,5s")
 			var father: Dictionary = world.get_person(int(p["father"]))
@@ -1507,10 +1509,14 @@ func _draw_equipment(p:Dictionary,c:Vector2,s:float,bounce:float) -> void:
 		draw_rect(Rect2(c+Vector2(-s*0.20,-s*0.57-bounce),Vector2(s*0.08,s*0.50)),Color("#bba05a"))
 	elif str(p.get("military_role",""))=="general":
 		draw_rect(Rect2(c+Vector2(-s*0.20,-s*0.35-bounce),Vector2(s*0.08,s*0.55)),Color("#9c443b"))
-	if weapon>0 and str(p.get("military_role",""))=="archer":
+	if str(p.get("weapon_kind",""))=="bow":
 		var grip:Vector2=c+Vector2(s*0.29,-s*0.20-bounce)
 		draw_arc(grip,s*0.25,-PI*0.5,PI*0.5,8,Color("#b18b52"),maxf(1.0,s*0.045))
 		draw_line(grip-Vector2(0,s*0.25),grip+Vector2(0,s*0.25),Color("#d8cbb3"),1.0)
+	elif str(p.get("weapon_kind",""))=="sword":
+		var grip:Vector2=c+Vector2(s*0.26,s*0.03-bounce)
+		draw_line(grip,grip+Vector2(s*0.09,-s*0.43),Color("#c9d4da"),maxf(2.0,s*0.11))
+		draw_line(grip+Vector2(-s*0.09,-s*0.07),grip+Vector2(s*0.12,-s*0.04),Color("#c39a57"),maxf(1.0,s*0.05))
 	elif weapon>0:
 		draw_line(c+Vector2(s*0.23,s*0.15),c+Vector2(s*0.31,-s*0.55),Color("#674b2b"),maxf(1.0,s*0.045))
 		draw_line(c+Vector2(s*0.31,-s*0.55),c+Vector2(s*0.34,-s*0.70),colors[weapon],maxf(1.0,s*0.09))

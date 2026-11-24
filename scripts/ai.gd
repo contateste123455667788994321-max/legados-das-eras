@@ -134,11 +134,15 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 		else: _set_task(sim, p, home, "Descansando", 0.35)
 		return
 	if sim.is_military(p):
-		if float(home["wood"])>=4 and bool(home.get("campfire",false)): sim.equip_worker(home,p)
+		if bool(home.get("campfire",false)):
+			if sim.equipment_job(p,home): return
+			sim.equip_worker(home,p)
 		sim.military_duty(p,home,step)
 		return
 	if sim.transport_job(p,home): return
 	if sim.gather_drop_job(p,home): return
+	if sim.equipment_job(p,home): return
+	if sim.crafting_job(p,home,step): return
 	if float(home["wood"])>=18 and home.get("construction",{}).is_empty() and bool(home.get("campfire",false)):
 		sim.equip_worker(home,p)
 	if float(p["age"])>=16 and bool(home.get("campfire",false)):
@@ -185,19 +189,12 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 						home["wood"]=float(home["wood"])-6
 						deposit["developed"]=true
 						sim.news=str(home["name"])+" abriu uma mina."
-				elif int(home["level"])>=3 and float(home.get("stone",0))>=12:
-					sim.collect_cargo(p,"ore",2.0)
+				elif int(home["level"])>=3 and str(p.get("tool_kind","")) in ["pickaxe","iron_pickaxe"]:
+					sim.collect_cargo(p,"ore",3.0 if str(p["tool_kind"])=="iron_pickaxe" else 2.0)
 				else:
 					sim.collect_cargo(p,"stone",2.0)
 		"Cozinheiro":
-			if bool(home.get("forge",false)) and float(home.get("ore",0))>0:
-				if _site_work(sim,p,home,"forge","Forjando"):
-					var fuel:float=minf(float(home["wood"]),step*0.08)
-					var ore:float=minf(float(home.get("ore",0)),fuel)
-					home["wood"]=float(home["wood"])-fuel
-					home["ore"]=float(home.get("ore",0))-ore
-					home["metal"]=float(home.get("metal",0))+ore
-			elif not bool(home.get("campfire",false)):
+			if not bool(home.get("campfire",false)):
 				_set_task(sim,p,home,"Preparando alimentos",0.6)
 			elif _site_work(sim,p,home,"oven" if bool(home.get("oven",false)) else "campfire","Cozinhando"):
 				var fuel: float=minf(float(home["wood"]),step*0.05)

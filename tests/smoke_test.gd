@@ -34,6 +34,17 @@ func _run_tests() -> void:
 	var stock_town:Dictionary=world.towns[0]
 	world.store_resource(stock_town,"house_0","bone",2)
 	_check(float(world.building_stocks(stock_town)["house_0"]["bone"])==2 and float(stock_town["bone"])==2,"Estoque por casa e total coerentes")
+	var craft_town:Dictionary={"id":777,"x":5,"y":5,"houses":1,"level":1,"wood":20.0,"stone":5.0,"fiber":2.0,"forge":false}
+	_check(not world.craft_item(craft_town,"sword"),"Espada nao existe antes da forja")
+	_check(world.craft_item(craft_town,"spear") and float(craft_town["spear"])==1,"Lanca produzida e armazenada")
+	_check(not world.craft_item(craft_town,"bow"),"Arco exige corda")
+	_check(world.craft_item(craft_town,"cord") and world.craft_item(craft_town,"bow"),"Fibra vira corda e arco")
+	_check(world.craft_item(craft_town,"pickaxe"),"Picareta primitiva fabricada")
+	craft_town["forge"]=true
+	craft_town["level"]=3
+	craft_town["ore"]=6.0
+	for n in range(3): world.craft_item(craft_town,"metal")
+	_check(world.craft_item(craft_town,"sword") and float(craft_town["metal"])==0,"Minerio fundido vira espada")
 	_check(world.animal_habitat("crocodile","water") and not world.animal_habitat("crocodile","sand"),"Crocodilo respeita habitat")
 	_check(world._animal_prey("crocodile","duck") and not world._animal_prey("deer","duck"),"Predacao especifica por especie")
 	_check(world.towns.size() == 3, "Tres aldeias iniciais")
