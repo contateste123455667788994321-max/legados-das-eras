@@ -265,7 +265,13 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 			_wander(p, dt, 0.65 * life_speed(p))
 	for b in beasts:
 		if bool(b["alive"]) and int(b["id"]) != controlled_id:
-			if not predators or not _hostile_animal_step(b,dt): _wander(b, dt, 1.0)
+			if not predators or not _hostile_animal_step(b,dt):
+				if float(b["wander"])<=0 and rng.randf()<0.65:
+					var preferred:Vector2=_preferred_animal_destination(Vector2(float(b["x"]),float(b["y"])),str(b["species"]))
+					b["target_x"]=preferred.x
+					b["target_y"]=preferred.y
+					b["wander"]=rng.randf_range(3,6)
+				_wander(b,dt,0.75)
 	if day >= next_growth:
 		next_growth += 80.0
 		_grow_economies()
@@ -795,11 +801,8 @@ func _update_wildlife(dt:float) -> void:
 		if state in ["Saltando","Pulando"] and fposmod(float(animal["timer"])*3.0,1.0)>0.55: pace=0.0
 		if state in ["Descansando","Aquecendo","Emboscando","Pescando","Pastando","Bicando","Fuçando","Comendo"]: pace=0.0
 		var n:=p.move_toward(goal,dt*pace)
-		if animal_habitat(species,str(tiles[clampi(int(n.y),0,SIZE-1)][clampi(int(n.x),0,WIDTH-1)])):
-			animal["x"]=n.x
-			animal["y"]=n.y
-		else:
-			animal["timer"]=0.0
+		animal["x"]=n.x
+		animal["y"]=n.y
 		if state in ["Pescando","Pastando","Bicando","Fuçando","Comendo"]:
 			animal["hunger"]=maxf(0,float(animal["hunger"])-dt*3.0)
 		if state=="Cacando" and float(animal["attack_cd"])<=0:
@@ -870,6 +873,9 @@ func _choose_animal_action(animal:Dictionary,p:Vector2,kind:String) -> void:
 		animal["state"]="Cacando"
 		animal["prey"]=prey["id"]
 		animal["timer"]=0.8
+	elif not animal_habitat(species,kind) and rng.randf()<0.65:
+		q=_preferred_animal_destination(p,species)
+		animal["state"]="Migrando"
 	elif hungry and species not in ["crocodile","fox"]:
 		animal["state"]=str({"chicken":"Bicando","deer":"Pastando","rabbit":"Pastando","frog":"Comendo","capybara":"Pastando","heron":"Pescando","camel":"Pastando","lizard":"Comendo","snow_hare":"Pastando","turtle":"Comendo","duck":"Pescando","boar":"Fuçando"}.get(species,"Comendo"))
 		if species in ["heron","duck"] and kind not in ["water","swamp"]:
@@ -887,8 +893,6 @@ func _choose_animal_action(animal:Dictionary,p:Vector2,kind:String) -> void:
 		animal["state"]="Nadando" if kind=="water" else ("Saltando" if species=="frog" else ("Pulando" if species in ["rabbit","snow_hare"] else "Caminhando"))
 	q.x=clampf(q.x,1,WIDTH-2)
 	q.y=clampf(q.y,1,SIZE-2)
-	if not animal_habitat(species,str(tiles[int(q.y)][int(q.x)])):
-		q=p
 	animal["tx"]=q.x
 	animal["ty"]=q.y
 
@@ -985,6 +989,7 @@ func animal_habitat(species:String,kind:String) -> bool:
 	match species:
 		"frog","capybara","heron","crocodile","turtle","duck": return kind in ["swamp","water","grass"]
 		"boar","fox": return kind in ["forest","grass"]
+		"Lobo","Urso": return kind in ["forest","grass","snow"]
 		"camel","lizard": return kind in ["sand","grass"]
 		"snow_hare": return kind in ["snow","forest"]
 	return kind in ["grass","forest"]
@@ -1246,9 +1251,9 @@ func update_roles(town:Dictionary) -> void:
 		else: _release_military(person)
 	# Nao repor mortos nem reorganizar tropas durante uma campanha.
 	if int(town.get("siege_by",0))>0 or int(town.get("raid_target",0))>0: return
-	adults.sort_custom(func(a,b): return strength(a)>strength(b))
+	adults.sort_custom(func(a,b): return strength(a)+float(a.get("war_xp",0))*0.30>strength(b)+float(b.get("war_xp",0))*0.30)
 	var count:int=army_limit(active_population(int(town["id"])),adults.size(),int(town["level"]))
-	var royal:int=royal_guard_size(count) if kingdom_id(town)==int(town["id"]) else 0
+	var royal:int=mini(royal_guard_size(count),maxi(0,count-1)) if kingdom_id(town)==int(town["id"]) else 0
 	var field:Array=[]
 	var assigned:int=0
 	for person in adults:
@@ -1263,7 +1268,7 @@ func update_roles(town:Dictionary) -> void:
 		assigned+=1
 	field.sort_custom(func(a,b): return float(a.get("intelligence",50))+float(a.get("level",1))*5.0>float(b.get("intelligence",50))+float(b.get("level",1))*5.0)
 	var generals:int=mini(2,floori(float(field.size())/7.0)) if int(town["level"])>=3 else 0
-	var archers:int=floori(float(field.size()-generals)*0.35) if int(town["level"])>=2 else 0
+	var archers:int=maxi(1,floori(float(field.size()-generals)*0.35)) if int(town["level"])>=2 and field.size()-generals>=3 else 0
 	for index in range(field.size()):
 		_assign_military(field[index],"general" if index<generals else ("archer" if index<generals+archers else "soldier"),town,index)
 
@@ -1309,6 +1314,9 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 				if not escort.is_empty():
 					var front:=Vector2(float(escort["x"]),float(escort["y"]))
 					goal=front+(front-goal).normalized()*0.7
+		if tactics>=2 and role=="soldier" and str(person.get("shield_kind","")).is_empty() and not enemy.is_empty() and pos.distance_to(goal)>1.1:
+			var heading:Vector2=(goal-origin).normalized()
+			goal+=Vector2(-heading.y,heading.x)*(0.55 if slot%2==0 else -0.55)
 		_set_delivery_goal(person,goal,"Marchando para conquista" if invading else "Defendendo aldeia")
 	else:
 		var angle:float=float(slot)*2.39996+day*0.035
@@ -1443,10 +1451,10 @@ func equip_worker(town:Dictionary,p:Dictionary) -> void:
 			p["weapon_kind"]=item
 			p["weapon"]=int({"club":1,"spear":2,"bow":2,"sword":4}[item])
 			break
-		if str(p.get("weapon_kind",""))=="bow" and int(p.get("ammo",0))<3 and float(town.get("arrows",0))>=1:
-			var amount:int=mini(6,floori(float(town["arrows"])))
-			town["arrows"]=float(town["arrows"])-amount
-			p["ammo"]=int(p.get("ammo",0))+amount
+		if str(p.get("weapon_kind",""))=="bow" and int(p.get("ammo",0))<3:
+			for n in range(6):
+				if not take_equipment(town,p,"arrows"): break
+				p["ammo"]=int(p.get("ammo",0))+1
 	else:
 		var profession:String=str(p.get("profession",""))
 		var desired:Array=[]
@@ -1544,16 +1552,10 @@ func spawn_creature(species:String,point:Vector2) -> bool:
 		news="Limite de animais atingido."
 		return false
 	if species in ["wolf","bear"]:
-		if terrain not in ["grass","forest","snow"]:
-			news="Escolha floresta, campo ou neve."
-			return false
 		var id:int=new_id()
 		var label:String=str(SPAWN_NAMES[species])
 		beasts.append({"id":id,"name":label+" "+str(id),"species":label,"x":p.x,"y":p.y,"health":90.0 if species=="bear" else 55.0,"food":4,"wander":0.0,"target_x":p.x,"target_y":p.y,"alive":true,"temper":50,"color":0})
 	else:
-		if not animal_habitat(species,terrain):
-			news="Este animal precisa de um bioma compativel."
-			return false
 		wildlife.append({"id":100000+new_id(),"species":species,"x":p.x,"y":p.y,"tx":p.x,"ty":p.y,"timer":0.2,"hunger":15.0,"breed_timer":120.0,"state":"Explorando"})
 	sound_event("spawn",p)
 	if species in ["wolf","bear"]: init_animal_health(beasts.back())
@@ -2021,7 +2023,7 @@ func loot_stock(attacker:Dictionary,defender:Dictionary) -> Dictionary:
 # Receitas abstratas de jogo; materiais e produtos fazem parte do estoque.
 const CRAFT_RECIPES:Dictionary={
 	"club":{"wood":2},
-	"wood_shield":{"wood":3,"hide":1},
+	"wood_shield":{"wood":3,"fiber":1},
 	"iron_shield":{"wood":2,"metal":2},
 	"spear":{"wood":2,"stone":1},
 	"cord":{"fiber":2},
@@ -2067,7 +2069,6 @@ func equipment_job(person:Dictionary,town:Dictionary) -> bool:
 	var wanted:Array=[]
 	if is_military(person):
 		wanted=["bow","spear","club"] if str(person["military_role"])=="archer" else ["sword","spear","club"]
-		if str(person["military_role"])=="royal": return false
 		if int(town.get("raid_target",0))>0 or int(town.get("siege_by",0))>0: return false
 	else:
 		match str(person.get("profession","")):
@@ -2077,6 +2078,15 @@ func equipment_job(person:Dictionary,town:Dictionary) -> bool:
 			"Pescador": wanted=["rod"]
 	var current:String=str(person.get("weapon_kind","")) if is_military(person) else str(person.get("tool_kind",""))
 	var stocks:Dictionary=building_stocks(town)
+	if is_military(person) and current=="bow" and int(person.get("ammo",0))<3:
+		for key in stocks.keys():
+			if float(stocks[key].get("arrows",0))<1: continue
+			var depot:Vector2=storage_position(town,str(key))
+			if Vector2(float(person["x"]),float(person["y"])).distance_to(depot)<=1.4:
+				equip_worker(town,person)
+				return false
+			_set_delivery_goal(person,depot,"Reabastecendo flechas")
+			return true
 	if is_military(person) and str(person.get("military_role",""))!="archer":
 		var shield:String=str(person.get("shield_kind",""))
 		for item in ["iron_shield","wood_shield"]:
@@ -2248,8 +2258,6 @@ func _hostile_animal_step(animal:Dictionary,dt:float) -> bool:
 		var d:float=pos.distance_to(q)
 		if d>=best: continue
 		var biome:String=str(tiles[clampi(int(q.y),0,SIZE-1)][clampi(int(q.x),0,WIDTH-1)])
-		if species in ["Lobo","Urso","boar"] and biome in ["water","mountain"]: continue
-		if species=="crocodile" and not animal_habitat(species,biome): continue
 		victim=person
 		best=d
 	if victim.is_empty():
@@ -2268,9 +2276,8 @@ func _hostile_animal_step(animal:Dictionary,dt:float) -> bool:
 		var pace:float=float({"Lobo":1.35,"Urso":0.95,"crocodile":0.88,"boar":1.18}[species])
 		var next:=pos.move_toward(goal,dt*pace)
 		var biome:String=str(tiles[clampi(int(next.y),0,SIZE-1)][clampi(int(next.x),0,WIDTH-1)])
-		if (species=="crocodile" and animal_habitat(species,biome)) or (species!="crocodile" and biome not in ["water","mountain"]):
-			animal["x"]=next.x
-			animal["y"]=next.y
+		animal["x"]=next.x
+		animal["y"]=next.y
 		return true
 	animal["state"]="Atacando humano"
 	if float(animal["human_attack_cd"])<=0:
@@ -2305,3 +2312,17 @@ func react_to_hostile_animal(person:Dictionary) -> bool:
 		var escape:Vector2=p+away*3
 		_set_delivery_goal(person,Vector2(clampf(escape.x,1,WIDTH-2),clampf(escape.y,1,SIZE-2)),"Fugindo de animal")
 	return true
+
+func _preferred_animal_destination(p:Vector2,species:String) -> Vector2:
+	var best:=p
+	var score:float=1000.0
+	for y in range(maxi(1,int(p.y)-6),mini(SIZE-1,int(p.y)+7)):
+		for x in range(maxi(1,int(p.x)-6),mini(WIDTH-1,int(p.x)+7)):
+			if not animal_habitat(species,str(tiles[y][x])): continue
+			var q:=Vector2(x+0.5,y+0.5)
+			var d:float=q.distance_to(p)
+			if d>0.7 and d<score:
+				best=q
+				score=d
+	if best==p: return Vector2(clampf(p.x+rng.randf_range(-2,2),1,WIDTH-2),clampf(p.y+rng.randf_range(-2,2),1,SIZE-2))
+	return best

@@ -597,9 +597,16 @@ func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
 	var moving:bool=bool(movement.get("moving",false)) and world.speed>0
 	var phase:float=float(movement.get("phase",0))
 	var face:float=float(movement.get("face",1.0))
-	var bounce:float=absf(sin(phase))*s*0.025 if moving else 0.0
+	var bounce:float=absf(sin(phase))*s*0.012 if moving else 0.0
 	_contact_shadow(center,s*0.24,s*0.09)
-	_draw_walk_sprite(atlas,Rect2(index*48,0,48,48),center,s,face,phase,moving,bounce)
+	if world.is_military(p) and stage>=2:
+		if not landscape_objects.has("warriors"): landscape_objects["warriors"]=load("res://assets/landscape/warriors.svg")
+		var role:String=str(p.get("military_role","soldier"))
+		var row:int=int({"soldier":0,"archer":1,"royal":2,"general":3}.get(role,0))
+		var frame:int=int(fposmod(phase,TAU)/TAU*4) if moving else 0
+		_draw_walk_sprite(landscape_objects["warriors"],Rect2(frame*48,row*48,48,48),center,s,face,phase,moving,bounce)
+	else:
+		_draw_walk_sprite(atlas,Rect2(index*48,0,48,48),center,s,face,phase,moving,bounce)
 	if stage>=2 and MAP_AREA.grow(-s).has_point(center):
 		if profession=="Pescador":
 			var hat:Vector2=center+Vector2(-s*0.15,-s*0.76-bounce)
@@ -1760,6 +1767,10 @@ func _draw_natural_animal(animal:Dictionary,p:Vector2) -> void:
 		var atlas:Texture2D=landscape_objects["reference_characters"]
 		var walking:bool=moving and species not in ["frog","crocodile","duck"]
 		_draw_walk_sprite(atlas,Rect2(int(indices[species])*48,0,48,48),p,s,face,phase,walking,bounce)
+	elif species=="boar":
+		if not landscape_objects.has("boar_walk"): landscape_objects["boar_walk"]=load("res://assets/landscape/boar_walk.svg")
+		var frame:int=int(fposmod(phase,TAU)/TAU*4) if moving else 0
+		_draw_walk_sprite(landscape_objects["boar_walk"],Rect2(frame*64,0,64,64),p,s,face,phase,moving,0.0)
 	else:
 		if not landscape_objects.has(species): landscape_objects[species]=load("res://assets/landscape/"+species+".svg")
 		var texture:Texture2D=landscape_objects[species]
@@ -1777,7 +1788,8 @@ func _track_visual_motion(delta:float) -> void:
 			var moved:Vector2=pos-previous
 			state["moving"]=moved.length()>0.0001 and delta>0
 			if absf(moved.x)>0.0001: state["face"]=-1.0 if moved.x<0 else 1.0
-			state["phase"]=fposmod(float(state["phase"])+moved.length()*27.0,TAU)
+			var gait:float=7.0 if actor.has("town") else (5.0 if str(actor.get("species","")) in ["boar","capybara","Urso","crocodile","camel"] else 7.5)
+			state["phase"]=fposmod(float(state["phase"])+minf(moved.length()*gait,delta*7.0),TAU)
 			state["pos"]=pos
 			visual_motion[id]=state
 
@@ -1790,21 +1802,14 @@ func _contact_shadow(p:Vector2,rx:float,ry:float) -> void:
 
 # Separa os pes do corpo para que a passada alterne com a distancia percorrida.
 func _draw_walk_sprite(texture:Texture2D,source:Rect2,p:Vector2,s:float,face:float,phase:float,moving:bool,bounce:float) -> void:
+	# Nao dividir pernas em blocos: a silhueta inteira permanece conectada.
+	var tilt:float=sin(phase)*0.025 if moving else 0.0
 	var dest:=Rect2(-s*0.5,-s*0.91-bounce,s,s)
 	if not MAP_AREA.encloses(Rect2(p+dest.position,dest.size)): return
-	draw_set_transform(p,0,Vector2(face,1))
-	if not moving:
-		draw_texture_rect_region(texture,dest,source)
-	else:
-		var split:float=0.70
-		draw_texture_rect_region(texture,Rect2(dest.position,Vector2(s,s*split)),Rect2(source.position,Vector2(source.size.x,source.size.y*split)))
-		var stride:float=sin(phase)*s*0.045
-		for half in range(2):
-			var offset:float=stride if half==0 else -stride
-			var leg_dest:=Rect2(dest.position+Vector2(s*half*0.5,s*split+offset),Vector2(s*0.5,s*(1.0-split)))
-			var leg_src:=Rect2(source.position+Vector2(source.size.x*half*0.5,source.size.y*split),Vector2(source.size.x*0.5,source.size.y*(1.0-split)))
-			draw_texture_rect_region(texture,leg_dest,leg_src)
+	draw_set_transform(p,tilt,Vector2(face,1))
+	draw_texture_rect_region(texture,dest,source)
 	draw_set_transform(Vector2.ZERO)
+
 
 func _draw_animated_beast(b:Dictionary,p:Vector2,key:String) -> void:
 	var s:float=zoom*(34.0 if key=="bear" else 29.0)
@@ -1833,7 +1838,13 @@ func _prepare_people_variants() -> void:
 					if pixel.a<0.5: continue
 					var fy:float=float(y-used.position.y)/maxf(1.0,float(used.size.y))
 					var fx:float=float(x-used.position.x)/maxf(1.0,float(used.size.x))
-					if fy>0.43 and fy<0.76 and fx>0.20 and fx<0.80 and pixel.s>0.18 and pixel.v>0.23 and pixel.v<0.82:
+					if fy<0.32 and pixel.v<0.47 and pixel.s>0.12:
+						var hair_color:Color=palette[(people_variants.size()+index*2)%palette.size()].darkened(0.45)
+						img.set_pixel(index*48+x,y,pixel.lerp(hair_color,0.45))
+					elif fy<0.45 and pixel.r>pixel.g*1.08 and pixel.g>pixel.b*1.08 and pixel.v>0.48:
+						var skin_shade:float=float(people_variants.size()%5)*0.075
+						img.set_pixel(index*48+x,y,pixel.darkened(skin_shade))
+					elif fy>0.43 and fy<0.76 and fx>0.20 and fx<0.80 and pixel.s>0.18 and pixel.v>0.23 and pixel.v<0.82:
 						var changed:=Color.from_hsv(color.h,color.s,pixel.v,pixel.a)
 						img.set_pixel(index*48+x,y,pixel.lerp(changed,0.72))
 		people_variants.append(ImageTexture.create_from_image(img))

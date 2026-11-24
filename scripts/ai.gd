@@ -191,7 +191,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 						deposit["developed"]=true
 						sim.news=str(home["name"])+" abriu uma mina."
 				elif int(home["level"])>=3 and str(p.get("tool_kind","")) in ["pickaxe","iron_pickaxe"]:
-					sim.collect_cargo(p,"ore",3.0 if str(p["tool_kind"])=="iron_pickaxe" else 2.0)
+					sim.collect_cargo(p,"stone",3.0) if float(home.get("stone",0))<12 or (int(home["level"])>=4 and float(home.get("stone",0))<120 and int(p["id"])%2==0) else sim.collect_cargo(p,"ore",3.0 if str(p["tool_kind"])=="iron_pickaxe" else 2.0)
 				else:
 					sim.collect_cargo(p,"stone",2.0)
 		"Cozinheiro":

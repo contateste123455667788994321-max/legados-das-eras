@@ -41,7 +41,7 @@ func _run_tests() -> void:
 	var craft_town:Dictionary={"id":777,"x":5,"y":5,"houses":1,"level":1,"wood":20.0,"stone":5.0,"fiber":2.0,"forge":false}
 	_check(not world.craft_item(craft_town,"sword"),"Espada nao existe antes da forja")
 	_check(world.craft_item(craft_town,"spear") and float(craft_town["spear"])==1,"Lanca produzida e armazenada")
-	_check(not world.craft_item(craft_town,"wood_shield"),"Escudo exige materiais")
+	_check(not world.craft_item({"level":1,"wood":2.0},"wood_shield"),"Escudo exige materiais")
 	var defender:Dictionary={"shield_kind":"wood_shield","war_xp":100.0}
 	_check(world.arrow_damage(defender,20.0)<world.arrow_damage({},20.0),"Escudo reduz dano de flecha")
 	_check(world.arrow_damage({"shield_kind":"iron_shield","war_xp":100.0},20.0)<world.arrow_damage(defender,20.0),"Escudo de ferro protege mais")
@@ -101,7 +101,8 @@ func _run_tests() -> void:
 	var animals:int=creator.wildlife.size()
 	_check(creator.spawn_creature("crocodile",Vector2(37,10)) and creator.wildlife.size()==animals+1,"Criador adiciona crocodilo no pantano")
 	creator.tiles[10][38]="sand"
-	_check(not creator.spawn_creature("crocodile",Vector2(38,10)),"Criador respeita habitat")
+	_check(creator.spawn_creature("crocodile",Vector2(38,10)),"Criador permite crocodilo fora do habitat")
+	_check(creator.spawn_creature("wolf",Vector2(38,10)),"Criador permite lobo em outro bioma")
 	var towns_count:int=creator.towns.size()
 	creator.tiles[10][40]="grass"
 	_check(creator.spawn_creature("human",Vector2(40,10)) and creator.towns.size()==towns_count+1,"Humano distante funda nova tribo")
