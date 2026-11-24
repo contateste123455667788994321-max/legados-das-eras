@@ -487,9 +487,15 @@ func _draw() -> void:
 func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
 	var stage: int = world.life_stage(p)
 	var variant: int = posmod(int(p.get("appearance",p["id"])),10)
-	var key: String = "person_"+str(int(p["gender"]))+"_"+str(variant)
 	var s: float = 38.0*zoom*[0.44,0.68,1.0,0.92][stage]
-	_draw_landscape_object(key,center+Vector2(0,s*0.26),s)
+	if not landscape_objects.has("people_atlas"):
+		landscape_objects["people_atlas"] = load("res://assets/landscape/people_atlas.svg")
+	var atlas: Texture2D = landscape_objects["people_atlas"]
+	var source := Rect2(float(variant%5)*64.0+16.0,float(int(p["gender"])*2+floori(float(variant)/5.0))*48.0,32.0,48.0)
+	var dest := Rect2(center-Vector2(s/3.0,s*0.7),Vector2(s*2.0/3.0,s))
+	var clipped := dest.intersection(MAP_AREA)
+	if clipped.has_area():
+		draw_texture_rect_region(atlas,clipped,Rect2(source.position+(clipped.position-dest.position)/dest.size*source.size,clipped.size/dest.size*source.size))
 	if stage==3:
 		draw_line(center+Vector2(-s*0.10,-s*0.21),center+Vector2(s*0.11,-s*0.21),Color("#e1ded2"),maxf(1,s*0.10))
 		draw_line(center+Vector2(s*0.15,0),center+Vector2(s*0.25,s*0.25),Color("#795433"),maxf(1,s*0.055))
