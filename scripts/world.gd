@@ -1122,8 +1122,13 @@ func deposit_inventory(p:Dictionary) -> bool:
 		news="Aproxime-se do centro da aldeia para descarregar."
 		return false
 	for key in RESOURCE_NAMES.keys():
-		town[key]=float(town.get(key,0))+float(p.get(key,0))
+		store_resource(town,preferred_storage(town,str(key),p),str(key),float(p.get(key,0)))
 		p[key]=0
+	var cargo:Dictionary=p.get("cargo",{})
+	if not cargo.is_empty() and not bool(cargo.get("project",false)):
+		var kind:String=str(cargo["kind"])
+		store_resource(town,preferred_storage(town,kind,p),kind,float(cargo["amount"]))
+		p["cargo"]={}
 	news="Recursos entregues ao estoque da aldeia."
 	return true
 
@@ -1158,7 +1163,7 @@ func defense(p:Dictionary) -> float:
 	return float([0,2,5,9,14][clampi(int(p.get("armor",0)),0,4)])+(2.0 if bool(p.get("combat_training",false)) else 0.0)+(2.0 if str(p.get("armor_material",""))=="croc_hide" else 0.0)
 
 func attack_damage(p:Dictionary) -> float:
-	return 2.0+strength(p)*0.05+float([0,2,5,9,14][clampi(int(p.get("weapon",0)),0,4)])+(4.0 if bool(p.get("combat_training",false)) else 0.0)
+	return 2.0+strength(p)*0.05+float([0,2,5,9,14][clampi(int(p.get("weapon",0)),0,4)])+(4.0 if bool(p.get("combat_training",false)) else 0.0)+(2.0 if bool(p.get("feather_arrows",false)) else 0.0)
 
 func update_roles(town:Dictionary) -> void:
 	var adults:Array=[]
@@ -1204,6 +1209,11 @@ func equip_worker(town:Dictionary,p:Dictionary) -> void:
 				town["wood"]=float(town["wood"])-2
 				p["armor"]=target
 				p["armor_material"]="hide"
+			elif int(p.get("armor",0))<2 and float(town.get("shell",0))>=2:
+				town["shell"]=float(town["shell"])-2
+				town["wood"]=float(town["wood"])-2
+				p["armor"]=2
+				p["armor_material"]="shell"
 			elif int(p.get("armor",0))==0 and float(town.get("bone",0))>=2:
 				town["bone"]=float(town["bone"])-2
 				town["wood"]=float(town["wood"])-2
@@ -1218,6 +1228,10 @@ func equip_worker(town:Dictionary,p:Dictionary) -> void:
 			town["wood"]=float(town["wood"])-2
 			if target>2: town["metal"]=float(town["metal"])-3
 			p["weapon"]=target
+		if not bool(p.get("feather_arrows",false)) and float(town.get("feather",0))>=2 and float(town.get("wood",0))>=2:
+			town["feather"]=float(town["feather"])-2
+			town["wood"]=float(town["wood"])-2
+			p["feather_arrows"]=true
 	else:
 		if str(p.get("profession","")) in ["Agricultor","Minerador","Construtor","Pescador"] and int(p.get("tool",0))<era and float(town.get("wood",0))>=2 and (era<3 or float(town.get("metal",0))>=2):
 			town["wood"]=float(town["wood"])-2

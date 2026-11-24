@@ -1383,6 +1383,7 @@ func _show_details() -> void:
 			lines.append("Diplomacia: %d | Inteligencia: %d | Agressividade: %d" % [int(p["diplomacy"]),int(p["intelligence"]),int(p["aggression"])])
 			lines.append("Armadura: nivel %d | Arma: nivel %d | Ferramenta: nivel %d" % [int(p.get("armor",0)),int(p.get("weapon",0)),int(p.get("tool",0))])
 			if p.has("armor_material"): lines.append("Material: "+str(World.RESOURCE_NAMES.get(str(p["armor_material"]),p["armor_material"])))
+			if bool(p.get("feather_arrows",false)): lines.append("Flechas com penas: +2 dano")
 			lines.append("Saciedade: %d%%" % int(100-float(p.get("needs",{}).get("hunger",0))))
 			if bool(p.get("witch_staff",false)): lines.append("Artefato unico: Cajado do brejo | Magia 24 | Recarga 4,5s")
 			var father: Dictionary = world.get_person(int(p["father"]))
@@ -1486,6 +1487,7 @@ func _draw_equipment(p:Dictionary,c:Vector2,s:float,bounce:float) -> void:
 	var colors:Array[Color]=[Color("#705338"),Color("#956139"),Color("#ad8c56"),Color("#9ba6ad"),Color("#c7cdd0")]
 	if str(p.get("armor_material",""))=="croc_hide": colors[armor]=Color("#627b40")
 	elif str(p.get("armor_material",""))=="bone": colors[armor]=Color("#d5c5a0")
+	elif str(p.get("armor_material",""))=="shell": colors[armor]=Color("#867f55")
 	if armor>0:
 		var torso:Vector2=c+Vector2(-s*0.13,-s*0.35-bounce)
 		draw_rect(Rect2(torso,Vector2(s*0.26,s*0.29)),Color("#443b30"))
