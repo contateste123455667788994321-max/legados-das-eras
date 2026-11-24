@@ -263,17 +263,18 @@ func _draw_sprite(key: String, center: Vector2, dimensions: Vector2, clip_to_map
 		draw_texture_rect(texture, dest, false)
 
 func _draw() -> void:
-	draw_rect(Rect2(0, 0, 1280, 720), Color("#151c18"), true)
-	# Molduras de madeira e ouro inspiradas na referencia, sem esconder o mapa jogavel.
-	_draw_panel(Rect2(9, 77, 853, 454), Color("#29362d"))
-	_draw_panel(Rect2(865, 74, 408, 232), Color("#2e3027"))
-	_draw_panel(Rect2(865, 305, 408, 231), Color("#33291e"))
-	_draw_panel(Rect2(9, 534, 1264, 181), Color("#231f1a"))
-	for rect in [Rect2(17, 539, 300, 139), Rect2(324, 539, 297, 139), Rect2(628, 539, 302, 139), Rect2(937, 539, 328, 139)]:
-		_draw_panel(rect, Color("#403425"))
-	draw_rect(MAP_AREA, Color("#426d47"), true)
-	draw_rect(Rect2(874, 336, 390, 61), Color("#262821"), true)
-	draw_rect(Rect2(874, 336, 390, 61), Color("#846b43"), false, 1.5)
+	# Interface discreta: mapa em quase toda a area util do aparelho.
+	draw_rect(Rect2(0, 0, 1280, 720), Color("#141e1a"), true)
+	draw_rect(Rect2(0, 0, 1280, 75), Color("#211e19"), true)
+	draw_line(Vector2(0, 74), Vector2(1280, 74), Color("#ae8c54"), 2.0)
+	_draw_clock()
+	draw_rect(MAP_AREA, Color("#355943"), true)
+	if character_view:
+		if is_instance_valid(viewport_3d):
+			draw_texture_rect(viewport_3d.get_texture(), MAP_AREA, false)
+		draw_rect(MAP_AREA, Color("#af986c", 0.28), false, 2.0)
+		_draw_character_hud()
+		return
 	var scale_size := TILE_SIZE * zoom
 	for y in range(world.tiles.size()):
 		var row: Array = world.tiles[y]
@@ -364,37 +365,40 @@ func _draw() -> void:
 			draw_arc(center, 15.0 * zoom, 0, TAU, 20, Color("#ffe890"), 2.0)
 		if int(b["id"]) == controlled_id:
 			draw_arc(center, 19.0 * zoom, 0, TAU, 20, Color("#6cffda"), 3.0)
-	# Miniaturas com arte do proprio mundo, estacoes, geracoes e eras.
-	var biomes := ["sand", "forest", "snow"]
-	for i in range(biomes.size()):
-		_draw_tile_card(biomes[i], Rect2(31 + i * 96, 579, 86, 73))
-	var seasons := ["grass_spring", "grass", "grass_autumn", "snow"]
-	for i in range(seasons.size()):
-		_draw_tile_card(seasons[i], Rect2(337 + i * 70, 580, 62, 73))
-	var ages := ["child", "person_m", "person_f", "person_m"]
-	for i in range(ages.size()):
-		var p := Vector2(661 + i * 72, 619)
-		draw_rect(Rect2(p - Vector2(29, 37), Vector2(61, 75)), Color("#756344"), true)
-		_draw_sprite(ages[i], p, Vector2(43, 56))
-		if i < 3:
-			draw_line(p + Vector2(30, 0), p + Vector2(40, 0), Color("#f4d588"), 2.0)
-	var upgrades := ["hut", "farm", "hut"]
-	for i in range(upgrades.size()):
-		var p := Vector2(979 + i * 88, 617)
-		draw_rect(Rect2(p - Vector2(35, 36), Vector2(77, 73)), Color("#655136"), true)
-		_draw_sprite(upgrades[i], p, Vector2(72, 67))
-		if i < 2:
-			draw_line(p + Vector2(39, 0), p + Vector2(51, 0), Color("#f4d588"), 2.0)
-	draw_line(Vector2(15, 680), Vector2(1265, 680), Color("#9c824b"), 2.0)
-	var portrait := "hut"
-	if selected_beast_id > 0:
-		var chosen_beast: Dictionary = world.get_beast(selected_beast_id)
-		portrait = "bear" if str(chosen_beast.get("species", "")) == "Urso" else "wolf"
-	elif selected_person_id > 0:
-		var chosen_person: Dictionary = world.get_person(selected_person_id)
-		if not chosen_person.is_empty():
-			portrait = "child" if float(chosen_person["age"]) < 16.0 else ("person_m" if int(chosen_person["gender"]) == 0 else "person_f")
-	_draw_sprite(portrait, Vector2(913, 370), Vector2(60, 60))
+	draw_rect(MAP_AREA, Color("#bc985d", 0.70), false, 2.0)
+	if info_label != null and info_label.visible:
+		draw_rect(Rect2(17, 650, 1207, 41), Color("#172219", 0.86), true)
+		draw_rect(Rect2(17, 650, 1207, 41), Color("#d1ab6c"), false, 1.0)
+
+func _draw_clock() -> void:
+	var c := Vector2(705, 34)
+	draw_circle(c, 24.0, Color("#4a3829"))
+	draw_circle(c, 19.0, Color("#d9c38c"))
+	draw_circle(c, 16.5, Color("#423b2c"))
+	for hour in range(12):
+		var a: float = float(hour) * TAU / 12.0 - PI * 0.5
+		draw_line(c + Vector2(cos(a), sin(a)) * 13.0, c + Vector2(cos(a), sin(a)) * 16.0, Color("#f7dfa4"), 1.5)
+	var minutes: float = fposmod(world.day, 1.0)
+	var angle: float = minutes * TAU - PI * 0.5
+	draw_line(c, c + Vector2(cos(angle), sin(angle)) * 12.0, Color("#f6d68b"), 2.2, true)
+	draw_line(c, c + Vector2(cos(angle * 0.083), sin(angle * 0.083)) * 8.0, Color("#ffefe0"), 3.1, true)
+	draw_circle(c, 2.5, Color("#f4cf81"))
+
+func _draw_character_hud() -> void:
+	var base: Vector2 = joystick_center if joystick_touch >= 0 else Vector2(143, 574)
+	draw_circle(base, 60.0, Color("#0d1c18", 0.55))
+	draw_arc(base, 58.0, 0.0, TAU, 44, Color("#f0d49a", 0.58), 3.0, true)
+	var grip: Vector2 = base + joystick_direction * 43.0
+	draw_circle(grip, 25.0, Color("#806441", 0.78))
+	draw_arc(grip, 25.0, 0.0, TAU, 28, Color("#edd5a5"), 2.0)
+	var sight: Vector2 = MAP_AREA.get_center()
+	draw_line(sight - Vector2(10, 0), sight - Vector2(3, 0), Color("#e7dbbc", 0.72), 2.0)
+	draw_line(sight + Vector2(3, 0), sight + Vector2(10, 0), Color("#e7dbbc", 0.72), 2.0)
+	draw_line(sight - Vector2(0, 10), sight - Vector2(0, 3), Color("#e7dbbc", 0.72), 2.0)
+	draw_line(sight + Vector2(0, 3), sight + Vector2(0, 10), Color("#e7dbbc", 0.72), 2.0)
+	draw_rect(Rect2(840, 643, 405, 42), Color("#1c2a21", 0.8), true)
+	draw_string(ThemeDB.fallback_font, Vector2(854, 670), "Analógico: andar  •  lado direito: olhar", HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color("#f8e0b3"))
+
 
 func _draw_panel(rect: Rect2, fill: Color) -> void:
 	draw_rect(rect, Color("#12130f"), true)
