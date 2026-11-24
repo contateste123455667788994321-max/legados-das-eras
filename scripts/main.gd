@@ -353,6 +353,8 @@ func _draw_landscape() -> void:
 					if k%7==0: draw_rect(Rect2(q-Vector2(0,ss),Vector2(ss,ss)),Color("#ead0a5"))
 			elif kind == "swamp":
 				_draw_landscape_object("marsh",pos,side*0.85)
+				if seed%4==0: _draw_landscape_object("swamp_reeds",pos+Vector2(side*0.13,side*0.16),side*0.60)
+				_draw_mosquitoes(pos,seed,side)
 			elif kind == "mountain":
 				if seed%3!=0: _draw_landscape_object("rock", pos, side*(0.7+float(seed%5)*0.14))
 			elif kind == "sand" and seed % 4 == 0:
@@ -366,7 +368,7 @@ func _draw_landscape() -> void:
 		if state == "stump":
 			draw_ellipse_stump(p,s)
 		elif state == "falling":
-			var key: String = "pine" if bool(tree["pine"]) else "tree"
+			var key: String = "swamp_tree" if world.swamp_at(Vector2(float(tree["x"]),float(tree["y"]))) else ("pine" if bool(tree["pine"]) else "tree")
 			if not landscape_objects.has(key):
 				landscape_objects[key] = load("res://assets/landscape/"+key+".svg")
 			if MAP_AREA.grow(-s*1.2).has_point(p):
@@ -375,7 +377,7 @@ func _draw_landscape() -> void:
 				draw_set_transform(Vector2.ZERO)
 			draw_ellipse_stump(p,s)
 		else:
-			_draw_landscape_object("pine" if bool(tree["pine"]) else "tree",p,s)
+			_draw_landscape_object("swamp_tree" if world.swamp_at(Vector2(float(tree["x"]),float(tree["y"]))) else ("pine" if bool(tree["pine"]) else "tree"),p,s)
 
 func draw_ellipse_stump(p: Vector2,s: float) -> void:
 	draw_circle(p,s*0.11,Color("#513b25"))
@@ -453,6 +455,7 @@ func _draw() -> void:
 	for animal in world.wildlife:
 		var p: Vector2 = _world_to_screen(Vector2(float(animal["x"])+0.5,float(animal["y"])+0.5))
 		_draw_landscape_object(str(animal["species"]),p,zoom*(32.0 if str(animal["species"]) in ["deer","camel","crocodile"] else (24.0 if str(animal["species"]) in ["capybara","heron","boar","fox"] else 17.0)))
+	_draw_swamp_creatures()
 	# Personagens separados visualmente por idade e aparencia.
 	for p in world.people:
 		if not bool(p["alive"]):
@@ -532,6 +535,10 @@ func _draw_rivers() -> void:
 			if str(world.tiles[y][x])!="water": continue
 			var p:Vector2=_world_to_screen(Vector2(x+0.5,y+0.5))
 			if not MAP_AREA.grow(-unit*0.65).has_point(p): continue
+			if world.swamp_water(x,y):
+				_draw_landscape_object("algae",p+Vector2(0,unit*0.25),unit*0.90)
+				_draw_mosquitoes(p,x*31+y*71,unit)
+				continue
 			var flow:Vector2=world.water_flow(Vector2(x,y))
 			for i in range(4):
 				var phase:float=fposmod(time+float(i)*0.25+float(x)*0.13,1.0)
@@ -569,6 +576,8 @@ func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
 	if clipped.has_area():
 		draw_texture_rect_region(atlas,clipped,Rect2(source.position+(clipped.position-dest.position)/dest.size*source.size,clipped.size/dest.size*source.size))
 	_draw_equipment(p,center,s,bounce)
+	if bool(p.get("witch_staff",false)):
+		_draw_landscape_object("magic_staff",center+Vector2(s*0.28,s*0.12),s*1.05)
 	var cargo:Dictionary=p.get("cargo",{})
 	if not cargo.is_empty() and MAP_AREA.grow(-s).has_point(center):
 		_draw_landscape_object("cart" if str(p.get("transport","hands"))=="cart" else ("basket" if str(p.get("transport","hands"))=="basket" else ("log_bundle" if str(cargo["kind"])=="wood" else "sack")),center+Vector2(s*0.28,s*0.12),s*0.60)
@@ -1225,6 +1234,10 @@ func _character_action() -> void:
 	var biome: String = str(world.tiles[py][px])
 	var facing := Vector2(-sin(look_yaw),-cos(look_yaw))
 	var origin := Vector2(float(actor["x"]),float(actor["y"]))
+	if world.cast_staff(actor) or world.strike_witch(actor):
+		world.save_world()
+		_refresh_ui()
+		return
 	var chosen: Dictionary = {}
 	var best: float = 1.65
 	for tree in world.trees.values():
@@ -1341,6 +1354,7 @@ func _show_details() -> void:
 			lines.append("Diplomacia: %d | Inteligencia: %d | Agressividade: %d" % [int(p["diplomacy"]),int(p["intelligence"]),int(p["aggression"])])
 			lines.append("Armadura: nivel %d | Arma: nivel %d | Ferramenta: nivel %d" % [int(p.get("armor",0)),int(p.get("weapon",0)),int(p.get("tool",0))])
 			lines.append("Saciedade: %d%%" % int(100-float(p.get("needs",{}).get("hunger",0))))
+			if bool(p.get("witch_staff",false)): lines.append("Artefato unico: Cajado do brejo | Magia 24 | Recarga 4,5s")
 			var father: Dictionary = world.get_person(int(p["father"]))
 			var mother: Dictionary = world.get_person(int(p["mother"]))
 			lines.append("Pai: %s  |  Mae: %s" % [father.get("name", "?"), mother.get("name", "?")])
@@ -1492,3 +1506,29 @@ func _show_spawn_menu() -> void:
 	dialog.confirmed.connect(dialog.queue_free)
 	dialog.canceled.connect(dialog.queue_free)
 	dialog.popup_centered(Vector2i(710,430))
+
+func _draw_mosquitoes(p:Vector2,seed:int,u:float) -> void:
+	if u<24.0: return
+	for i in range(3):
+		var a:float=world.swamp_clock*3.5+float(seed+i*17)
+		var q:Vector2=(p+Vector2(sin(a*1.9)*u*0.25,cos(a*1.4)*u*0.15)).round()
+		draw_rect(Rect2(q,Vector2(1.0,2.0)),Color("#302b20"))
+		if int(a*18)%2==0: draw_rect(Rect2(q-Vector2(1,0),Vector2(3,1)),Color("#aab49a",0.75))
+
+func _draw_swamp_creatures() -> void:
+	var witch:Dictionary=world.swamp_witch
+	if bool(witch.get("alive",false)):
+		var p:Vector2=_world_to_screen(Vector2(float(witch["x"])+0.5,float(witch["y"])+0.5))
+		_draw_landscape_object("witch",p,38.0*zoom)
+		if MAP_AREA.grow(-30*zoom).has_point(p):
+			var bar:=Rect2(p+Vector2(-16,-37)*zoom,Vector2(32,4)*zoom)
+			draw_rect(bar,Color("#2a202d"))
+			draw_rect(Rect2(bar.position,Vector2(bar.size.x*float(witch["health"])/500.0,bar.size.y)),Color("#a16dc7"))
+	for spider in world.swamp_spiders:
+		var p:Vector2=_world_to_screen(Vector2(float(spider["x"])+0.5,float(spider["y"])+0.5))
+		_draw_landscape_object("swamp_spider",p,17.0*zoom)
+	for bolt in world.magic_bolts:
+		var p:Vector2=_world_to_screen(Vector2(float(bolt["x"])+0.5,float(bolt["y"])+0.5))
+		if MAP_AREA.grow(-12).has_point(p):
+			draw_rect(Rect2(p-Vector2.ONE*5*zoom,Vector2.ONE*10*zoom),Color("#a26edd",0.3))
+			draw_rect(Rect2(p-Vector2.ONE*2*zoom,Vector2.ONE*4*zoom),Color("#ebd1ff"))

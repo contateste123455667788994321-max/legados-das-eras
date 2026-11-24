@@ -20,6 +20,10 @@ var sites: Array = []
 var rivers_v58:bool=false
 var habitats_v59:bool=false
 var ecology_v60:bool=false
+var swamp_witch:Dictionary={}
+var swamp_spiders:Array=[]
+var magic_bolts:Array=[]
+var swamp_clock:float=0.0
 var trees: Dictionary = {}
 var tree_revision := 0
 var next_seed_day := 15.0
@@ -47,6 +51,10 @@ func generate_world() -> void:
 	people.clear()
 	beasts.clear()
 	wildlife.clear()
+	swamp_witch.clear()
+	swamp_spiders.clear()
+	magic_bolts.clear()
+	swamp_clock=0.0
 	sites.clear()
 	trees.clear()
 	tree_revision += 1
@@ -103,6 +111,7 @@ func generate_world() -> void:
 	_seed_wildlife()
 	_seed_habitat_animals()
 	_seed_extra_animals()
+	_seed_swamp_witch()
 	politics.prepare(self)
 	news = "Tres aldeias vivem em paz. Voce decide o futuro."
 
@@ -224,6 +233,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 	day += elapsed_days
 	_update_trees(dt)
 	_update_wildlife(dt)
+	_update_swamp(dt,controlled_id)
 	for t in towns:
 		# Avanco vinculado aos dias do mundo e a geracoes, nao aos quadros por segundo.
 		t["knowledge"] = float(t["knowledge"]) + elapsed_days * (0.012 + float(active_population(int(t["id"]))) * 0.00035)
@@ -502,6 +512,7 @@ func save_world() -> bool:
 		"tiles": tiles, "towns": towns, "people": people, "beasts": beasts,
 		"trees": trees, "next_seed_day": next_seed_day,
 		"wildlife": wildlife, "sites": sites, "rivers_v58":rivers_v58, "habitats_v59":habitats_v59, "ecology_v60":ecology_v60,
+		"swamp_witch":swamp_witch,"swamp_spiders":swamp_spiders,"swamp_clock":swamp_clock,
 		"next_id": next_id, "day": day, "next_birth": next_birth,
 		"next_growth": next_growth, "wars": wars, "rivals": rivals, "predators": predators
 	}
@@ -550,6 +561,10 @@ func load_world() -> bool:
 		for y in range(SIZE):
 			for x in range(maxi(32,old_width),WIDTH):
 				if _tree_allowed(x,y) and not trees.has(tree_key(x,y)) and rng.randf()<0.55: _plant_tree(x,y,true)
+		swamp_witch=value.get("swamp_witch",{})
+		swamp_spiders=value.get("swamp_spiders",[])
+		swamp_clock=float(value.get("swamp_clock",0))
+		magic_bolts.clear()
 		wildlife = value.get("wildlife",[])
 		sites = value.get("sites",[])
 		rivers_v58=bool(value.get("rivers_v58",false))
@@ -606,7 +621,7 @@ func _seed_initial_trees() -> void:
 		for x in range(WIDTH):
 			if not _tree_allowed(x,y): continue
 			var kind: String = str(tiles[y][x])
-			if rng.randf() < (0.93 if kind=="forest" else (0.78 if kind=="snow" else 0.14)):
+			if rng.randf() < (0.93 if kind=="forest" else (0.78 if kind=="snow" else (0.56 if kind=="swamp" else 0.14))):
 				_plant_tree(x,y,true)
 
 func tree_scale(tree: Dictionary) -> float:
@@ -1261,3 +1276,181 @@ func _found_empty_town(p:Vector2) -> Dictionary:
 		if chosen.x>=0: sites.append({"kind":kind,"x":chosen.x,"y":chosen.y,"town":id,"developed":false,"work":0.0})
 	politics.prepare(self)
 	return town
+
+func swamp_at(p:Vector2) -> bool:
+	if p.x<0 or p.y<0 or p.x>=WIDTH or p.y>=SIZE: return false
+	return str(tiles[int(p.y)][int(p.x)])=="swamp"
+
+func swamp_water(x:int,y:int) -> bool:
+	if str(tiles[y][x])!="water": return false
+	for offset in [Vector2i(-1,0),Vector2i(1,0),Vector2i(0,-1),Vector2i(0,1)]:
+		var nx:int=clampi(x+offset.x,0,WIDTH-1)
+		var ny:int=clampi(y+offset.y,0,SIZE-1)
+		if str(tiles[ny][nx])=="swamp": return true
+	return false
+
+func _seed_swamp_witch(force:bool=false) -> void:
+	if not swamp_witch.is_empty() or (not force and rng.randf()>=0.35): return
+	var options:Array[Vector2]=[]
+	for y in range(2,SIZE-2):
+		for x in range(2,WIDTH-2):
+			if str(tiles[y][x])=="swamp": options.append(Vector2(x+0.35,y+0.35))
+	if options.is_empty(): return
+	var p:Vector2=options[rng.randi_range(0,options.size()-1)]
+	swamp_witch={"name":"Bruxa do brejo","x":p.x,"y":p.y,"tx":p.x,"ty":p.y,"health":500.0,"max_health":500.0,"alive":true,"cast":5.0,"summon":15.0,"wander":3.0,"state":"Vigiando"}
+
+func _swamp_target(p:Vector2,radius:float) -> Vector2:
+	for attempt in range(18):
+		var q:=p+Vector2(rng.randf_range(-radius,radius),rng.randf_range(-radius,radius))
+		q.x=clampf(q.x,1,WIDTH-2)
+		q.y=clampf(q.y,1,SIZE-2)
+		if swamp_at(q): return q
+	return p
+
+func _swamp_human(p:Vector2,radius:float) -> Dictionary:
+	var nearest:Dictionary={}
+	var best:float=radius
+	for person in people:
+		if not bool(person["alive"]): continue
+		var q:=Vector2(float(person["x"]),float(person["y"]))
+		if not swamp_at(q): continue
+		var d:float=p.distance_to(q)
+		if d<best:
+			best=d
+			nearest=person
+	return nearest
+
+func _swamp_damage(person:Dictionary,damage:float) -> void:
+	if person.is_empty() or not bool(person["alive"]): return
+	person["health"]=maxf(0.0,float(person["health"])-maxf(1.0,damage-defense(person)))
+	if float(person["health"])<=0: kill_person(person)
+
+func strike_witch(person:Dictionary) -> bool:
+	if person.is_empty() or not bool(person.get("alive",false)) or not person.has("town") or not bool(swamp_witch.get("alive",false)): return false
+	var p:=Vector2(float(person["x"]),float(person["y"]))
+	var q:=Vector2(float(swamp_witch["x"]),float(swamp_witch["y"]))
+	if p.distance_to(q)>0.9 or not swamp_at(p) or float(person.get("witch_attack_cd",0))>0: return false
+	person["witch_attack_cd"]=1.2
+	swamp_witch["health"]=maxf(0.0,float(swamp_witch["health"])-attack_damage(person))
+	if float(swamp_witch["health"])<=0:
+		swamp_witch["alive"]=false
+		swamp_witch["killer"]=int(person["id"])
+		person["witch_staff"]=true
+		person["staff_cd"]=0.0
+		news=str(person["name"])+" derrotou a bruxa e conquistou o cajado unico!"
+		var town:Dictionary=get_town(int(person["town"]))
+		if not town.is_empty():
+			var history:Array=town.get("historical_events",[])
+			history.append({"day":int(day),"event":news})
+			town["historical_events"]=history
+	return true
+
+func cast_staff(person:Dictionary) -> bool:
+	if not bool(person.get("witch_staff",false)) or not bool(person.get("alive",false)) or float(person.get("staff_cd",0))>0: return false
+	var p:=Vector2(float(person["x"]),float(person["y"]))
+	var best:float=3.8
+	var target_id:int=-1
+	var target_kind:String=""
+	for spider in swamp_spiders:
+		var d:float=p.distance_to(Vector2(float(spider["x"]),float(spider["y"])))
+		if d<best:
+			best=d
+			target_id=int(spider["id"])
+			target_kind="spider"
+	if wars:
+		for other in people:
+			if not bool(other["alive"]) or int(other["town"])==int(person["town"]): continue
+			if politics.get_status(self,int(person["town"]),int(other["town"]))!="war": continue
+			var d:float=p.distance_to(Vector2(float(other["x"]),float(other["y"])))
+			if d<best:
+				best=d
+				target_id=int(other["id"])
+				target_kind="human"
+	if target_id<0: return false
+	magic_bolts.append({"x":p.x+0.22,"y":p.y-0.15,"target":target_id,"kind":target_kind,"life":4.0,"damage":24.0})
+	person["staff_cd"]=4.5
+	return true
+
+func _update_swamp(dt:float,controlled_id:int=0) -> void:
+	swamp_clock+=dt
+	for person in people:
+		if not bool(person["alive"]): continue
+		if person.has("witch_attack_cd"): person["witch_attack_cd"]=maxf(0,float(person["witch_attack_cd"])-dt)
+		if bool(person.get("witch_staff",false)):
+			person["staff_cd"]=maxf(0,float(person.get("staff_cd",0))-dt)
+			if int(person["id"])!=controlled_id: cast_staff(person)
+	if bool(swamp_witch.get("alive",false)):
+		var witch:Dictionary=swamp_witch
+		var p:=Vector2(float(witch["x"]),float(witch["y"]))
+		witch["cast"]=maxf(0,float(witch["cast"])-dt)
+		witch["summon"]=maxf(0,float(witch["summon"])-dt)
+		witch["wander"]=float(witch["wander"])-dt
+		var target:Dictionary=_swamp_human(p,3.8)
+		if not target.is_empty() and float(witch["cast"])<=0:
+			magic_bolts.append({"x":p.x+0.22,"y":p.y-0.15,"target":target["id"],"kind":"human","life":4.0,"damage":24.0})
+			witch["cast"]=4.5
+			witch["state"]="Lancando magia"
+		elif target.is_empty():
+			witch["state"]="Vigiando"
+			if float(witch["wander"])<=0:
+				var q:Vector2=_swamp_target(p,2.0)
+				witch["tx"]=q.x
+				witch["ty"]=q.y
+				witch["wander"]=rng.randf_range(4,8)
+			var n:=p.move_toward(Vector2(float(witch["tx"]),float(witch["ty"])),dt*0.32)
+			if swamp_at(n):
+				witch["x"]=n.x
+				witch["y"]=n.y
+		if float(witch["summon"])<=0:
+			witch["summon"]=18.0
+			if swamp_spiders.size()<7:
+				var q:Vector2=_swamp_target(p,1.3)
+				swamp_spiders.append({"id":new_id(),"x":q.x,"y":q.y,"tx":q.x,"ty":q.y,"health":35.0,"timer":0.0,"bite":0.0})
+		for person in people:
+			if int(person["id"])!=controlled_id and str(person.get("profession",""))=="Guarda": strike_witch(person)
+	for i in range(swamp_spiders.size()-1,-1,-1):
+		var spider:Dictionary=swamp_spiders[i]
+		if float(spider["health"])<=0:
+			swamp_spiders.remove_at(i)
+			continue
+		var p:=Vector2(float(spider["x"]),float(spider["y"]))
+		spider["bite"]=maxf(0,float(spider["bite"])-dt)
+		spider["timer"]=float(spider["timer"])-dt
+		var target:Dictionary=_swamp_human(p,2.3)
+		var goal:=p
+		if not target.is_empty():
+			goal=Vector2(float(target["x"]),float(target["y"]))
+			if p.distance_to(goal)<0.4 and float(spider["bite"])<=0:
+				_swamp_damage(target,6.0)
+				spider["bite"]=2.5
+				if str(target.get("profession",""))=="Guarda": spider["health"]=float(spider["health"])-attack_damage(target)
+		elif float(spider["timer"])<=0:
+			goal=_swamp_target(p,1.5)
+			spider["tx"]=goal.x
+			spider["ty"]=goal.y
+			spider["timer"]=3.0
+		else: goal=Vector2(float(spider["tx"]),float(spider["ty"]))
+		var q:=p.move_toward(goal,dt*0.7)
+		if swamp_at(q):
+			spider["x"]=q.x
+			spider["y"]=q.y
+	for i in range(magic_bolts.size()-1,-1,-1):
+		var bolt:Dictionary=magic_bolts[i]
+		var target:Dictionary={}
+		if str(bolt["kind"])=="spider":
+			for spider in swamp_spiders:
+				if int(spider["id"])==int(bolt["target"]): target=spider
+		else: target=get_person(int(bolt["target"]))
+		bolt["life"]=float(bolt["life"])-dt
+		if target.is_empty() or not bool(target.get("alive",true)) or float(target.get("health",0))<=0 or float(bolt["life"])<=0:
+			magic_bolts.remove_at(i)
+			continue
+		var p:=Vector2(float(bolt["x"]),float(bolt["y"]))
+		var goal:=Vector2(float(target["x"]),float(target["y"]))
+		var q:=p.move_toward(goal,dt*1.65)
+		bolt["x"]=q.x
+		bolt["y"]=q.y
+		if q.distance_to(goal)<0.18:
+			if str(bolt["kind"])=="spider": target["health"]=maxf(0,float(target["health"])-float(bolt["damage"]))
+			else: _swamp_damage(target,float(bolt["damage"]))
+			magic_bolts.remove_at(i)

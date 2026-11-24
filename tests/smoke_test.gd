@@ -25,6 +25,21 @@ func _run_tests() -> void:
 	_check(world.animal_habitat("crocodile","water") and not world.animal_habitat("crocodile","sand"),"Crocodilo respeita habitat")
 	_check(world._animal_prey("crocodile","duck") and not world._animal_prey("deer","duck"),"Predacao especifica por especie")
 	_check(world.towns.size() == 3, "Tres aldeias iniciais")
+	var swamp=World.new()
+	swamp.generate_world()
+	swamp._seed_swamp_witch(true)
+	_check(float(swamp.swamp_witch["health"])==500.0,"Bruxa possui cinco vezes a vida humana")
+	var champion:Dictionary=swamp.people[0]
+	champion["x"]=swamp.swamp_witch["x"]
+	champion["y"]=swamp.swamp_witch["y"]
+	swamp.swamp_witch["health"]=1.0
+	_check(swamp.strike_witch(champion),"Humano derrota bruxa")
+	_check(not bool(swamp.swamp_witch["alive"]) and bool(champion.get("witch_staff",false)),"Vencedor recebe cajado unico")
+	_check(not swamp.strike_witch(swamp.people[1]),"Cajado nao pode ser duplicado")
+	swamp._seed_swamp_witch(true)
+	_check(not bool(swamp.swamp_witch["alive"]),"Bruxa nao renasce")
+	swamp.swamp_spiders.append({"id":99999,"x":champion["x"],"y":champion["y"],"health":35.0})
+	_check(swamp.cast_staff(champion) and not swamp.cast_staff(champion),"Cajado dispara com recarga")
 	var creator=World.new()
 	creator.generate_world()
 	var start:Dictionary=creator.towns[0]

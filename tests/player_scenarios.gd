@@ -236,7 +236,7 @@ func _historian() -> void:
 	_assert(int(town["leader"]) != leader_id, "Historiador: sucessao muda lider")
 	_assert(int(town["leader"]) > 0, "Historiador: aldeia nao fica sem governante quando ha adultos")
 	var successor: Dictionary = w.get_person(int(town["leader"]))
-	_assert(str(successor["role"]) == "Rei" or str(successor["role"]) == "Rainha", "Historiador: herdeiro recebe titulo")
+	_assert(str(successor["role"]) == w.ruler_title(town,successor), "Historiador: eleito recebe titulo da era")
 	_check_world(w, "Historiador")
 
 func _diplomat() -> void:
