@@ -340,42 +340,35 @@ func _settlement(town: Dictionary) -> void:
 	var houses: int = mini(int(town.get("houses", 2)), 8)
 	var farms: int = mini(int(town.get("farms", 1)), 6)
 	var offsets: Array[Vector2] = [
-		Vector2(0, 0), Vector2(2.1, 1.0), Vector2(-2.0, -1.4),
-		Vector2(2.6, -1.4), Vector2(-2.8, 1.7), Vector2(0, -3.0),
-		Vector2(-0.6, 3.0), Vector2(3.5, 2.9)
+		Vector2(0.0,-0.35)*SPACING, Vector2(1.60,0.35)*SPACING, Vector2(-1.25,-0.75)*SPACING,
+		Vector2(2.15,-0.85)*SPACING, Vector2(-2.4,0.15)*SPACING, Vector2(0.95,-1.65)*SPACING,
+		Vector2(-1.35,1.45)*SPACING, Vector2(2.9,1.15)*SPACING
 	]
 	for i in range(houses):
 		var v: Vector2 = offsets[i]
-		_hut(root_mesh, p + Vector3(v.x, 0, v.y), 0.89 if i > 0 else 1.08, int(town.get("level", 1)))
+		_hut(root_mesh, p + Vector3(v.x, 0, v.y), 1.32 if i > 0 else 1.55, int(town.get("level", 1)))
+	var farm_spots: Array[Vector2] = [Vector2(-1.4,1.15),Vector2(-2.2,2.20),Vector2(1.3,1.85),Vector2(2.9,2.0),Vector2(-2.8,-1.1),Vector2(3.1,-1.4)]
 	for i in range(farms):
-		_farm(root_mesh, p + Vector3(-2.0 + float(i % 3) * 2.8, 0.04, 3.2 + float(i / 3) * 2.2))
-	_fire(root_mesh, p + Vector3(1.4, 0.0, 2.4))
+		_farm(root_mesh,p+Vector3(farm_spots[i].x*SPACING,0.04,farm_spots[i].y*SPACING))
+	_fire(root_mesh,p+Vector3(0.7*SPACING,0,SPACING))
 
 func _make_person_3d(person: Dictionary) -> Node3D:
 	var figure := Node3D.new()
 	root_mesh.add_child(figure)
-	var scale_factor: float = [0.42,0.68,1.0,0.91][game.world.life_stage(person)]
-	figure.scale = Vector3.ONE * scale_factor
-	var female: bool = int(person.get("gender", 0)) == 1
-	var palette := ["#8b6545","#54734b","#986047","#5f7181","#b39254","#6e525c","#536d65","#77543d","#b2a071","#695b48"]
-	var outfit: String = palette[posmod(int(person.get("appearance",person["id"])),10)]
-	var skin: String = ["#e3b68b","#c99568","#ae7850","#895b42","#f0cba3"][posmod(int(person.get("skin",0)),5)]
-	var hair: String = "#c6c0b2" if game.world.life_stage(person)==3 else ["#392b22","#5d3a26","#211f1c","#9c6e36","#6b4830","#a1714c"][posmod(int(person.get("hair",0)),6)]
-	if str(person.get("profession", "")) == "Guarda":
-		outfit = "#667581"
-	elif str(person.get("profession", "")) == "Agricultor":
-		outfit = "#a98b4b"
-	elif str(person.get("profession", "")) == "Construtor":
-		outfit = "#6e7555"
-	_box(figure, Vector3(0.0, 0.91, 0.0), Vector3(0.48, 0.68, 0.30), outfit)
-	_box(figure, Vector3(0.0, 1.43, 0.0), Vector3(0.39, 0.43, 0.38), skin)
-	_box(figure, Vector3(0.0, 1.67, -0.01), Vector3(0.43, 0.12, 0.40), hair)
-	for side in [-1, 1]:
-		_box(figure, Vector3(float(side) * 0.35, 0.85, 0.0), Vector3(0.20, 0.68, 0.22), skin)
-		_box(figure, Vector3(float(side) * 0.14, 0.35, 0.0), Vector3(0.22, 0.64, 0.27), "#584c3b")
-		_box(figure, Vector3(float(side) * 0.14, 0.08, -0.045), Vector3(0.25, 0.17, 0.33), "#392e25")
-	_box(figure, Vector3(-0.10, 1.47, -0.20), Vector3(0.065, 0.067, 0.02), "#2b2a27")
-	_box(figure, Vector3(0.10, 1.47, -0.20), Vector3(0.065, 0.067, 0.02), "#2b2a27")
+	# Sprites pixelados reais no mesmo espaço 3D, como em RPGs retro.
+	var sprite := Sprite3D.new()
+	var atlas := AtlasTexture.new()
+	atlas.atlas = load("res://assets/landscape/people_atlas.svg")
+	var variant: int = posmod(int(person.get("appearance",person["id"])),10)
+	atlas.region = Rect2(float(variant%5)*64.0+16.0,float(int(person["gender"])*2+floori(float(variant)/5.0))*48.0,32.0,48.0)
+	sprite.texture = atlas
+	sprite.pixel_size = 0.028
+	sprite.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	sprite.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
+	sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
+	sprite.position.y = 0.59
+	sprite.shaded = true
+	figure.add_child(sprite)
 	return figure
 
 func _refresh_people_models() -> void:
@@ -400,8 +393,10 @@ func update_people() -> void:
 		figure.scale = Vector3.ONE * [0.42,0.68,1.0,0.91][game.world.life_stage(person)]
 		figure.position = Vector3((float(person["x"]) + 0.5) * SPACING, 0.0, (float(person["y"]) + 0.5) * SPACING)
 		var d := Vector2(float(person.get("target_x", person["x"])) - float(person["x"]), float(person.get("target_y", person["y"])) - float(person["y"]))
-		if d.length_squared() > 0.04:
-			figure.rotation.y = atan2(-d.x, -d.y)
+		var sprite: Sprite3D = figure.get_child(0) as Sprite3D
+		if sprite != null:
+			sprite.flip_h = d.x < 0
+			sprite.position.y = 0.59 + (absf(sin(float(Time.get_ticks_msec())*0.013+float(id)))*0.035 if d.length_squared()>0.04 and game.world.speed>0 else 0.0)
 
 func _build_signature() -> String:
 	var parts: Array[String] = []
@@ -460,7 +455,7 @@ func rebuild() -> void:
 func follow(actor: Dictionary, yaw: float, pitch: float = 0.0) -> void:
 	if camera == null or actor.is_empty():
 		return
-	camera.position = Vector3((float(actor["x"]) + 0.5) * SPACING, 1.7, (float(actor["y"]) + 0.5) * SPACING)
+	camera.position = Vector3((float(actor["x"]) + 0.5) * SPACING, 1.18 * [0.42,0.68,1.0,0.91][game.world.life_stage(actor)], (float(actor["y"]) + 0.5) * SPACING)
 	camera.rotation = Vector3(pitch, yaw, 0.0)
 
 func sync_trees() -> void:
