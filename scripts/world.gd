@@ -19,6 +19,7 @@ var wildlife: Array = []
 var sites: Array = []
 var rivers_v58:bool=false
 var habitats_v59:bool=false
+var ecology_v60:bool=false
 var trees: Dictionary = {}
 var tree_revision := 0
 var next_seed_day := 15.0
@@ -101,6 +102,7 @@ func generate_world() -> void:
 	_prepare_sites()
 	_seed_wildlife()
 	_seed_habitat_animals()
+	_seed_extra_animals()
 	politics.prepare(self)
 	news = "Tres aldeias vivem em paz. Voce decide o futuro."
 
@@ -486,7 +488,7 @@ func save_world() -> bool:
 	var data := {
 		"tiles": tiles, "towns": towns, "people": people, "beasts": beasts,
 		"trees": trees, "next_seed_day": next_seed_day,
-		"wildlife": wildlife, "sites": sites, "rivers_v58":rivers_v58, "habitats_v59":habitats_v59,
+		"wildlife": wildlife, "sites": sites, "rivers_v58":rivers_v58, "habitats_v59":habitats_v59, "ecology_v60":ecology_v60,
 		"next_id": next_id, "day": day, "next_birth": next_birth,
 		"next_growth": next_growth, "wars": wars, "rivals": rivals, "predators": predators
 	}
@@ -550,6 +552,8 @@ func load_world() -> bool:
 		if not value.has("wildlife"): _seed_wildlife()
 		habitats_v59=bool(value.get("habitats_v59",false))
 		if not habitats_v59: _seed_habitat_animals()
+		ecology_v60=bool(value.get("ecology_v60",false))
+		if not ecology_v60: _seed_extra_animals()
 		tree_revision += 1
 		for p in people:
 			if not p.has("appearance"): p["appearance"] = posmod(int(p["id"]), 10)
@@ -701,22 +705,127 @@ func _seed_wildlife() -> void:
 			break
 
 func _update_wildlife(dt:float) -> void:
+	var births:Array=[]
 	for animal in wildlife:
-		animal["timer"]=float(animal["timer"])-dt
+		var species:String=str(animal["species"])
 		var p:=Vector2(float(animal["x"]),float(animal["y"]))
+		var kind:String=str(tiles[clampi(int(p.y),0,SIZE-1)][clampi(int(p.x),0,WIDTH-1)])
+		animal["hunger"]=clampf(float(animal.get("hunger",rng.randf_range(0,35)))+dt*0.48,0,100)
+		animal["timer"]=float(animal["timer"])-dt
+		animal["breed_timer"]=maxf(0,float(animal.get("breed_timer",rng.randf_range(90,200)))-dt)
 		if float(animal["timer"])<=0:
-			animal["timer"]=rng.randf_range(2.0,6.0)
-			var q:=p+Vector2(rng.randf_range(-1.6,1.6),rng.randf_range(-1.6,1.6))
-			q.x=clampf(q.x,1,WIDTH-2)
-			q.y=clampf(q.y,1,SIZE-2)
-			if animal_habitat(str(animal["species"]),str(tiles[int(q.y)][int(q.x)])):
-				animal["tx"]=q.x
-				animal["ty"]=q.y
+			_choose_animal_action(animal,p,kind)
+		var state:String=str(animal.get("state","Andando"))
 		var goal:=Vector2(float(animal["tx"]),float(animal["ty"]))
-		var n:=p.move_toward(goal,dt*0.42)
-		if animal_habitat(str(animal["species"]),str(tiles[int(n.y)][int(n.x)])):
+		var pace:float=float({"chicken":0.35,"deer":0.65,"rabbit":0.72,"frog":0.48,"capybara":0.37,"heron":0.60,"camel":0.48,"lizard":0.45,"snow_hare":0.72,"crocodile":0.52,"turtle":0.19,"duck":0.54,"boar":0.58,"fox":0.68}.get(species,0.42))
+		if state in ["Fugindo","Cacando"]: pace*=1.75
+		if species=="crocodile" and kind=="water": pace*=1.4
+		if state in ["Saltando","Pulando"] and fposmod(float(animal["timer"])*3.0,1.0)>0.55: pace=0.0
+		if state in ["Descansando","Aquecendo","Emboscando","Pescando","Pastando","Bicando","Fuçando","Comendo"]: pace=0.0
+		var n:=p.move_toward(goal,dt*pace)
+		if animal_habitat(species,str(tiles[clampi(int(n.y),0,SIZE-1)][clampi(int(n.x),0,WIDTH-1)])):
 			animal["x"]=n.x
 			animal["y"]=n.y
+		else:
+			animal["timer"]=0.0
+		if state in ["Pescando","Pastando","Bicando","Fuçando","Comendo"]:
+			animal["hunger"]=maxf(0,float(animal["hunger"])-dt*3.0)
+		if state=="Cacando":
+			for prey in wildlife:
+				if int(prey["id"])!=int(animal.get("prey",-1)): continue
+				if p.distance_to(Vector2(float(prey["x"]),float(prey["y"])))<0.35:
+					animal["hunger"]=maxf(0,float(animal["hunger"])-35.0)
+					animal["state"]="Comendo"
+					animal["timer"]=3.0
+					prey["state"]="Fugindo"
+					prey["timer"]=0.0
+					prey["hunger"]=minf(100,float(prey.get("hunger",0))+12.0)
+				break
+		if float(animal["breed_timer"])<=0:
+			animal["breed_timer"]=rng.randf_range(160,260)
+			var count:int=0
+			for other in wildlife:
+				if str(other["species"])==species: count+=1
+			if count<8 and wildlife.size()+births.size()<110 and float(animal["hunger"])<30 and rng.randf()<0.35:
+				var child:Dictionary=animal.duplicate(true)
+				child["id"]=new_id()+10000
+				child["breed_timer"]=180.0
+				child["hunger"]=15.0
+				births.append(child)
+	wildlife.append_array(births)
+
+func _choose_animal_action(animal:Dictionary,p:Vector2,kind:String) -> void:
+	var species:String=str(animal["species"])
+	var threat:Dictionary={}
+	var prey:Dictionary={}
+	var companion:Dictionary={}
+	var threat_distance:float=2.4
+	var prey_distance:float=3.0
+	var companion_distance:float=4.5
+	for other in wildlife:
+		if int(other["id"])==int(animal["id"]): continue
+		var other_species:String=str(other["species"])
+		var d:float=p.distance_to(Vector2(float(other["x"]),float(other["y"])))
+		if _animal_prey(other_species,species) and d<threat_distance:
+			threat_distance=d
+			threat=other
+		if _animal_prey(species,other_species) and d<prey_distance:
+			prey_distance=d
+			prey=other
+		if other_species==species and d<companion_distance and d>1.5:
+			companion_distance=d
+			companion=other
+	animal["timer"]=rng.randf_range(2.0,5.0)
+	var q:=p
+	var hungry:bool=float(animal["hunger"])>40.0
+	if not threat.is_empty():
+		var away:Vector2=(p-Vector2(float(threat["x"]),float(threat["y"]))).normalized()
+		q=p+away*2.3
+		animal["state"]="Fugindo"
+		animal["timer"]=1.5
+	elif species in ["crocodile","fox"] and hungry and not prey.is_empty():
+		q=Vector2(float(prey["x"]),float(prey["y"]))
+		animal["state"]="Cacando"
+		animal["prey"]=prey["id"]
+		animal["timer"]=0.8
+	elif hungry and species not in ["crocodile","fox"]:
+		animal["state"]=str({"chicken":"Bicando","deer":"Pastando","rabbit":"Pastando","frog":"Comendo","capybara":"Pastando","heron":"Pescando","camel":"Pastando","lizard":"Comendo","snow_hare":"Pastando","turtle":"Comendo","duck":"Pescando","boar":"Fuçando"}.get(species,"Comendo"))
+		if species in ["heron","duck"] and kind not in ["water","swamp"]:
+			q=_animal_destination(p,species,["water","swamp"])
+			animal["state"]="Caminhando"
+	elif rng.randf()<0.30:
+		animal["state"]="Emboscando" if species=="crocodile" else ("Aquecendo" if species in ["lizard","turtle"] else "Descansando")
+	else:
+		var range_size:float=2.4 if species in ["deer","camel","heron","fox"] else 1.4
+		q=p+Vector2(rng.randf_range(-range_size,range_size),rng.randf_range(-range_size,range_size))
+		if not companion.is_empty() and species in ["deer","capybara","camel","chicken","duck","boar"]:
+			q=p.lerp(Vector2(float(companion["x"]),float(companion["y"])),0.55)
+		if species=="crocodile" and rng.randf()<0.65:
+			q=_animal_destination(p,species,["water","swamp"])
+		animal["state"]="Nadando" if kind=="water" else ("Saltando" if species=="frog" else ("Pulando" if species in ["rabbit","snow_hare"] else "Caminhando"))
+	q.x=clampf(q.x,1,WIDTH-2)
+	q.y=clampf(q.y,1,SIZE-2)
+	if not animal_habitat(species,str(tiles[int(q.y)][int(q.x)])):
+		q=p
+	animal["tx"]=q.x
+	animal["ty"]=q.y
+
+func _animal_prey(hunter:String,prey:String) -> bool:
+	return (hunter=="crocodile" and prey in ["duck","frog","capybara","heron"]) or (hunter=="fox" and prey in ["rabbit","chicken","snow_hare"])
+
+func _animal_destination(p:Vector2,species:String,kinds:Array) -> Vector2:
+	var best:=p
+	var distance:float=100.0
+	for y in range(maxi(1,int(p.y)-3),mini(SIZE-1,int(p.y)+4)):
+		for x in range(maxi(1,int(p.x)-3),mini(WIDTH-1,int(p.x)+4)):
+			var kind:String=str(tiles[y][x])
+			if kind not in kinds or not animal_habitat(species,kind): continue
+			var q:=Vector2(x+0.4,y+0.4)
+			var d:float=q.distance_to(p)
+			if d<distance:
+				distance=d
+				best=q
+	return best
 
 func river_x(y:int,index:int) -> int:
 	return (10 if index==0 else 25)+roundi(sin(float(y)*0.36+float(index)*0.9)*2.0)
@@ -784,7 +893,8 @@ func local_site(kind:String,town_id:int) -> Dictionary:
 
 func animal_habitat(species:String,kind:String) -> bool:
 	match species:
-		"frog","capybara","heron": return kind in ["swamp","water","grass"]
+		"frog","capybara","heron","crocodile","turtle","duck": return kind in ["swamp","water","grass"]
+		"boar","fox": return kind in ["forest","grass"]
 		"camel","lizard": return kind in ["sand","grass"]
 		"snow_hare": return kind in ["snow","forest"]
 	return kind in ["grass","forest"]
@@ -801,3 +911,19 @@ func _seed_habitat_animals() -> void:
 			var pos:Vector2=suitable[rng.randi_range(0,suitable.size()-1)]
 			wildlife.append({"id":100+wildlife.size(),"species":species,"x":pos.x,"y":pos.y,"tx":pos.x,"ty":pos.y,"timer":rng.randf_range(0.0,4.0)})
 	habitats_v59=true
+
+func _seed_extra_animals() -> void:
+	for species in ["crocodile","turtle","duck","boar","fox"]:
+		var candidates:Array[Vector2]=[]
+		for y in range(1,SIZE-1):
+			for x in range(1,WIDTH-1):
+				var kind:String=str(tiles[y][x])
+				if species in ["crocodile","turtle","duck"]:
+					if x<32 or kind not in ["swamp","water"]: continue
+				elif kind!="forest": continue
+				candidates.append(Vector2(x+0.3,y+0.3))
+		if candidates.is_empty(): continue
+		for n in range(4):
+			var p:Vector2=candidates[rng.randi_range(0,candidates.size()-1)]
+			wildlife.append({"id":1000+wildlife.size(),"species":species,"x":p.x,"y":p.y,"tx":p.x,"ty":p.y,"timer":rng.randf_range(0,3),"hunger":rng.randf_range(0,50),"breed_timer":rng.randf_range(90,180),"state":"Descansando"})
+	ecology_v60=true

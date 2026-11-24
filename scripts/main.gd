@@ -449,7 +449,7 @@ func _draw() -> void:
 			draw_arc(center, 35.0 * zoom, 0.0, TAU, 32, Color("#fff0a0"), 3.0)
 	for animal in world.wildlife:
 		var p: Vector2 = _world_to_screen(Vector2(float(animal["x"])+0.5,float(animal["y"])+0.5))
-		_draw_landscape_object(str(animal["species"]),p,zoom*(32.0 if str(animal["species"]) in ["deer","camel"] else (24.0 if str(animal["species"]) in ["capybara","heron"] else 17.0)))
+		_draw_landscape_object(str(animal["species"]),p,zoom*(32.0 if str(animal["species"]) in ["deer","camel","crocodile"] else (24.0 if str(animal["species"]) in ["capybara","heron","boar","fox"] else 17.0)))
 	# Personagens separados visualmente por idade e aparencia.
 	for p in world.people:
 		if not bool(p["alive"]):

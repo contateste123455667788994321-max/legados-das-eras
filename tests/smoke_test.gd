@@ -21,6 +21,9 @@ func _run_tests() -> void:
 	_check(not world.sites.is_empty(), "Locais de producao gerados")
 	_check(not world.wildlife.is_empty(), "Fauna pacifica gerada")
 	_check(world.habitats_v59 and world.wildlife.size()>24,"Fauna dos novos biomas")
+	_check(world.ecology_v60,"Ecologia diferenciada ativa")
+	_check(world.animal_habitat("crocodile","water") and not world.animal_habitat("crocodile","sand"),"Crocodilo respeita habitat")
+	_check(world._animal_prey("crocodile","duck") and not world._animal_prey("deer","duck"),"Predacao especifica por especie")
 	_check(world.towns.size() == 3, "Tres aldeias iniciais")
 	# Civilizacoes nao podem evoluir para Era 4 no primeiro ano.
 	var rate_world = World.new()
