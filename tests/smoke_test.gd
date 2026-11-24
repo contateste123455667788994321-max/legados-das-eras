@@ -191,7 +191,7 @@ func _run_tests() -> void:
 		if child is PopupMenu:
 			options_found = true
 	_check(options_found, "Menu de opcoes acessivel ao jogador")
-	_check(game.update_manager._manifest_url == "https://legado-das-eras.hatchable.site/manifest.json", "Atualizador usa canal HTTPS oficial")
+	_check(game.update_manager._manifest_url == "https://raw.githubusercontent.com/contateste123455667788994321-max/legados-das-eras/main/manifest.json", "Atualizador usa canal HTTPS oficial")
 	_check(game.update_manager._is_https(game.update_manager._manifest_url), "Canal de atualizacao tem endereco seguro")
 	_check(game.update_manager._base_version_code == 4, "APK base suporta futuros pacotes internos")
 	var update_button_found := false
