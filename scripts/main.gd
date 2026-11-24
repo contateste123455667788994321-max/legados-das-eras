@@ -2,11 +2,10 @@ extends Node2D
 ## Legado das Eras — tela jogavel. A simulacao permanece em world.gd.
 const World = preload("res://scripts/world.gd")
 const Updates = preload("res://scripts/update_manager.gd")
-const WorldVisual = preload("res://scripts/world_visual.gd")
+const CharacterWorld3D = preload("res://scripts/character_3d.gd")
 const TILE_SIZE := 44.0
-const MAP_ORIGIN := Vector2(38.0, 90.0)
-const MAP_AREA := Rect2(17.0, 82.0, 838.0, 443.0)
-const RIGHT_VIEW := Rect2(870.0, 80.0, 395.0, 221.0)
+const MAP_ORIGIN := Vector2(15.0, 79.0)
+const MAP_AREA := Rect2(12.0, 78.0, 1256.0, 626.0)
 const AUTOSAVE_SECONDS := 20.0
 
 var world = World.new()
@@ -15,7 +14,7 @@ var selected_beast_id := 0
 var selected_town_id := 0
 var controlled_id := 0
 var map_offset := Vector2.ZERO
-var zoom := 1.0
+var zoom := 1.43
 var dragging := false
 var drag_started := Vector2.ZERO
 var active_touches: Dictionary = {}
@@ -31,10 +30,14 @@ var tile_textures: Dictionary = {}
 var actor_textures: Dictionary = {}
 var texture_missing := false
 var update_manager: Node
-var world_visual: Node2D
-var preview_visual: Node2D
-var character_clip: Control
+var viewport_3d: SubViewport
+var character_world: Node3D
 var character_view := false
+var look_yaw := 0.0
+var joystick_touch := -1
+var look_touch := -1
+var joystick_center := Vector2.ZERO
+var joystick_direction := Vector2.ZERO
 var view_button: Button
 
 var info_label: Label
@@ -55,28 +58,16 @@ func _ready() -> void:
 	_load_art()
 	update_manager = Updates.new()
 	add_child(update_manager)
-	character_clip = Control.new()
-	character_clip.position = MAP_AREA.position
-	character_clip.size = MAP_AREA.size
-	character_clip.clip_contents = true
-	character_clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(character_clip)
-	world_visual = WorldVisual.new()
-	world_visual.game = self
-	world_visual.position = -MAP_AREA.position
-	character_clip.add_child(world_visual)
-	character_clip.visible = false
-	var preview_clip := Control.new()
-	preview_clip.position = RIGHT_VIEW.position
-	preview_clip.size = RIGHT_VIEW.size
-	preview_clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	preview_clip.clip_contents = true
-	add_child(preview_clip)
-	preview_visual = WorldVisual.new()
-	preview_visual.game = self
-	preview_visual.preview_mode = true
-	preview_visual.position = -RIGHT_VIEW.position
-	preview_clip.add_child(preview_visual)
+	viewport_3d = SubViewport.new()
+	viewport_3d.size = Vector2i(int(MAP_AREA.size.x), int(MAP_AREA.size.y))
+	viewport_3d.own_world_3d = true
+	viewport_3d.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	viewport_3d.disable_3d = false
+	viewport_3d.transparent_bg = false
+	add_child(viewport_3d)
+	character_world = CharacterWorld3D.new()
+	character_world.game = self
+	viewport_3d.add_child(character_world)
 	_build_ui()
 	if not world.towns.is_empty():
 		var first_town: Dictionary = world.towns[0]
@@ -96,10 +87,12 @@ func _process(delta: float) -> void:
 		ui_timer = 0.0
 		_refresh_ui()
 	queue_redraw()
-	if character_view and is_instance_valid(world_visual):
-		world_visual.queue_redraw()
-	if is_instance_valid(preview_visual) and ui_timer == 0.0:
-		preview_visual.queue_redraw()
+	if character_view and is_instance_valid(character_world):
+		var actor: Dictionary = world.get_actor(controlled_id)
+		if not actor.is_empty():
+			character_world.follow(actor, look_yaw)
+		if character_world.last_build_signature != character_world._build_signature():
+			character_world.rebuild()
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST:
@@ -123,45 +116,19 @@ func _load_art() -> void:
 		push_warning("Alguns desenhos do mapa ainda nao foram carregados.")
 
 func _build_ui() -> void:
-	# Interface da primeira referencia: mapa grande, visao pessoal, ficha e quadros do mundo.
-	var title := _label("LEGADO DAS ERAS", Vector2(25, 9), Vector2(315, 44), 29, Color("#f4d78d"))
-	title.add_theme_color_override("font_shadow_color", Color("#121812"))
-	title.add_theme_constant_override("shadow_offset_y", 2)
-	stats_label = _label("", Vector2(315, 14), Vector2(420, 25), 16, Color("#e8dec1"))
-	news_label = _label("", Vector2(26, 49), Vector2(478, 30), 16, Color("#f2c979"))
-	news_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	pause_button = _button("Pausar", Vector2(515, 43), Vector2(84, 34), Callable(self, "_toggle_pause"))
-	speed_button = _button("1x", Vector2(604, 43), Vector2(80, 34), Callable(self, "_change_speed"))
-	_button("Zoom -", Vector2(689, 43), Vector2(79, 34), Callable(self, "_zoom_out"))
-	_button("Zoom +", Vector2(773, 43), Vector2(80, 34), Callable(self, "_zoom_in"))
-	_button("Construir", Vector2(873, 43), Vector2(125, 34), Callable(self, "_show_construction"))
-	_button("Atualizar", Vector2(1134, 43), Vector2(120, 34), Callable(self, "_check_updates"))
-	_label("VISAO DO PERSONAGEM", Vector2(885, 89), Vector2(330, 28), 17, Color("#f8df9c"))
-	_label("Toque aqui para explorar", Vector2(883, 270), Vector2(341, 27), 15, Color("#f3e2bb"))
-	_label("PERSONAGEM / TRIBO", Vector2(880, 310), Vector2(370, 27), 19, Color("#f3d293"))
-	info_label = _label("", Vector2(947, 340), Vector2(309, 65), 16, Color("#f1e8cf"))
-	info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	control_button = _button("Controlar", Vector2(881, 405), Vector2(174, 40), Callable(self, "_toggle_control"))
-	view_button = _button("Entrar no mundo", Vector2(1061, 405), Vector2(193, 40), Callable(self, "_toggle_view"))
-	war_button = _button("Guerras", Vector2(881, 450), Vector2(119, 40), Callable(self, "_toggle_war"))
-	rival_button = _button("Rivais", Vector2(1007, 450), Vector2(116, 40), Callable(self, "_toggle_rivals"))
-	predator_button = _button("Animais", Vector2(1130, 450), Vector2(124, 40), Callable(self, "_toggle_predators"))
-	_button("Diplomacia", Vector2(881, 496), Vector2(139, 36), Callable(self, "_show_diplomacy"))
-	_button("Salvar", Vector2(1027, 496), Vector2(97, 36), Callable(self, "_save_now"))
-	_button("Opcoes", Vector2(1131, 496), Vector2(123, 36), Callable(self, "_show_options"))
-	_label("BIOMAS DO MUNDO", Vector2(30, 542), Vector2(286, 31), 19, Color("#f4d68f"))
-	_label("ESTACOES DO ANO", Vector2(340, 542), Vector2(280, 31), 19, Color("#f4d68f"))
-	_label("CICLO DA VIDA", Vector2(640, 542), Vector2(286, 31), 19, Color("#f4d68f"))
-	_label("EVOLUCAO DAS ALDEIAS", Vector2(959, 542), Vector2(307, 31), 18, Color("#f4d68f"))
-	for i in range(3):
-		var kinds := ["sand", "forest", "snow"]
-		_add_biome_touch(kinds[i], Vector2(34.0 + float(i) * 96.0, 578.0))
-	_label("Deserto          Floresta          Neve", Vector2(25, 654), Vector2(298, 25), 14, Color("#e8d9b7"))
-	_label("Primavera  Verao  Outono  Inverno", Vector2(327, 654), Vector2(306, 25), 14, Color("#e8d9b7"))
-	_label("Nascer   Crescer   Adulto   Velhice", Vector2(627, 654), Vector2(315, 25), 14, Color("#e8d9b7"))
-	_label("Tribo    Ferramentas    Cidade", Vector2(953, 654), Vector2(310, 25), 14, Color("#e8d9b7"))
-	_label("Construir  •  Sobreviver  •  Evoluir", Vector2(24, 686), Vector2(460, 24), 15, Color("#d4c09a"))
-	_label("Familias  •  Clima  •  Reinos  •  Geracoes", Vector2(576, 686), Vector2(680, 24), 15, Color("#d4c09a"))
+	# Um unico mapa imersivo; todas as mecanicas ficam no menu do mundo.
+	_label("LEGADO DAS ERAS", Vector2(22, 7), Vector2(260, 40), 25, Color("#f4d48b"))
+	stats_label = _label("", Vector2(277, 14), Vector2(382, 27), 16, Color("#ecdec1"))
+	news_label = _label("", Vector2(22, 48), Vector2(1040, 24), 15, Color("#edd0a0"))
+	news_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	speed_button = _button("1x", Vector2(737, 15), Vector2(72, 38), Callable(self, "_change_speed"))
+	pause_button = _button("Pausar", Vector2(813, 15), Vector2(82, 38), Callable(self, "_toggle_pause"))
+	_button("Construir", Vector2(899, 15), Vector2(112, 38), Callable(self, "_show_construction"))
+	view_button = _button("Explorar", Vector2(1015, 15), Vector2(100, 38), Callable(self, "_toggle_view"))
+	_button("Mundo", Vector2(1119, 15), Vector2(73, 38), Callable(self, "_show_options"))
+	_button("Atualizar", Vector2(1196, 15), Vector2(80, 38), Callable(self, "_check_updates"))
+	info_label = _label("", Vector2(32, 660), Vector2(1150, 26), 16, Color("#fff0bb"))
+	info_label.visible = false
 
 func _add_biome_touch(kind: String, pos: Vector2) -> void:
 	var btn := Button.new()
@@ -224,20 +191,18 @@ func _refresh_ui() -> void:
 			living += 1
 	stats_label.text = "Ano %d · Dia %d · %s · %d moradores" % [years + 1, day_of_year, _season_name(), living]
 	last_news = world.news
-	news_label.text = "Crônica: " + world.news
+	news_label.text = world.news
 	pause_button.text = "Retomar" if world.speed == 0.0 else "Pausar"
 	var display_speed: float = resume_speed if world.speed == 0.0 else world.speed
 	speed_button.text = "0.5x" if display_speed == 0.5 else "%.0fx" % display_speed
-	war_button.text = "Guerras: sim" if world.wars else "Guerras: nao"
-	rival_button.text = "Rivais: sim" if world.rivals else "Rivais: nao"
-	predator_button.text = "Animais: sim" if world.predators else "Animais: nao"
-	control_button.text = "Soltar controle" if controlled_id > 0 else "Controlar"
+
 	if is_instance_valid(view_button):
-		view_button.text = "Voltar ao mapa" if character_view else "Entrar no mundo"
+		view_button.text = "Mapa" if character_view else "Explorar"
+	info_label.visible = selected_person_id > 0 or selected_beast_id > 0 or selected_town_id > 0
 	if selected_beast_id > 0:
 		var beast: Dictionary = world.get_beast(selected_beast_id)
 		if not beast.is_empty():
-			info_label.text = "%s • %s\nVida: %d\nAbra a ficha para detalhes." % [str(beast["name"]), str(beast["species"]), int(float(beast["health"]))]
+			info_label.text = "%s  |  %s  |  Vida: %d   (Mundo > Ficha)" % [str(beast["name"]), str(beast["species"]), int(float(beast["health"]))]
 			return
 	if selected_person_id > 0:
 		var p: Dictionary = world.get_person(selected_person_id)
@@ -255,7 +220,7 @@ func _refresh_ui() -> void:
 			var latest_event := "Nenhuma lembranca registrada"
 			if not memories.is_empty():
 				latest_event = str(memories.back().get("event", latest_event))
-			info_label.text = "%s • %d anos\n%s | %s\n%s" % [str(p["name"]), int(float(p["age"])), home, profession, str(p.get("task", "Observando"))]
+			info_label.text = "%s • %d anos  |  %s • %s  |  %s" % [str(p["name"]), int(float(p["age"])), home, profession, str(p.get("task", "Observando"))]
 			return
 	if selected_town_id > 0:
 		var t: Dictionary = world.get_town(selected_town_id)
@@ -263,9 +228,9 @@ func _refresh_ui() -> void:
 			var ruler: Dictionary = world.get_person(int(t["leader"]))
 			var building: String = str(t.get("construction", {}).get("kind", ""))
 			var status: String = " | Obra" if not building.is_empty() else ""
-			info_label.text = "%s • Era %d • %d pessoas\n%d casas | %d fazendas%s\nComida %d | Madeira %d" % [str(t["name"]), int(t["level"]), world.active_population(int(t["id"])), int(t.get("houses", 2)), int(t.get("farms", 1)), status, int(float(t["food"])), int(float(t["wood"]))]
+			info_label.text = "%s • Era %d • %d pessoas  |  Casas %d  |  Fazendas %d%s  |  Comida %d  |  Madeira %d" % [str(t["name"]), int(t["level"]), world.active_population(int(t["id"])), int(t.get("houses", 2)), int(t.get("farms", 1)), status, int(float(t["food"])), int(float(t["wood"]))]
 			return
-	info_label.text = "Toque numa vila e aperte Construir.\nObserve os moradores trabalhando.\nUse dois dedos para ampliar o mapa."
+	info_label.text = ""
 
 func _season_name() -> String:
 	var index := int(world.day / 90.0) % 4
