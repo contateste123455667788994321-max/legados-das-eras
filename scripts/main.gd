@@ -93,6 +93,9 @@ func _process(delta: float) -> void:
 		var actor: Dictionary = world.get_actor(controlled_id)
 		if not actor.is_empty():
 			character_world.follow(actor, look_yaw)
+		character_world.update_people()
+		if ui_timer == 0.0:
+			character_world._refresh_people_models()
 		if character_world.last_build_signature != character_world._build_signature():
 			character_world.rebuild()
 
