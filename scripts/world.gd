@@ -197,8 +197,11 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 	var elapsed_days := dt * DAYS_PER_REAL_SECOND
 	day += elapsed_days
 	for t in towns:
-		t["knowledge"] = float(t["knowledge"]) + dt * (0.024 + active_population(int(t["id"])) * 0.003)
-		var new_level := 1 + int(float(t["knowledge"]) / 15.0)
+		# Avanco vinculado aos dias do mundo e a geracoes, nao aos quadros por segundo.
+		t["knowledge"] = float(t["knowledge"]) + elapsed_days * (0.012 + float(active_population(int(t["id"]))) * 0.00035)
+		var researched_level := 1 + int(float(t["knowledge"]) / 18.0)
+		var era_cap := 1 + int(day / 730.0)
+		var new_level := mini(researched_level, era_cap)
 		if new_level > int(t["level"]):
 			t["level"] = mini(new_level, 5)
 			news = str(t["name"]) + " avancou para a era " + str(t["level"]) + "!"
