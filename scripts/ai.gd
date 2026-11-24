@@ -367,7 +367,7 @@ func _hunt(sim,p:Dictionary,home:Dictionary) -> void:
 	var best:Dictionary={}
 	var distance:float=6.0
 	for animal in sim.wildlife:
-		if str(animal["species"]) not in ["rabbit","deer","boar","chicken"]: continue
+		if str(animal["species"]) not in ["rabbit","deer","boar","chicken"] or float(animal.get("health",1))<=0: continue
 		var q:=Vector2(float(animal["x"]),float(animal["y"]))
 		if q.distance_to(Vector2(float(home["x"]),float(home["y"])))>5.0: continue
 		var d:float=pos.distance_to(q)
@@ -378,5 +378,5 @@ func _hunt(sim,p:Dictionary,home:Dictionary) -> void:
 		_set_task(sim,p,home,"Procurando alimento",2.0)
 		return
 	sim._set_delivery_goal(p,Vector2(float(best["x"]),float(best["y"])),"Cacando")
-	if distance<0.45 and sim.collect_cargo(p,"meat",3.0):
-		sim.wildlife.erase(best)
+	if distance<0.45 and sim.free_load(p)>=1.0:
+		sim.hunt_animal(p,best)

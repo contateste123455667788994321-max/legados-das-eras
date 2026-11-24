@@ -453,6 +453,7 @@ func _draw() -> void:
 		if int(town["id"]) == selected_town_id and MAP_AREA.has_point(center):
 			draw_arc(center, 35.0 * zoom, 0.0, TAU, 32, Color("#fff0a0"), 3.0)
 	for animal in world.wildlife:
+		if float(animal.get("health",1))<=0: continue
 		var p: Vector2 = _world_to_screen(Vector2(float(animal["x"])+0.5,float(animal["y"])+0.5))
 		_draw_landscape_object(str(animal["species"]),p,zoom*(32.0 if str(animal["species"]) in ["deer","camel","crocodile"] else (24.0 if str(animal["species"]) in ["capybara","heron","boar","fox"] else 17.0)))
 	_draw_swamp_creatures()
@@ -822,6 +823,17 @@ func _touch_map(position: Vector2) -> void:
 			min_dist = d
 			nearest_id = 0
 			nearest_beast_id = int(b["id"])
+	if nearest_id==0 and nearest_beast_id==0 and controlled_id==0:
+		var chosen_animal:Dictionary={}
+		for animal in world.wildlife:
+			if float(animal.get("health",1))<=0: continue
+			var d:float=Vector2(float(animal["x"])+0.5,float(animal["y"])+0.5).distance_to(point)
+			if d<min_dist:
+				min_dist=d
+				chosen_animal=animal
+		if not chosen_animal.is_empty():
+			_show_animal_card(chosen_animal)
+			return
 	if nearest_id > 0:
 		selected_person_id = nearest_id
 		selected_beast_id = 0
@@ -1342,6 +1354,11 @@ func _show_inventory() -> void:
 	dialog.canceled.connect(dialog.queue_free)
 
 func _show_details() -> void:
+	if selected_beast_id>0:
+		var beast:Dictionary=world.get_beast(selected_beast_id)
+		if not beast.is_empty():
+			_show_animal_card(beast)
+			return
 	var lines: Array[String] = []
 	if selected_person_id > 0:
 		var p: Dictionary = world.get_person(selected_person_id)
@@ -1572,3 +1589,23 @@ func _add_stat_bar(body:VBoxContainer,label:String,value:float,maximum:float,col
 	bar.add_theme_stylebox_override("background",background)
 	bar.add_theme_stylebox_override("fill",fill)
 	body.add_child(bar)
+
+func _show_animal_card(animal:Dictionary) -> void:
+	world.init_animal_health(animal)
+	var species:String=str(animal["species"])
+	var dialog:=AcceptDialog.new()
+	dialog.title=str(World.SPAWN_NAMES.get(species,species))
+	dialog.ok_button_text="Fechar"
+	var body:=VBoxContainer.new()
+	body.custom_minimum_size=Vector2(380,200)
+	body.add_theme_constant_override("separation",10)
+	_add_stat_bar(body,"Vida",float(animal["health"]),float(animal["max_health"]),Color("#b95850"))
+	_add_stat_bar(body,"Saciedade",100-float(animal.get("hunger",0)),100.0,Color("#d5a455"))
+	var detail:=Label.new()
+	detail.text="Dano: %.0f\nEstado: %s"%[world.animal_damage(animal),str(animal.get("state","Explorando"))]
+	body.add_child(detail)
+	dialog.add_child(body)
+	add_child(dialog)
+	dialog.confirmed.connect(dialog.queue_free)
+	dialog.canceled.connect(dialog.queue_free)
+	dialog.popup_centered(Vector2i(430,280))

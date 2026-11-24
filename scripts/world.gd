@@ -111,6 +111,7 @@ func generate_world() -> void:
 	_seed_wildlife()
 	_seed_habitat_animals()
 	_seed_extra_animals()
+	for animal in wildlife: init_animal_health(animal)
 	_seed_swamp_witch()
 	politics.prepare(self)
 	news = "Tres aldeias vivem em paz. Voce decide o futuro."
@@ -223,6 +224,7 @@ func toggle_predators() -> void:
 				"target_x": 8.0, "target_y": 8.0, "alive": true,
 				"temper": rng.randi_range(0, 100), "color": rng.randi_range(0, 4)
 			})
+	for beast in beasts: init_animal_health(beast)
 	news = "Predadores ativos." if predators else "Ataques de animais desativados."
 
 func update_world(delta: float, controlled_id: int = 0) -> void:
@@ -247,6 +249,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 		if not bool(p["alive"]):
 			continue
 		init_traits(p)
+		p["hunt_cd"]=maxf(0.0,float(p.get("hunt_cd",0))-dt)
 		p["age"] = float(p["age"]) + elapsed_days / 365.0
 		if float(p["age"]) > 79 and rng.randf() < elapsed_days * 0.0008:
 			kill_person(p)
@@ -586,6 +589,8 @@ func load_world() -> bool:
 		if not habitats_v59: _seed_habitat_animals()
 		ecology_v60=bool(value.get("ecology_v60",false))
 		if not ecology_v60: _seed_extra_animals()
+		for animal in wildlife: init_animal_health(animal)
+		for beast in beasts: init_animal_health(beast)
 		tree_revision += 1
 		for p in people:
 			if not p.has("appearance"): p["appearance"] = posmod(int(p["id"]), 10)
@@ -743,10 +748,18 @@ func _seed_wildlife() -> void:
 func _update_wildlife(dt:float) -> void:
 	var births:Array=[]
 	for animal in wildlife:
+		init_animal_health(animal)
+		if float(animal["health"])<=0.0: continue
+		animal["attack_cd"]=maxf(0.0,float(animal.get("attack_cd",0))-dt)
 		var species:String=str(animal["species"])
 		var p:=Vector2(float(animal["x"]),float(animal["y"]))
 		var kind:String=str(tiles[clampi(int(p.y),0,SIZE-1)][clampi(int(p.x),0,WIDTH-1)])
 		animal["hunger"]=clampf(float(animal.get("hunger",rng.randf_range(0,35)))+dt*0.48,0,100)
+		if float(animal["hunger"])>=100.0:
+			animal["health"]=maxf(0.0,float(animal["health"])-dt*0.18)
+			if float(animal["health"])<=0.0: continue
+		elif float(animal["hunger"])<30.0:
+			animal["health"]=minf(float(animal["max_health"]),float(animal["health"])+dt*0.16)
 		animal["timer"]=float(animal["timer"])-dt
 		animal["breed_timer"]=maxf(0,float(animal.get("breed_timer",rng.randf_range(90,200)))-dt)
 		if float(animal["timer"])<=0:
@@ -766,17 +779,21 @@ func _update_wildlife(dt:float) -> void:
 			animal["timer"]=0.0
 		if state in ["Pescando","Pastando","Bicando","Fuçando","Comendo"]:
 			animal["hunger"]=maxf(0,float(animal["hunger"])-dt*3.0)
-		if state=="Cacando":
+		if state=="Cacando" and float(animal["attack_cd"])<=0:
 			for prey in wildlife:
-				if int(prey["id"])!=int(animal.get("prey",-1)): continue
-				if p.distance_to(Vector2(float(prey["x"]),float(prey["y"])))<0.35:
-					animal["hunger"]=maxf(0,float(animal["hunger"])-35.0)
-					animal["state"]="Comendo"
-					animal["timer"]=3.0
-					prey["state"]="Fugindo"
-					prey["timer"]=0.0
-					prey["hunger"]=minf(100,float(prey.get("hunger",0))+12.0)
+				if int(prey["id"])!=int(animal.get("prey",-1)) or float(prey.get("health",1))<=0: continue
+				if p.distance_to(Vector2(float(prey["x"]),float(prey["y"])))<0.45:
+					animal["attack_cd"]=2.0
+					if damage_animal(prey,animal_damage(animal)):
+						animal["hunger"]=maxf(0,float(animal["hunger"])-45.0)
+						animal["state"]="Comendo"
+						animal["timer"]=3.0
+					else:
+						prey["state"]="Fugindo"
+						prey["timer"]=0.0
+						animal["timer"]=0.0
 				break
+
 		if float(animal["breed_timer"])<=0:
 			animal["breed_timer"]=rng.randf_range(160,260)
 			var count:int=0
@@ -787,7 +804,12 @@ func _update_wildlife(dt:float) -> void:
 				child["id"]=new_id()+10000
 				child["breed_timer"]=180.0
 				child["hunger"]=15.0
+				child["health"]=child["max_health"]
+				child["attack_cd"]=0.0
+				child["state"]="Descansando"
 				births.append(child)
+	for index in range(wildlife.size()-1,-1,-1):
+		if float(wildlife[index].get("health",1))<=0: wildlife.remove_at(index)
 	wildlife.append_array(births)
 
 func _choose_animal_action(animal:Dictionary,p:Vector2,kind:String) -> void:
@@ -799,7 +821,7 @@ func _choose_animal_action(animal:Dictionary,p:Vector2,kind:String) -> void:
 	var prey_distance:float=3.0
 	var companion_distance:float=4.5
 	for other in wildlife:
-		if int(other["id"])==int(animal["id"]): continue
+		if int(other["id"])==int(animal["id"]) or float(other.get("health",1))<=0: continue
 		var other_species:String=str(other["species"])
 		var d:float=p.distance_to(Vector2(float(other["x"]),float(other["y"])))
 		if _animal_prey(other_species,species) and d<threat_distance:
@@ -1263,6 +1285,8 @@ func spawn_creature(species:String,point:Vector2) -> bool:
 			news="Este animal precisa de um bioma compativel."
 			return false
 		wildlife.append({"id":100000+new_id(),"species":species,"x":p.x,"y":p.y,"tx":p.x,"ty":p.y,"timer":0.2,"hunger":15.0,"breed_timer":120.0,"state":"Explorando"})
+	if species in ["wolf","bear"]: init_animal_health(beasts.back())
+	else: init_animal_health(wildlife.back())
 	news=str(SPAWN_NAMES[species])+" criado no mapa."
 	return true
 
@@ -1525,4 +1549,38 @@ func swamp_combat_job(person:Dictionary) -> bool:
 	escape.x=clampf(escape.x,1,WIDTH-2)
 	escape.y=clampf(escape.y,1,SIZE-2)
 	_set_delivery_goal(person,escape,"Fugindo da bruxa")
+	return true
+
+func init_animal_health(animal:Dictionary) -> void:
+	var species:String=str(animal.get("species",""))
+	var hp:float=float({"chicken":18,"rabbit":22,"frog":10,"deer":65,"capybara":55,"heron":30,"camel":105,"lizard":12,"snow_hare":25,"crocodile":180,"turtle":65,"duck":25,"boar":95,"fox":50,"Lobo":85,"Urso":220}.get(species,35))
+	if not animal.has("max_health"):
+		var previous:float=float(animal.get("health",hp))
+		animal["max_health"]=hp
+		animal["health"]=minf(hp,previous) if animal.has("health") and species not in ["Lobo","Urso"] else (hp if bool(animal.get("alive",true)) else 0.0)
+	if not animal.has("hunger"): animal["hunger"]=15.0
+
+func animal_damage(animal:Dictionary) -> float:
+	return float({"crocodile":28,"fox":12,"boar":14,"deer":5,"Lobo":16,"Urso":32,"turtle":3,"capybara":4,"chicken":1,"rabbit":1,"frog":1,"heron":3,"camel":8,"lizard":1,"snow_hare":1,"duck":2}.get(str(animal.get("species","")),2))
+
+func damage_animal(animal:Dictionary,amount:float) -> bool:
+	init_animal_health(animal)
+	if float(animal["health"])<=0.0: return false
+	animal["health"]=maxf(0.0,float(animal["health"])-maxf(0.0,amount))
+	if float(animal["health"])<=0:
+		if animal.has("alive"): animal["alive"]=false
+		return true
+	animal["state"]="Fugindo"
+	animal["timer"]=0.0
+	return false
+
+func hunt_animal(person:Dictionary,animal:Dictionary) -> bool:
+	if not bool(person.get("alive",false)) or float(person.get("hunt_cd",0))>0 or float(animal.get("health",1))<=0: return false
+	if Vector2(float(person["x"]),float(person["y"])).distance_to(Vector2(float(animal["x"]),float(animal["y"])))>0.65: return false
+	person["hunt_cd"]=1.6
+	var killed:bool=damage_animal(animal,attack_damage(person))
+	gain_xp(person,2.0,"combate")
+	if killed:
+		gain_xp(person,8.0,"combate")
+		collect_cargo(person,"meat",float({"deer":7,"boar":8,"chicken":2,"rabbit":2,"crocodile":10}.get(str(animal["species"]),3)))
 	return true

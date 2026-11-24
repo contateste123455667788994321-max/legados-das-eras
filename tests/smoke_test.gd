@@ -22,6 +22,12 @@ func _run_tests() -> void:
 	_check(not world.wildlife.is_empty(), "Fauna pacifica gerada")
 	_check(world.habitats_v59 and world.wildlife.size()>24,"Fauna dos novos biomas")
 	_check(world.ecology_v60,"Ecologia diferenciada ativa")
+	for animal in world.wildlife:
+		_check(float(animal["health"])>0 and float(animal["max_health"])>=float(animal["health"]),"Animal nasce com vida")
+	var duck:Dictionary={"species":"duck"}
+	world.init_animal_health(duck)
+	_check(not world.damage_animal(duck,5.0) and float(duck["health"])==20.0,"Pato recebe dano sem morrer instantaneamente")
+	_check(world.damage_animal(duck,20.0) and float(duck["health"])==0.0,"Animal morre ao zerar vida")
 	_check(world.animal_habitat("crocodile","water") and not world.animal_habitat("crocodile","sand"),"Crocodilo respeita habitat")
 	_check(world._animal_prey("crocodile","duck") and not world._animal_prey("deer","duck"),"Predacao especifica por especie")
 	_check(world.towns.size() == 3, "Tres aldeias iniciais")
