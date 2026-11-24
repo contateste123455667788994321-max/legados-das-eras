@@ -153,6 +153,7 @@ func _explorer() -> void:
 	game._toggle_view()
 	_assert(game.character_view, "Explorador: entra na visao do personagem")
 	_assert(game.viewport_3d.render_target_update_mode == SubViewport.UPDATE_ALWAYS, "Explorador: renderizacao 3D ligada")
+	_assert(game.character_world.actors_3d.size() >= 18, "Explorador: habitantes aparecem e se movimentam no mundo 3D")
 
 	var controlled: Dictionary = game.world.get_actor(game.controlled_id)
 	controlled["x"] = 10.0
