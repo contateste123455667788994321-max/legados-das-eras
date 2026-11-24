@@ -94,6 +94,7 @@ func _process(delta: float) -> void:
 		_refresh_ui()
 	queue_redraw()
 	if character_view and is_instance_valid(character_world):
+		character_world.sync_trees()
 		var actor: Dictionary = world.get_actor(controlled_id)
 		if not actor.is_empty():
 			character_world.follow(actor, look_yaw, look_pitch)
@@ -348,16 +349,34 @@ func _draw_landscape() -> void:
 					near_house = true
 					break
 			if near_house: continue
-			if kind == "forest" or (kind == "grass" and seed % 8 == 0):
-				_draw_landscape_object("tree", pos, side * (0.94 + float(seed%9)*0.04))
-				if kind == "forest" and seed % 3 != 0:
-					_draw_landscape_object("tree", pos + Vector2(side*0.35,side*0.19), side*0.72)
-			elif kind == "snow" and seed % 4 != 0:
-				_draw_landscape_object("pine", pos, side*1.05)
-			elif kind == "mountain":
+			if kind == "mountain":
 				_draw_landscape_object("rock", pos, side*1.18)
 			elif kind == "sand" and seed % 4 == 0:
 				_draw_landscape_object("cactus", pos, side*0.66)
+
+	for tree in world.trees.values():
+		var p: Vector2 = _world_to_screen(Vector2(float(tree["x"])+0.5+float(tree["ox"]),float(tree["y"])+0.5+float(tree["oy"])))
+		if not MAP_AREA.grow(-side*0.3).has_point(p): continue
+		var s: float = side*1.12*world.tree_scale(tree)
+		var state: String = str(tree["state"])
+		if state == "stump":
+			draw_ellipse_stump(p,s)
+		elif state == "falling":
+			var key: String = "pine" if bool(tree["pine"]) else "tree"
+			if not landscape_objects.has(key):
+				landscape_objects[key] = load("res://assets/landscape/"+key+".svg")
+			if MAP_AREA.grow(-s*1.2).has_point(p):
+				draw_set_transform(p,float(tree["fall"])*PI*0.5)
+				draw_texture_rect(landscape_objects[key],Rect2(-s*0.5,-s*0.85,s,s),false)
+				draw_set_transform(Vector2.ZERO)
+			draw_ellipse_stump(p,s)
+		else:
+			_draw_landscape_object("pine" if bool(tree["pine"]) else "tree",p,s)
+
+func draw_ellipse_stump(p: Vector2,s: float) -> void:
+	draw_circle(p,s*0.11,Color("#513b25"))
+	draw_circle(p-Vector2(0,s*0.055),s*0.10,Color("#b98a50"))
+	draw_arc(p-Vector2(0,s*0.055),s*0.057,0,TAU,12,Color("#825a35"),1.0)
 
 func _draw_landscape_object(key: String, p: Vector2, size: float) -> void:
 	if not landscape_objects.has(key):
@@ -437,8 +456,7 @@ func _draw() -> void:
 		var center := _world_to_screen(Vector2(float(p["x"]) + 0.5, float(p["y"]) + 0.5))
 		if not MAP_AREA.has_point(center):
 			continue
-		var key := "child" if float(p["age"]) < 16.0 else ("person_m" if int(p["gender"]) == 0 else "person_f")
-		_draw_sprite(key, center, Vector2(30, 30) * zoom, true)
+		_draw_person_variant(p,center)
 		if int(p["id"]) == selected_person_id:
 			draw_arc(center, 14.0 * zoom, 0, TAU, 20, Color("#ffe890"), 2.0)
 			var task_name: String = str(p.get("task", "Observando"))
@@ -465,6 +483,18 @@ func _draw() -> void:
 	if info_label != null and info_label.visible:
 		draw_rect(Rect2(17, 650, 1207, 41), Color("#172219", 0.86), true)
 		draw_rect(Rect2(17, 650, 1207, 41), Color("#d1ab6c"), false, 1.0)
+
+func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
+	var stage: int = world.life_stage(p)
+	var variant: int = posmod(int(p.get("appearance",p["id"])),10)
+	var key: String = "person_"+str(int(p["gender"]))+"_"+str(variant)
+	var s: float = 38.0*zoom*[0.44,0.68,1.0,0.92][stage]
+	_draw_landscape_object(key,center+Vector2(0,s*0.26),s)
+	if stage==3:
+		draw_line(center+Vector2(-s*0.10,-s*0.21),center+Vector2(s*0.11,-s*0.21),Color("#e1ded2"),maxf(1,s*0.10))
+		draw_line(center+Vector2(s*0.15,0),center+Vector2(s*0.25,s*0.25),Color("#795433"),maxf(1,s*0.055))
+	elif stage==0:
+		draw_circle(center+Vector2(0,s*0.08),s*0.11,Color("#d9c7a2"))
 
 func _draw_clock() -> void:
 	var c := Vector2(705, 34)
@@ -744,11 +774,15 @@ func _move_controlled(delta: float) -> void:
 			direction = direction.normalized() * minf(direction.length(), 1.0)
 			var forward := Vector2(-sin(look_yaw), -cos(look_yaw))
 			var right := Vector2(cos(look_yaw), -sin(look_yaw))
-			var movement: Vector2 = (right * direction.x - forward * direction.y) * delta * 2.25
+			var movement: Vector2 = (right * direction.x - forward * direction.y) * delta * 2.25 * world.life_speed(actor)
 			var nx: float = clampf(float(actor["x"]) + movement.x, 1.0, float(World.SIZE - 2))
 			var ny: float = clampf(float(actor["y"]) + movement.y, 1.0, float(World.SIZE - 2))
 			var kind: String = str(world.tiles[clampi(int(ny), 0, World.SIZE - 1)][clampi(int(nx), 0, World.SIZE - 1)])
-			if kind != "water" and kind != "mountain":
+			if kind == "water":
+				movement *= 0.28
+				nx = clampf(float(actor["x"])+movement.x,1.0,float(World.SIZE-2))
+				ny = clampf(float(actor["y"])+movement.y,1.0,float(World.SIZE-2))
+			if kind != "mountain":
 				actor["x"] = nx
 				actor["y"] = ny
 				actor["target_x"] = nx
@@ -1108,9 +1142,23 @@ func _character_action() -> void:
 	var px: int = clampi(int(float(actor["x"])), 0, World.SIZE - 1)
 	var py: int = clampi(int(float(actor["y"])), 0, World.SIZE - 1)
 	var biome: String = str(world.tiles[py][px])
+	var facing := Vector2(-sin(look_yaw),-cos(look_yaw))
+	var origin := Vector2(float(actor["x"]),float(actor["y"]))
+	var chosen: Dictionary = {}
+	var best: float = 1.65
+	for tree in world.trees.values():
+		if str(tree["state"])!="live" or world.tree_scale(tree)<0.65: continue
+		var d: Vector2 = Vector2(float(tree["x"])+float(tree["ox"]),float(tree["y"])+float(tree["oy"]))-origin
+		if d.length()<best and (not character_view or d.length()<0.35 or facing.dot(d.normalized())>0.25):
+			best=d.length()
+			chosen=tree
+	if not chosen.is_empty():
+		world.cut_tree(actor,int(chosen["x"]),int(chosen["y"]))
+		world.save_world()
+		_refresh_ui()
+		return
 	if biome == "forest":
-		actor["wood"] = int(actor.get("wood", 0)) + 3
-		world.news = str(actor["name"]) + " coletou 3 madeiras na floresta."
+		world.news = "Aproxime-se de uma arvore adulta para cortar."
 	elif biome == "grass":
 		actor["wood"] = int(actor.get("wood", 0)) + 1
 		world.news = str(actor["name"]) + " coletou galhos no campo."
