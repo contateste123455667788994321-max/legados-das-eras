@@ -264,6 +264,7 @@ func _draw_sprite(key: String, center: Vector2, dimensions: Vector2, clip_to_map
 func _landscape_color(kind: String, season: int) -> Color:
 	match kind:
 		"water": return Color("#247e9b")
+		"swamp": return Color("#536e47")
 		"sand": return Color("#cdb17a")
 		"snow": return Color("#cedddf")
 		"mountain": return Color("#777e71")
@@ -347,8 +348,10 @@ func _draw_landscape() -> void:
 					draw_rect(Rect2(q,Vector2(ss,ss*2)),Color("#496c2c"))
 					draw_rect(Rect2(q+Vector2(ss,ss),Vector2(ss,ss)),Color("#91a94e"))
 					if k%7==0: draw_rect(Rect2(q-Vector2(0,ss),Vector2(ss,ss)),Color("#ead0a5"))
+			elif kind == "swamp":
+				_draw_landscape_object("marsh",pos,side*0.85)
 			elif kind == "mountain":
-				_draw_landscape_object("rock", pos, side*1.18)
+				if seed%3!=0: _draw_landscape_object("rock", pos, side*(0.7+float(seed%5)*0.14))
 			elif kind == "sand" and seed % 4 == 0:
 				_draw_landscape_object("cactus", pos, side*0.66)
 
@@ -446,7 +449,7 @@ func _draw() -> void:
 			draw_arc(center, 35.0 * zoom, 0.0, TAU, 32, Color("#fff0a0"), 3.0)
 	for animal in world.wildlife:
 		var p: Vector2 = _world_to_screen(Vector2(float(animal["x"])+0.5,float(animal["y"])+0.5))
-		_draw_landscape_object(str(animal["species"]),p,zoom*(32.0 if str(animal["species"])=="deer" else 17.0))
+		_draw_landscape_object(str(animal["species"]),p,zoom*(32.0 if str(animal["species"]) in ["deer","camel"] else (24.0 if str(animal["species"]) in ["capybara","heron"] else 17.0)))
 	# Personagens separados visualmente por idade e aparencia.
 	for p in world.people:
 		if not bool(p["alive"]):
@@ -1175,10 +1178,10 @@ func _show_options() -> void:
 
 func _show_biomes() -> void:
 	var popup := PopupMenu.new()
-	for option in [["Deserto", "sand"], ["Floresta", "forest"], ["Neve", "snow"], ["Montanhas", "mountain"]]:
+	for option in [["Deserto", "sand"], ["Floresta", "forest"], ["Neve", "snow"], ["Montanhas", "mountain"], ["Pantano", "swamp"]]:
 		popup.add_item(str(option[0]))
 	popup.id_pressed.connect(func(which: int) -> void:
-		var kinds := ["sand", "forest", "snow", "mountain"]
+		var kinds := ["sand", "forest", "snow", "mountain", "swamp"]
 		if which >= 0 and which < kinds.size():
 			_focus_biome(kinds[which])
 		popup.queue_free()

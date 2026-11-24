@@ -20,6 +20,7 @@ func _run_tests() -> void:
 	_check(world.tiles.size() == World.SIZE and world.tiles[0].size()==World.WIDTH, "Mapa largo gerado")
 	_check(not world.sites.is_empty(), "Locais de producao gerados")
 	_check(not world.wildlife.is_empty(), "Fauna pacifica gerada")
+	_check(world.habitats_v59 and world.wildlife.size()>24,"Fauna dos novos biomas")
 	_check(world.towns.size() == 3, "Tres aldeias iniciais")
 	# Civilizacoes nao podem evoluir para Era 4 no primeiro ano.
 	var rate_world = World.new()

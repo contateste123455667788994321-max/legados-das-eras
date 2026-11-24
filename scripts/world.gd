@@ -4,7 +4,7 @@ class_name WorldSim
 const AgentAI = preload("res://scripts/ai.gd")
 const Politics = preload("res://scripts/politics.gd")
 const SIZE := 20
-const WIDTH := 32
+const WIDTH := 48
 # Um dia dura dez segundos a 1x; um ano dura cerca de 61 minutos.
 const DAYS_PER_REAL_SECOND := 0.10
 const NAMES := ["Ari", "Nara", "Taro", "Lia", "Breno", "Iara", "Dara", "Enzo", "Kira", "Suri", "Davi", "Maya", "Ravi", "Luna", "Rael", "Yara", "Cael", "Tina", "Eron", "Ayla"]
@@ -18,6 +18,7 @@ var beasts: Array = []
 var wildlife: Array = []
 var sites: Array = []
 var rivers_v58:bool=false
+var habitats_v59:bool=false
 var trees: Dictionary = {}
 var tree_revision := 0
 var next_seed_day := 15.0
@@ -99,6 +100,7 @@ func generate_world() -> void:
 	_seed_initial_trees()
 	_prepare_sites()
 	_seed_wildlife()
+	_seed_habitat_animals()
 	politics.prepare(self)
 	news = "Tres aldeias vivem em paz. Voce decide o futuro."
 
@@ -484,7 +486,7 @@ func save_world() -> bool:
 	var data := {
 		"tiles": tiles, "towns": towns, "people": people, "beasts": beasts,
 		"trees": trees, "next_seed_day": next_seed_day,
-		"wildlife": wildlife, "sites": sites, "rivers_v58":rivers_v58,
+		"wildlife": wildlife, "sites": sites, "rivers_v58":rivers_v58, "habitats_v59":habitats_v59,
 		"next_id": next_id, "day": day, "next_birth": next_birth,
 		"next_growth": next_growth, "wars": wars, "rivals": rivals, "predators": predators
 	}
@@ -517,6 +519,7 @@ func load_world() -> bool:
 	predators = bool(value.get("predators", false))
 	news = "Mundo salvo carregado."
 	if tiles.size() == SIZE:
+		var old_width:int=tiles[0].size() if tiles[0] is Array else 0
 		for y in range(SIZE):
 			if not tiles[y] is Array or tiles[y].size()<20: return false
 			while tiles[y].size()<WIDTH:
@@ -529,6 +532,9 @@ func load_world() -> bool:
 			for x in range(20,WIDTH):
 				if not value.has("sites") and _tree_allowed(x,y) and not trees.has(tree_key(x,y)) and rng.randf()<0.55:
 					_plant_tree(x,y,true)
+		for y in range(SIZE):
+			for x in range(maxi(32,old_width),WIDTH):
+				if _tree_allowed(x,y) and not trees.has(tree_key(x,y)) and rng.randf()<0.55: _plant_tree(x,y,true)
 		wildlife = value.get("wildlife",[])
 		sites = value.get("sites",[])
 		rivers_v58=bool(value.get("rivers_v58",false))
@@ -542,6 +548,8 @@ func load_world() -> bool:
 				var owner:Dictionary=get_town(int(site["town"]))
 				if not bool(owner.get(str(site["kind"]),false)): sites.remove_at(i)
 		if not value.has("wildlife"): _seed_wildlife()
+		habitats_v59=bool(value.get("habitats_v59",false))
+		if not habitats_v59: _seed_habitat_animals()
 		tree_revision += 1
 		for p in people:
 			if not p.has("appearance"): p["appearance"] = posmod(int(p["id"]), 10)
@@ -566,7 +574,7 @@ func tree_key(x: int, y: int) -> String:
 
 func _tree_allowed(x: int, y: int) -> bool:
 	var kind: String = str(tiles[y][x])
-	if kind not in ["forest","grass","snow"]: return false
+	if kind not in ["forest","grass","snow","swamp"]: return false
 	for town in towns:
 		if Vector2(x,y).distance_to(Vector2(float(town["x"]),float(town["y"]))) < 2.8: return false
 	return true
@@ -629,6 +637,12 @@ func _update_trees(dt: float) -> void:
 				break
 
 func _east_biome(x:int,y:int) -> String:
+	if x>=32:
+		var n:float=sin(float(x)*0.38+float(y)*0.27)+cos(float(y)*0.43-float(x)*0.19)
+		if x>=42 and y>=10: return "sand" if n<1.1 else "grass"
+		if y<5 and x>=41: return "snow" if n<0.4 else "mountain"
+		if x<43 and y>=6 and y<=15: return "water" if n>1.15 else "swamp"
+		return "forest" if n>0.0 else "grass"
 	var river: int = 25+roundi(sin(float(y)*0.43)*2.5)
 	if absi(x-river)==0: return "water"
 	if x>27 and y<8: return "mountain" if y>3 else "snow"
@@ -695,12 +709,12 @@ func _update_wildlife(dt:float) -> void:
 			var q:=p+Vector2(rng.randf_range(-1.6,1.6),rng.randf_range(-1.6,1.6))
 			q.x=clampf(q.x,1,WIDTH-2)
 			q.y=clampf(q.y,1,SIZE-2)
-			if str(tiles[int(q.y)][int(q.x)]) in ["grass","forest"]:
+			if animal_habitat(str(animal["species"]),str(tiles[int(q.y)][int(q.x)])):
 				animal["tx"]=q.x
 				animal["ty"]=q.y
 		var goal:=Vector2(float(animal["tx"]),float(animal["ty"]))
 		var n:=p.move_toward(goal,dt*0.42)
-		if str(tiles[int(n.y)][int(n.x)]) in ["grass","forest"]:
+		if animal_habitat(str(animal["species"]),str(tiles[int(n.y)][int(n.x)])):
 			animal["x"]=n.x
 			animal["y"]=n.y
 
@@ -735,6 +749,7 @@ func move_actor(actor:Dictionary,step:Vector2,dt:float) -> void:
 	var y:int=clampi(int(p.y),0,SIZE-1)
 	if str(tiles[y][x])=="water" and not is_bridge(x,y):
 		step=step*0.42+water_flow(p)*dt*0.20
+	if str(tiles[y][x])=="swamp": step*=0.65
 	var q:=p+step
 	q.x=clampf(q.x,1.0,WIDTH-2.0)
 	q.y=clampf(q.y,1.0,SIZE-2.0)
@@ -766,3 +781,23 @@ func local_site(kind:String,town_id:int) -> Dictionary:
 	for site in sites:
 		if str(site["kind"])==kind and int(site.get("town",-1))==town_id: return site
 	return {}
+
+func animal_habitat(species:String,kind:String) -> bool:
+	match species:
+		"frog","capybara","heron": return kind in ["swamp","water","grass"]
+		"camel","lizard": return kind in ["sand","grass"]
+		"snow_hare": return kind in ["snow","forest"]
+	return kind in ["grass","forest"]
+
+func _seed_habitat_animals() -> void:
+	for species in ["frog","capybara","heron","camel","lizard","snow_hare"]:
+		var suitable:Array[Vector2]=[]
+		var habitat:String="swamp" if species in ["frog","capybara","heron"] else ("snow" if species=="snow_hare" else "sand")
+		for y in range(1,SIZE-1):
+			for x in range(32,WIDTH-1):
+				if str(tiles[y][x])==habitat: suitable.append(Vector2(x,y))
+		if suitable.is_empty(): continue
+		for i in range(5):
+			var pos:Vector2=suitable[rng.randi_range(0,suitable.size()-1)]
+			wildlife.append({"id":100+wildlife.size(),"species":species,"x":pos.x,"y":pos.y,"tx":pos.x,"ty":pos.y,"timer":rng.randf_range(0.0,4.0)})
+	habitats_v59=true
