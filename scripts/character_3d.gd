@@ -12,6 +12,9 @@ var material_grain: NoiseTexture2D
 var last_build_signature := ""
 var last_world_id := 0
 var actors_3d: Dictionary = {}
+var tree_models: Dictionary = {}
+var tree_root: Node3D
+var last_tree_revision := -1
 
 func _ready() -> void:
 	root_mesh = Node3D.new()
@@ -351,11 +354,13 @@ func _settlement(town: Dictionary) -> void:
 func _make_person_3d(person: Dictionary) -> Node3D:
 	var figure := Node3D.new()
 	root_mesh.add_child(figure)
-	var is_child: bool = float(person.get("age", 20.0)) < 16.0
-	var scale_factor: float = 0.68 if is_child else 1.0
+	var scale_factor: float = [0.42,0.68,1.0,0.91][game.world.life_stage(person)]
 	figure.scale = Vector3.ONE * scale_factor
 	var female: bool = int(person.get("gender", 0)) == 1
-	var outfit: String = "#a06c4e" if female else "#517550"
+	var palette := ["#8b6545","#54734b","#986047","#5f7181","#b39254","#6e525c","#536d65","#77543d","#b2a071","#695b48"]
+	var outfit: String = palette[posmod(int(person.get("appearance",person["id"])),10)]
+	var skin: String = ["#e3b68b","#c99568","#ae7850","#895b42","#f0cba3"][posmod(int(person.get("skin",0)),5)]
+	var hair: String = "#c6c0b2" if game.world.life_stage(person)==3 else ["#392b22","#5d3a26","#211f1c","#9c6e36","#6b4830","#a1714c"][posmod(int(person.get("hair",0)),6)]
 	if str(person.get("profession", "")) == "Guarda":
 		outfit = "#667581"
 	elif str(person.get("profession", "")) == "Agricultor":
@@ -363,10 +368,10 @@ func _make_person_3d(person: Dictionary) -> Node3D:
 	elif str(person.get("profession", "")) == "Construtor":
 		outfit = "#6e7555"
 	_box(figure, Vector3(0.0, 0.91, 0.0), Vector3(0.48, 0.68, 0.30), outfit)
-	_box(figure, Vector3(0.0, 1.43, 0.0), Vector3(0.39, 0.43, 0.38), "#d8a67d")
-	_box(figure, Vector3(0.0, 1.67, -0.01), Vector3(0.43, 0.12, 0.40), "#533d30")
+	_box(figure, Vector3(0.0, 1.43, 0.0), Vector3(0.39, 0.43, 0.38), skin)
+	_box(figure, Vector3(0.0, 1.67, -0.01), Vector3(0.43, 0.12, 0.40), hair)
 	for side in [-1, 1]:
-		_box(figure, Vector3(float(side) * 0.35, 0.85, 0.0), Vector3(0.20, 0.68, 0.22), "#cb9871")
+		_box(figure, Vector3(float(side) * 0.35, 0.85, 0.0), Vector3(0.20, 0.68, 0.22), skin)
 		_box(figure, Vector3(float(side) * 0.14, 0.35, 0.0), Vector3(0.22, 0.64, 0.27), "#584c3b")
 		_box(figure, Vector3(float(side) * 0.14, 0.08, -0.045), Vector3(0.25, 0.17, 0.33), "#392e25")
 	_box(figure, Vector3(-0.10, 1.47, -0.20), Vector3(0.065, 0.067, 0.02), "#2b2a27")
@@ -392,6 +397,7 @@ func update_people() -> void:
 		if not is_instance_valid(figure):
 			continue
 		figure.visible = bool(person.get("alive", false)) and id != game.controlled_id
+		figure.scale = Vector3.ONE * [0.42,0.68,1.0,0.91][game.world.life_stage(person)]
 		figure.position = Vector3((float(person["x"]) + 0.5) * SPACING, 0.0, (float(person["y"]) + 0.5) * SPACING)
 		var d := Vector2(float(person.get("target_x", person["x"])) - float(person["x"]), float(person.get("target_y", person["y"])) - float(person["y"]))
 		if d.length_squared() > 0.04:
@@ -410,6 +416,10 @@ func rebuild() -> void:
 		root_mesh.remove_child(child)
 		child.queue_free()
 	actors_3d.clear()
+	tree_models.clear()
+	tree_root = Node3D.new()
+	root_mesh.add_child(tree_root)
+	last_tree_revision = -1
 	# O solo inteiro usa o mesmo desenho continuo do mapa, sem centenas de cubos.
 	game._make_landscape()
 	var ground := MeshInstance3D.new()
@@ -434,23 +444,16 @@ func rebuild() -> void:
 			var pz: float = (float(y) + 0.5) * SPACING
 			if biome == "mountain":
 				_rock_mass(root_mesh,Vector3(px,0,pz),2.6+_rng(x,y,31)*1.6,1.25,season==3 or y<8)
-			elif biome == "forest" and _rng(x, y, 1) > 0.27:
-				_tree(root_mesh, Vector3(px - 0.50, 0.0, pz - 0.35), _rng(x,y,2)>0.50, 2.0 + _rng(x,y,3) * 1.5)
-				if _rng(x, y, 4) > 0.73:
-					_tree(root_mesh, Vector3(px + 0.8, 0.0, pz + 0.72), true, 1.7)
-			elif biome == "snow" and _rng(x, y, 5) > 0.35:
-				_tree(root_mesh, Vector3(px - 0.3, 0.0, pz + 0.25), true, 2.6, true)
 			elif biome == "sand" and _rng(x, y, 6) > 0.69:
 				_cylinder(root_mesh, Vector3(px, 0.37, pz), 0.75, 0.13, "#4a8260")
 				_box(root_mesh, Vector3(px + 0.22, 0.52, pz), Vector3(0.36, 0.1, 0.13), "#4a8260")
-			elif biome == "grass" and _rng(x, y, 7) > 0.93:
-				_tree(root_mesh, Vector3(px - 0.15, 0.0, pz + 0.2), false, 2.35)
 			elif biome == "grass" and _rng(x, y, 8) > 0.55:
 				for clump in range(3):
 					var offset := Vector3(_rng(x, y, 11 + clump) * 1.8 - 0.9, 0.12, _rng(x, y, 18 + clump) * 1.8 - 0.9)
 					_cone(root_mesh, Vector3(px, 0, pz) + offset, 0.28, 0.14, "#628a36", 4)
 	for town in game.world.towns:
 		_settlement(town)
+	sync_trees()
 	_refresh_people_models()
 	last_build_signature = _build_signature()
 
@@ -459,3 +462,35 @@ func follow(actor: Dictionary, yaw: float, pitch: float = 0.0) -> void:
 		return
 	camera.position = Vector3((float(actor["x"]) + 0.5) * SPACING, 1.7, (float(actor["y"]) + 0.5) * SPACING)
 	camera.rotation = Vector3(pitch, yaw, 0.0)
+
+func sync_trees() -> void:
+	if not is_instance_valid(tree_root): return
+	if last_tree_revision != game.world.tree_revision:
+		last_tree_revision = game.world.tree_revision
+		for key in tree_models.keys():
+			if not game.world.trees.has(key):
+				tree_models[key]["node"].queue_free()
+				tree_models.erase(key)
+		for key in game.world.trees.keys():
+			var tree: Dictionary = game.world.trees[key]
+			var state: String = str(tree["state"])
+			var model: Dictionary = tree_models.get(key,{})
+			if not model.is_empty() and bool(model["stump"]) == (state=="stump"): continue
+			if not model.is_empty(): model["node"].queue_free()
+			var pivot := Node3D.new()
+			tree_root.add_child(pivot)
+			pivot.position=Vector3((float(tree["x"])+0.5+float(tree["ox"]))*SPACING,0,(float(tree["y"])+0.5+float(tree["oy"]))*SPACING)
+			if state=="stump":
+				_cylinder(pivot,Vector3(0,0.16,0),0.32,0.19,"#715037",9)
+				_cylinder(pivot,Vector3(0,0.33,0),0.025,0.18,"#bb9256",9)
+			else:
+				var h: float = 2.35 + _rng(int(tree["x"]),int(tree["y"]),34)*0.95
+				var snow: bool = str(game.world.tiles[int(tree["y"])][int(tree["x"])])=="snow"
+				_tree(pivot,Vector3.ZERO,bool(tree["pine"]),h,snow)
+			tree_models[key]={"node":pivot,"stump":state=="stump"}
+	for key in tree_models.keys():
+		var tree: Dictionary=game.world.trees[key]
+		var model: Node3D=tree_models[key]["node"]
+		var s: float=game.world.tree_scale(tree)
+		model.scale=Vector3.ONE*s
+		model.rotation.z=-float(tree["fall"])*PI*0.48 if str(tree["state"])=="falling" else 0.0
