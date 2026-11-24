@@ -457,7 +457,7 @@ func _draw() -> void:
 			var scaffold: Vector2 = _world_to_screen(Vector2(float(site["x"])+0.5,float(site["y"])+0.5)) if site.has("x") else center + build_spot * unit
 			if MAP_AREA.grow(-unit).has_point(scaffold):
 				_draw_project_marker(site,scaffold,unit)
-					_draw_landscape_object("construction_site",scaffold,unit*0.85)
+				_draw_landscape_object("construction_site",scaffold,unit*0.85)
 		if int(town["id"]) == selected_town_id and MAP_AREA.has_point(center):
 			draw_arc(center, 35.0 * zoom, 0.0, TAU, 32, Color("#fff0a0"), 3.0)
 	for animal in world.wildlife:
