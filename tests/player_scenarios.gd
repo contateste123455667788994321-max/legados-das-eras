@@ -178,9 +178,16 @@ func _explorer() -> void:
 	controlled["x"] = 9.5
 	controlled["y"] = 9.5
 	game.world.tiles[9][9] = "forest"
+	game.world.trees.clear()
+	game.world._plant_tree(9,9,true)
+	game.world.trees["9:9"]["ox"] = 0.5
+	game.world.trees["9:9"]["oy"] = 0.5
 	var previous_wood: int = int(controlled.get("wood", 0))
 	game._character_action()
 	_assert(int(controlled.get("wood", 0)) == previous_wood + 3, "Explorador: coletar madeira realmente altera inventario")
+	_assert(str(game.world.trees["9:9"]["state"]) == "falling", "Explorador: arvore entra em animacao ao cortar")
+	game.world._update_trees(1.2)
+	_assert(str(game.world.trees["9:9"]["state"]) == "stump", "Explorador: arvore cortada vira toco")
 	game.world.tiles[9][9] = "mountain"
 	var previous_stone: int = int(controlled.get("stone", 0))
 	game._character_action()
