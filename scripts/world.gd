@@ -4,6 +4,7 @@ class_name WorldSim
 const AgentAI = preload("res://scripts/ai.gd")
 const Politics = preload("res://scripts/politics.gd")
 const SIZE := 20
+const WIDTH := 32
 # Um dia dura dez segundos a 1x; um ano dura cerca de 61 minutos.
 const DAYS_PER_REAL_SECOND := 0.10
 const NAMES := ["Ari", "Nara", "Taro", "Lia", "Breno", "Iara", "Dara", "Enzo", "Kira", "Suri", "Davi", "Maya", "Ravi", "Luna", "Rael", "Yara", "Cael", "Tina", "Eron", "Ayla"]
@@ -14,6 +15,8 @@ var tiles: Array = []
 var towns: Array = []
 var people: Array = []
 var beasts: Array = []
+var wildlife: Array = []
+var sites: Array = []
 var trees: Dictionary = {}
 var tree_revision := 0
 var next_seed_day := 15.0
@@ -40,6 +43,8 @@ func generate_world() -> void:
 	towns.clear()
 	people.clear()
 	beasts.clear()
+	wildlife.clear()
+	sites.clear()
 	trees.clear()
 	tree_revision += 1
 	next_seed_day = 15.0
@@ -60,12 +65,14 @@ func generate_world() -> void:
 	for y in range(SIZE):
 		var row: Array = []
 		var river_x: int = 9 + roundi(sin(float(y) * 0.49) * 2.8)
-		for x in range(SIZE):
+		for x in range(WIDTH):
 			var r: float = rng.randf()
 			var biome := "grass"
 			var river_distance: int = absi(x - river_x)
-			if river_distance == 0 and y >= 2 and y <= SIZE - 3:
+			if river_distance <= (1 if y%5==0 else 0):
 				biome = "water"
+			elif x >= 20:
+				biome = _east_biome(x,y)
 			elif y < 3 and x > 13:
 				biome = "snow"
 			elif x > 12 and y < 8:
@@ -80,7 +87,7 @@ func generate_world() -> void:
 				biome = "sand" if r < 0.35 else "grass"
 			elif r < 0.11:
 				biome = "forest"
-			if (x <= 1 or y <= 1 or x >= SIZE - 2 or y >= SIZE - 2) and r < 0.34:
+			if (x <= 1 or y <= 1 or x >= WIDTH - 2 or y >= SIZE - 2) and r < 0.34:
 				biome = "water"
 			row.append(biome)
 		tiles.append(row)
@@ -88,6 +95,8 @@ func generate_world() -> void:
 	make_town("Pedra Alta", 15, 5, false)
 	make_town("Campo do Sol", 16, 15, false)
 	_seed_initial_trees()
+	_prepare_sites()
+	_seed_wildlife()
 	politics.prepare(self)
 	news = "Tres aldeias vivem em paz. Voce decide o futuro."
 
@@ -189,7 +198,7 @@ func toggle_predators() -> void:
 			var breed := "Lobo" if i < 6 else "Urso"
 			beasts.append({
 				"id": new_id(), "name": breed + " " + str(i + 1), "species": breed,
-				"x": rng.randf_range(2.0, SIZE - 3.0),
+				"x": rng.randf_range(2.0, WIDTH - 3.0),
 				"y": rng.randf_range(2.0, SIZE - 3.0),
 				"health": 90.0 if breed == "Urso" else 55.0,
 				"food": 4, "wander": rng.randf_range(0.0, 3.0),
@@ -205,6 +214,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 	var elapsed_days := dt * DAYS_PER_REAL_SECOND
 	day += elapsed_days
 	_update_trees(dt)
+	_update_wildlife(dt)
 	for t in towns:
 		# Avanco vinculado aos dias do mundo e a geracoes, nao aos quadros por segundo.
 		t["knowledge"] = float(t["knowledge"]) + elapsed_days * (0.012 + float(active_population(int(t["id"]))) * 0.00035)
@@ -307,13 +317,13 @@ func _wander(actor: Dictionary, dt: float, pace: float) -> void:
 		if bool(actor.get("work_goal", false)):
 			actor["wander"] = rng.randf_range(1.5, 4.0)
 		else:
-			actor["target_x"] = clampf(float(actor["x"]) + rng.randf_range(-2.0, 2.0), 2.0, float(SIZE - 3))
+			actor["target_x"] = clampf(float(actor["x"]) + rng.randf_range(-2.0, 2.0), 2.0, float(WIDTH - 3))
 			actor["target_y"] = clampf(float(actor["y"]) + rng.randf_range(-2.0, 2.0), 2.0, float(SIZE - 3))
 			actor["wander"] = rng.randf_range(1.5, 4.0)
 	var toward := Vector2(float(actor["target_x"]) - float(actor["x"]), float(actor["target_y"]) - float(actor["y"]))
 	if toward.length() > 0.06:
 		var step := toward.normalized() * pace * dt
-		actor["x"] = clampf(float(actor["x"]) + step.x, 1.0, float(SIZE - 2))
+		actor["x"] = clampf(float(actor["x"]) + step.x, 1.0, float(WIDTH - 2))
 		actor["y"] = clampf(float(actor["y"]) + step.y, 1.0, float(SIZE - 2))
 
 func _grow_economies() -> void:
@@ -444,6 +454,7 @@ func save_world() -> bool:
 	var data := {
 		"tiles": tiles, "towns": towns, "people": people, "beasts": beasts,
 		"trees": trees, "next_seed_day": next_seed_day,
+		"wildlife": wildlife, "sites": sites,
 		"next_id": next_id, "day": day, "next_birth": next_birth,
 		"next_growth": next_growth, "wars": wars, "rivals": rivals, "predators": predators
 	}
@@ -476,10 +487,22 @@ func load_world() -> bool:
 	predators = bool(value.get("predators", false))
 	news = "Mundo salvo carregado."
 	if tiles.size() == SIZE:
+		for y in range(SIZE):
+			if not tiles[y] is Array or tiles[y].size()<20: return false
+			while tiles[y].size()<WIDTH:
+				tiles[y].append(_east_biome(tiles[y].size(),y))
 		trees = value.get("trees", {})
 		next_seed_day = float(value.get("next_seed_day", day + 15.0))
 		if not value.has("trees"):
 			_seed_initial_trees()
+		for y in range(SIZE):
+			for x in range(20,WIDTH):
+				if not value.has("sites") and _tree_allowed(x,y) and not trees.has(tree_key(x,y)) and rng.randf()<0.55:
+					_plant_tree(x,y,true)
+		wildlife = value.get("wildlife",[])
+		sites = value.get("sites",[])
+		if sites.is_empty(): _prepare_sites()
+		if not value.has("wildlife"): _seed_wildlife()
 		tree_revision += 1
 		for p in people:
 			if not p.has("appearance"): p["appearance"] = posmod(int(p["id"]), 10)
@@ -516,7 +539,7 @@ func _plant_tree(x: int,y: int,mature: bool) -> void:
 
 func _seed_initial_trees() -> void:
 	for y in range(SIZE):
-		for x in range(SIZE):
+		for x in range(WIDTH):
 			if not _tree_allowed(x,y): continue
 			var kind: String = str(tiles[y][x])
 			if rng.randf() < (0.93 if kind=="forest" else (0.78 if kind=="snow" else 0.14)):
@@ -560,8 +583,81 @@ func _update_trees(dt: float) -> void:
 	if day>=next_seed_day:
 		next_seed_day=day+15.0
 		for attempt in range(18):
-			var x: int=rng.randi_range(1,SIZE-2)
+			var x: int=rng.randi_range(1,WIDTH-2)
 			var y: int=rng.randi_range(1,SIZE-2)
 			if _tree_allowed(x,y) and not trees.has(tree_key(x,y)):
 				_plant_tree(x,y,false)
 				break
+
+func _east_biome(x:int,y:int) -> String:
+	var river: int = 25+roundi(sin(float(y)*0.43)*2.5)
+	if absi(x-river)==0: return "water"
+	if x>27 and y<8: return "mountain" if y>3 else "snow"
+	if x>27 and y>14: return "sand"
+	return "forest" if posmod(x*31+y*71+x*y*17,13)<7 else "grass"
+
+func nearest_site(kind:String,origin:Vector2) -> Dictionary:
+	var found: Dictionary={}
+	var best: float=100000.0
+	for site in sites:
+		if str(site["kind"])!=kind: continue
+		var d: float=origin.distance_squared_to(Vector2(float(site["x"]),float(site["y"])))
+		if d<best:
+			best=d
+			found=site
+	return found
+
+func _prepare_sites() -> void:
+	sites.clear()
+	for town in towns:
+		var origin:=Vector2(float(town["x"]),float(town["y"]))
+		sites.append({"kind":"oven","x":origin.x+0.85,"y":origin.y+1.95,"town":town["id"]})
+		for kind in ["fish","mine"]:
+			var best: float=10000.0
+			var chosen:=Vector2(-1,-1)
+			for y in range(1,SIZE-1):
+				for x in range(1,WIDTH-1):
+					if str(tiles[y][x]) in ["water","mountain"]: continue
+					var wanted: String="water" if kind=="fish" else "mountain"
+					var adjacent: bool=false
+					for offset in [Vector2i(1,0),Vector2i(-1,0),Vector2i(0,1),Vector2i(0,-1)]:
+						if str(tiles[y+offset.y][x+offset.x])==wanted: adjacent=true
+					if not adjacent: continue
+					var d: float=origin.distance_squared_to(Vector2(x,y))
+					if d<best:
+						best=d
+						chosen=Vector2(x,y)
+			if chosen.x>=0: sites.append({"kind":kind,"x":chosen.x,"y":chosen.y,"town":town["id"]})
+	for x in range(1,WIDTH-1):
+		if str(tiles[2][x])=="water" and str(tiles[3][x])=="water":
+			sites.append({"kind":"waterfall","x":x,"y":2})
+			if x>20: break
+
+func _seed_wildlife() -> void:
+	for i in range(24):
+		var species: String=["chicken","deer","rabbit"][i%3]
+		var town: Dictionary=towns[i%towns.size()]
+		for attempt in range(30):
+			var x: int=clampi(int(town["x"])+rng.randi_range(-4,4),1,WIDTH-2) if species=="chicken" else rng.randi_range(1,WIDTH-2)
+			var y: int=clampi(int(town["y"])+rng.randi_range(-4,4),1,SIZE-2) if species=="chicken" else rng.randi_range(1,SIZE-2)
+			if str(tiles[y][x]) not in ["grass","forest"]: continue
+			wildlife.append({"id":i,"species":species,"x":float(x),"y":float(y),"tx":float(x),"ty":float(y),"timer":rng.randf_range(0.0,4.0)})
+			break
+
+func _update_wildlife(dt:float) -> void:
+	for animal in wildlife:
+		animal["timer"]=float(animal["timer"])-dt
+		var p:=Vector2(float(animal["x"]),float(animal["y"]))
+		if float(animal["timer"])<=0:
+			animal["timer"]=rng.randf_range(2.0,6.0)
+			var q:=p+Vector2(rng.randf_range(-1.6,1.6),rng.randf_range(-1.6,1.6))
+			q.x=clampf(q.x,1,WIDTH-2)
+			q.y=clampf(q.y,1,SIZE-2)
+			if str(tiles[int(q.y)][int(q.x)]) in ["grass","forest"]:
+				animal["tx"]=q.x
+				animal["ty"]=q.y
+		var goal:=Vector2(float(animal["tx"]),float(animal["ty"]))
+		var n:=p.move_toward(goal,dt*0.42)
+		if str(tiles[int(n.y)][int(n.x)]) in ["grass","forest"]:
+			animal["x"]=n.x
+			animal["y"]=n.y

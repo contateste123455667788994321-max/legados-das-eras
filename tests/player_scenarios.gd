@@ -32,7 +32,7 @@ func _check_world(sim, profile: String) -> void:
 		_assert(float(p["age"]) >= 0.0 and float(p["age"]) < 200.0, profile + ": idade valida")
 		var tx: float = float(p["x"])
 		var ty: float = float(p["y"])
-		_assert(tx >= 0.0 and tx < World.SIZE and ty >= 0.0 and ty < World.SIZE, profile + ": habitante dentro do mapa")
+		_assert(tx >= 0.0 and tx < World.WIDTH and ty >= 0.0 and ty < World.SIZE, profile + ": habitante dentro do mapa")
 		if int(p["father"]) > 0:
 			_assert(not sim.get_person(int(p["father"])).is_empty(), profile + ": pai referenciado existe")
 		if int(p["mother"]) > 0:
@@ -137,7 +137,7 @@ func _explorer() -> void:
 	game._zoom_around(game.MAP_AREA.get_center(), 20.0)
 	_assert(is_equal_approx(game.zoom, 3.5), "Explorador: zoom maximo respeitado")
 	game._zoom_around(game.MAP_AREA.get_center(), 0.01)
-	_assert(is_equal_approx(game.zoom, game.MAP_AREA.size.x / (float(World.SIZE) * game.TILE_SIZE)), "Explorador: zoom minimo respeitado")
+	_assert(is_equal_approx(game.zoom, maxf(game.MAP_AREA.size.x / (float(World.WIDTH) * game.TILE_SIZE), game.MAP_AREA.size.y / (float(World.SIZE) * game.TILE_SIZE))), "Explorador: zoom minimo respeitado")
 	game._toggle_pause()
 	_assert(game.world.speed == 0.0, "Explorador: pausa ativada")
 	game._change_speed()
@@ -307,7 +307,7 @@ func _artist() -> void:
 	_assert(game.actor_textures.size() >= 8, "Artista: personagens, construcoes e bichos possuem sprites")
 	_assert(not game.texture_missing, "Artista: recursos visuais nao faltam")
 	_assert(game.MAP_AREA.size.x > 650.0 and game.MAP_AREA.size.y > 350.0, "Artista: mapa tem espaco suficiente")
-	_assert(float(World.SIZE) * game.TILE_SIZE * game.zoom >= game.MAP_AREA.size.x, "Artista: mapa preenche a tela com zoom inicial")
+	_assert(float(World.WIDTH) * game.TILE_SIZE * game.zoom >= game.MAP_AREA.size.x, "Artista: mapa preenche a tela com zoom inicial")
 	_assert(game.MAP_AREA.size.y >= 600.0, "Artista: faixa inferior nao rouba area de jogo")
 	_assert(game.character_world != null and game.character_world.camera != null, "Artista: cena de personagem usa camera tridimensional real")
 	_assert(game.has_method("_draw_clock"), "Artista: relogio ilustrado permanece funcional")
@@ -327,7 +327,7 @@ func _impatient() -> void:
 	var start: float = game.world.day
 	for i in range(25):
 		game._zoom_around(game.MAP_AREA.get_center(), 0.1 if i % 2 == 0 else 30.0)
-		_assert(game.zoom >= game.MAP_AREA.size.x / (float(World.SIZE) * game.TILE_SIZE) - 0.001 and game.zoom <= 3.5, "Impaciente: zoom repetido sem travar")
+		_assert(game.zoom >= maxf(game.MAP_AREA.size.x / (float(World.WIDTH) * game.TILE_SIZE), game.MAP_AREA.size.y / (float(World.SIZE) * game.TILE_SIZE)) - 0.001 and game.zoom <= 3.5, "Impaciente: zoom repetido sem travar")
 	game._toggle_pause()
 	var paused: float = game.world.day
 	for i in range(80):

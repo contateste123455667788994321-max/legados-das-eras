@@ -12,6 +12,7 @@ var material_grain: NoiseTexture2D
 var last_build_signature := ""
 var last_world_id := 0
 var actors_3d: Dictionary = {}
+var wildlife_models:Dictionary={}
 var tree_models: Dictionary = {}
 var tree_root: Node3D
 var last_tree_revision := -1
@@ -382,6 +383,9 @@ func _refresh_people_models() -> void:
 	update_people()
 
 func update_people() -> void:
+	for animal in game.world.wildlife:
+		var node:Sprite3D=wildlife_models.get(int(animal["id"]))
+		if is_instance_valid(node): node.position=Vector3((float(animal["x"])+0.5)*SPACING,node.pixel_size*32.0,(float(animal["y"])+0.5)*SPACING)
 	for person in game.world.people:
 		var id: int = int(person["id"])
 		if not actors_3d.has(id):
@@ -420,7 +424,8 @@ func rebuild() -> void:
 	var ground := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
 	var length: float = float(game.world.SIZE) * SPACING
-	plane.size = Vector2(length, length)
+	var width: float = float(game.world.WIDTH) * SPACING
+	plane.size = Vector2(width, length)
 	ground.mesh = plane
 	var ground_material := StandardMaterial3D.new()
 	ground_material.albedo_texture = game.landscape_texture
@@ -428,7 +433,7 @@ func rebuild() -> void:
 	ground_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	ground_material.roughness = 0.95
 	ground.material_override = ground_material
-	ground.position = Vector3(length * 0.5, -0.01, length * 0.5)
+	ground.position = Vector3(width * 0.5, -0.01, length * 0.5)
 	root_mesh.add_child(ground)
 	var season: int = int(game.world.day / 90.0) % 4
 	for y in range(game.world.tiles.size()):
@@ -448,6 +453,12 @@ func rebuild() -> void:
 					_cone(root_mesh, Vector3(px, 0, pz) + offset, 0.28, 0.14, "#628a36", 4)
 	for town in game.world.towns:
 		_settlement(town)
+	for site in game.world.sites:
+		var size:float=3.6 if str(site["kind"]) in ["mine","waterfall"] else 1.6
+		_world_sprite(str(site["kind"]),Vector3((float(site["x"])+0.5)*SPACING,0,(float(site["y"])+0.5)*SPACING),size)
+	wildlife_models.clear()
+	for animal in game.world.wildlife:
+		wildlife_models[int(animal["id"])]=_world_sprite(str(animal["species"]),Vector3.ZERO,0.85 if str(animal["species"])=="deer" else 0.38)
 	sync_trees()
 	_refresh_people_models()
 	last_build_signature = _build_signature()
@@ -489,3 +500,14 @@ func sync_trees() -> void:
 		var s: float=game.world.tree_scale(tree)
 		model.scale=Vector3.ONE*s
 		model.rotation.z=-float(tree["fall"])*PI*0.48 if str(tree["state"])=="falling" else 0.0
+
+func _world_sprite(key:String,p:Vector3,h:float) -> Sprite3D:
+	var sprite:=Sprite3D.new()
+	sprite.texture=load("res://assets/landscape/"+key+".svg")
+	sprite.pixel_size=h/64.0
+	sprite.billboard=BaseMaterial3D.BILLBOARD_FIXED_Y
+	sprite.alpha_cut=SpriteBase3D.ALPHA_CUT_DISCARD
+	sprite.texture_filter=BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	sprite.position=p+Vector3(0,h*0.5,0)
+	root_mesh.add_child(sprite)
+	return sprite

@@ -14,7 +14,7 @@ var selected_beast_id := 0
 var selected_town_id := 0
 var controlled_id := 0
 var map_offset := Vector2.ZERO
-var zoom := 1.43
+var zoom := 0.92
 var landscape_texture: ImageTexture
 var landscape_signature := 0
 var landscape_objects: Dictionary = {}
@@ -301,7 +301,7 @@ func _make_landscape() -> void:
 		return
 	landscape_signature = signature
 	const DETAIL := 24
-	var img := Image.create(World.SIZE * DETAIL, World.SIZE * DETAIL, false, Image.FORMAT_RGB8)
+	var img := Image.create(World.WIDTH * DETAIL, World.SIZE * DETAIL, false, Image.FORMAT_RGB8)
 	var noise := FastNoiseLite.new()
 	noise.seed = 527
 	noise.frequency = 0.055
@@ -309,9 +309,9 @@ func _make_landscape() -> void:
 		for px in range(img.get_width()):
 			var fx: float = float(px) / DETAIL - 0.5 + noise.get_noise_2d(px, py) * 0.65
 			var fy: float = float(py) / DETAIL - 0.5 + noise.get_noise_2d(px + 431, py + 217) * 0.65
-			var x0: int = clampi(floori(fx), 0, World.SIZE - 1)
+			var x0: int = clampi(floori(fx), 0, World.WIDTH - 1)
 			var y0: int = clampi(floori(fy), 0, World.SIZE - 1)
-			var x1: int = clampi(floori(fx) + 1, 0, World.SIZE - 1)
+			var x1: int = clampi(floori(fx) + 1, 0, World.WIDTH - 1)
 			var y1: int = clampi(floori(fy) + 1, 0, World.SIZE - 1)
 			var tx: float = smoothstep(0.12, 0.88, fposmod(fx, 1.0))
 			var ty: float = smoothstep(0.12, 0.88, fposmod(fy, 1.0))
@@ -336,13 +336,13 @@ func _make_landscape() -> void:
 func _draw_landscape() -> void:
 	_make_landscape()
 	var side: float = TILE_SIZE * zoom
-	var dest := Rect2(_world_to_screen(Vector2.ZERO), Vector2.ONE * side * World.SIZE)
+	var dest := Rect2(_world_to_screen(Vector2.ZERO), Vector2(World.WIDTH,World.SIZE) * side)
 	var clipped: Rect2 = dest.intersection(MAP_AREA)
 	if clipped.has_area():
 		var source := Rect2((clipped.position-dest.position)/dest.size*landscape_texture.get_size(), clipped.size/dest.size*landscape_texture.get_size())
 		draw_texture_rect_region(landscape_texture, clipped, source)
 	for y in range(World.SIZE):
-		for x in range(World.SIZE):
+		for x in range(World.WIDTH):
 			var kind: String = str(world.tiles[y][x])
 			var seed: int = posmod(x*7919+y*104729+x*y*71, 997)
 			var pos: Vector2 = _world_to_screen(Vector2(x + 0.25 + float(seed % 13)*0.04, y + 0.35 + float(seed % 9)*0.045))
@@ -422,6 +422,7 @@ func _draw() -> void:
 		_draw_character_hud()
 		return
 	_draw_landscape()
+	_draw_world_sites()
 	# Quantidade real de casas e fazendas aparece no mapa, conforme o estoque da vila.
 	var house_spots: Array[Vector2] = [
 		Vector2(0.0, -0.35), Vector2(1.60, 0.35), Vector2(-1.25, -0.75),
@@ -468,6 +469,9 @@ func _draw() -> void:
 				draw_line(scaffold + Vector2(15, 10) * zoom, scaffold + Vector2(-15, -21) * zoom, Color("#b78c5d"), maxf(1.0, 3.0 * zoom))
 		if int(town["id"]) == selected_town_id and MAP_AREA.has_point(center):
 			draw_arc(center, 35.0 * zoom, 0.0, TAU, 32, Color("#fff0a0"), 3.0)
+	for animal in world.wildlife:
+		var p: Vector2 = _world_to_screen(Vector2(float(animal["x"])+0.5,float(animal["y"])+0.5))
+		_draw_landscape_object(str(animal["species"]),p,zoom*(32.0 if str(animal["species"])=="deer" else 17.0))
 	# Personagens separados visualmente por idade e aparencia.
 	for p in world.people:
 		if not bool(p["alive"]):
@@ -521,6 +525,17 @@ func _draw_dirt_path(a: Vector2,b: Vector2,unit: float) -> void:
 			draw_rect(Rect2(p-Vector2(size*0.2,size*0.25),Vector2(size*0.23,size*0.18)),Color("#d4b477"))
 
 
+func _draw_world_sites() -> void:
+	var unit: float=TILE_SIZE*zoom
+	for site in world.sites:
+		var p: Vector2=_world_to_screen(Vector2(float(site["x"])+0.5,float(site["y"])+0.5))
+		var kind: String=str(site["kind"])
+		_draw_landscape_object(kind,p,unit*(1.55 if kind in ["mine","waterfall"] else 0.95))
+		if kind=="waterfall" and MAP_AREA.grow(-unit*0.3).has_point(p):
+			for i in range(5):
+				var f:float=fposmod(float(Time.get_ticks_msec())*0.001+float(i)*0.19,1.0)
+				draw_rect(Rect2(p+Vector2((i-2)*unit*0.06,-unit*0.75+f*unit*0.72),Vector2(unit*0.025,unit*0.12)),Color("#d1faff",0.8))
+
 func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
 	var stage: int = world.life_stage(p)
 	var variant: int = posmod(int(p.get("appearance",p["id"])),10)
@@ -536,6 +551,11 @@ func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
 	var clipped := dest.intersection(MAP_AREA)
 	if clipped.has_area():
 		draw_texture_rect_region(atlas,clipped,Rect2(source.position+(clipped.position-dest.position)/dest.size*source.size,clipped.size/dest.size*source.size))
+	if str(p.get("profession",""))=="Pescador" and stage>=2:
+		draw_rect(Rect2(dest.position+Vector2(s*0.12,s*0.05),Vector2(s*0.42,s*0.09)),Color("#c9a255"))
+		if str(p.get("task",""))=="Pescando":
+			draw_line(center,center+Vector2(s*0.9,-s*0.45),Color("#79522d"),maxf(1.0,zoom))
+			draw_line(center+Vector2(s*0.9,-s*0.45),center+Vector2(s*0.9,s*0.3),Color("#c9d9d4"),1.0)
 	if stage==3:
 		draw_line(center+Vector2(-s*0.10,-s*0.21),center+Vector2(s*0.11,-s*0.21),Color("#e1ded2"),maxf(1,s*0.10))
 		draw_line(center+Vector2(s*0.15,0),center+Vector2(s*0.25,s*0.25),Color("#795433"),maxf(1,s*0.055))
@@ -724,7 +744,7 @@ func _update_pinch() -> void:
 	if pinch_distance > 2.0:
 		# O centro pode mudar durante a pinça: permitir zoom E deslocamento suave.
 		var anchor: Vector2 = _screen_to_world(pinch_midpoint)
-		zoom = clampf(zoom * (current_distance / pinch_distance), MAP_AREA.size.x / (float(World.SIZE) * TILE_SIZE), 3.5)
+		zoom = clampf(zoom * (current_distance / pinch_distance), maxf(MAP_AREA.size.x / (float(World.WIDTH) * TILE_SIZE), MAP_AREA.size.y / (float(World.SIZE) * TILE_SIZE)), 3.5)
 		map_offset = center - MAP_ORIGIN - anchor * TILE_SIZE * zoom
 		_clamp_map()
 	pinch_distance = current_distance
@@ -732,7 +752,7 @@ func _update_pinch() -> void:
 
 func _zoom_around(screen_point: Vector2, desired_zoom: float) -> void:
 	var anchor: Vector2 = _screen_to_world(screen_point)
-	zoom = clampf(desired_zoom, MAP_AREA.size.x / (float(World.SIZE) * TILE_SIZE), 3.5)
+	zoom = clampf(desired_zoom, maxf(MAP_AREA.size.x / (float(World.WIDTH) * TILE_SIZE), MAP_AREA.size.y / (float(World.SIZE) * TILE_SIZE)), 3.5)
 	map_offset = screen_point - MAP_ORIGIN - anchor * TILE_SIZE * zoom
 	_clamp_map()
 
@@ -742,11 +762,11 @@ func _touch_map(position: Vector2) -> void:
 			var actor: Dictionary = world.get_actor(controlled_id)
 			if not actor.is_empty():
 				var d: Vector2 = (position - MAP_AREA.get_center()).normalized()
-				actor["target_x"] = clampf(float(actor["x"]) + d.x * 2.4, 1.0, float(World.SIZE - 2))
+				actor["target_x"] = clampf(float(actor["x"]) + d.x * 2.4, 1.0, float(World.WIDTH - 2))
 				actor["target_y"] = clampf(float(actor["y"]) + d.y * 2.4, 1.0, float(World.SIZE - 2))
 		return
 	var point := _screen_to_world(position)
-	if point.x < -0.5 or point.y < -0.5 or point.x > World.SIZE or point.y > World.SIZE:
+	if point.x < -0.5 or point.y < -0.5 or point.x > World.WIDTH or point.y > World.SIZE:
 		return
 	var nearest_id := 0
 	var nearest_beast_id := 0
@@ -789,7 +809,7 @@ func _touch_map(position: Vector2) -> void:
 		elif controlled_id > 0:
 			var actor: Dictionary = world.get_actor(controlled_id)
 			if not actor.is_empty():
-				actor["target_x"] = clampf(point.x - 0.5, 1.0, World.SIZE - 2.0)
+				actor["target_x"] = clampf(point.x - 0.5, 1.0, World.WIDTH - 2.0)
 				actor["target_y"] = clampf(point.y - 0.5, 1.0, World.SIZE - 2.0)
 		else:
 			selected_person_id = 0
@@ -821,12 +841,12 @@ func _move_controlled(delta: float) -> void:
 			var forward := Vector2(-sin(look_yaw), -cos(look_yaw))
 			var right := Vector2(cos(look_yaw), -sin(look_yaw))
 			var movement: Vector2 = (right * direction.x - forward * direction.y) * delta * 2.25 * world.life_speed(actor)
-			var nx: float = clampf(float(actor["x"]) + movement.x, 1.0, float(World.SIZE - 2))
+			var nx: float = clampf(float(actor["x"]) + movement.x, 1.0, float(World.WIDTH - 2))
 			var ny: float = clampf(float(actor["y"]) + movement.y, 1.0, float(World.SIZE - 2))
-			var kind: String = str(world.tiles[clampi(int(ny), 0, World.SIZE - 1)][clampi(int(nx), 0, World.SIZE - 1)])
+			var kind: String = str(world.tiles[clampi(int(ny), 0, World.SIZE - 1)][clampi(int(nx), 0, World.WIDTH - 1)])
 			if kind == "water":
 				movement *= 0.28
-				nx = clampf(float(actor["x"])+movement.x,1.0,float(World.SIZE-2))
+				nx = clampf(float(actor["x"])+movement.x,1.0,float(World.WIDTH-2))
 				ny = clampf(float(actor["y"])+movement.y,1.0,float(World.SIZE-2))
 			if kind != "mountain":
 				actor["x"] = nx
@@ -837,18 +857,19 @@ func _move_controlled(delta: float) -> void:
 	var toward := Vector2(float(actor["target_x"]) - float(actor["x"]), float(actor["target_y"]) - float(actor["y"]))
 	if toward.length() > 0.04:
 		var step := toward.limit_length(delta * world.speed * 2.4)
-		actor["x"] = clampf(float(actor["x"]) + step.x, 1.0, float(World.SIZE - 2))
+		actor["x"] = clampf(float(actor["x"]) + step.x, 1.0, float(World.WIDTH - 2))
 		actor["y"] = clampf(float(actor["y"]) + step.y, 1.0, float(World.SIZE - 2))
 
 func _clamp_map() -> void:
-	zoom = maxf(zoom, MAP_AREA.size.x / (float(World.SIZE) * TILE_SIZE))
-	var side: float = float(World.SIZE) * TILE_SIZE * zoom
+	zoom = maxf(zoom, maxf(MAP_AREA.size.x / (float(World.WIDTH) * TILE_SIZE), MAP_AREA.size.y / (float(World.SIZE) * TILE_SIZE)))
+	var side: float = float(World.WIDTH) * TILE_SIZE * zoom
 	if side <= MAP_AREA.size.x:
 		map_offset.x = MAP_AREA.get_center().x - MAP_ORIGIN.x - side * 0.5
 	else:
 		var minimum_x: float = MAP_AREA.end.x - MAP_ORIGIN.x - side
 		var maximum_x: float = MAP_AREA.position.x - MAP_ORIGIN.x
 		map_offset.x = clampf(map_offset.x, minimum_x, maximum_x)
+	side = float(World.SIZE) * TILE_SIZE * zoom
 	if side <= MAP_AREA.size.y:
 		map_offset.y = MAP_AREA.get_center().y - MAP_ORIGIN.y - side * 0.5
 	else:
@@ -1185,7 +1206,7 @@ func _character_action() -> void:
 	if actor.is_empty():
 		world.news = "Escolha um personagem para agir."
 		return
-	var px: int = clampi(int(float(actor["x"])), 0, World.SIZE - 1)
+	var px: int = clampi(int(float(actor["x"])), 0, World.WIDTH - 1)
 	var py: int = clampi(int(float(actor["y"])), 0, World.SIZE - 1)
 	var biome: String = str(world.tiles[py][px])
 	var facing := Vector2(-sin(look_yaw),-cos(look_yaw))
@@ -1330,7 +1351,7 @@ func _new_world() -> void:
 		character_view = false
 		_sync_character_ui()
 		map_offset = Vector2.ZERO
-		zoom = 1.43
+		zoom = 0.92
 		world.save_world()
 		_refresh_ui()
 	)

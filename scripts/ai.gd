@@ -44,7 +44,13 @@ func _init_person(sim, p: Dictionary) -> void:
 			p["profession"] = "Crianca"
 			return
 		var mind: Dictionary = p["mind"]
-		if float(mind["bravery"]) > 0.8:
+		if int(p["id"])%6==0:
+			p["profession"]="Pescador"
+		elif int(p["id"])%6==1:
+			p["profession"]="Minerador"
+		elif int(p["id"])%6==2:
+			p["profession"]="Cozinheiro"
+		elif float(mind["bravery"]) > 0.8:
 			p["profession"] = "Guarda"
 		elif float(mind["curiosity"]) > 0.76:
 			p["profession"] = "Explorador"
@@ -114,8 +120,33 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 			_set_task(sim, p, home, "Conversando", 0.75)
 			n["company"] = maxf(0.0, float(n["company"]) - 38.0)
 			return
+	if not p.has("specialty_v57") and float(p["age"])>=16.0:
+		p["specialty_v57"]=true
+		match int(p["id"])%8:
+			0, 3: p["profession"]="Pescador"
+			1, 4: p["profession"]="Minerador"
+			2: p["profession"]="Cozinheiro"
 	# A personalidade altera os objetivos de trabalho e as exploracoes.
 	match str(p["profession"]):
+		"Pescador":
+			if _site_work(sim,p,home,"fish","Pescando"):
+				home["fish"]=float(home.get("fish",0))+step*0.32
+				home["food"]=float(home["food"])+step*0.14
+		"Minerador":
+			if _site_work(sim,p,home,"mine","Minerando"):
+				home["stone"]=float(home.get("stone",0))+step*0.27
+				if int(home["level"])>=3: home["ore"]=float(home.get("ore",0))+step*0.12
+		"Cozinheiro":
+			if _site_work(sim,p,home,"oven","Cozinhando"):
+				var fuel: float=minf(float(home["wood"]),step*0.05)
+				var fish: float=minf(float(home.get("fish",0)),fuel*4.0)
+				home["wood"]=float(home["wood"])-fuel
+				home["fish"]=float(home.get("fish",0))-fish
+				home["food"]=float(home["food"])+fish*1.5
+				if int(home["level"])>=3:
+					var ore: float=minf(float(home.get("ore",0)),fuel)
+					home["ore"]=float(home.get("ore",0))-ore
+					home["metal"]=float(home.get("metal",0))+ore
 		"Construtor":
 			if not home.get("construction", {}).is_empty():
 				_set_task(sim, p, home, "Construindo", 0.65)
@@ -150,7 +181,7 @@ func _set_task(sim, p: Dictionary, home: Dictionary, task: String, distance: flo
 	p["work_timer"] = sim.rng.randf_range(2.5, 5.0)
 	var angle: float = sim.rng.randf_range(-PI, PI)
 	var radius: float = sim.rng.randf_range(distance * 0.45, distance)
-	p["target_x"] = clampf(float(home["x"]) + cos(angle) * radius, 1.0, float(sim.SIZE - 2))
+	p["target_x"] = clampf(float(home["x"]) + cos(angle) * radius, 1.0, float(sim.WIDTH - 2))
 	p["target_y"] = clampf(float(home["y"]) + sin(angle) * radius, 1.0, float(sim.SIZE - 2))
 	p["work_goal"] = true
 
@@ -230,3 +261,14 @@ func on_death(sim, person: Dictionary) -> void:
 			_remember(witness, "Perdeu " + str(person["name"]) + ".", sim)
 			var n: Dictionary = witness["needs"]
 			n["company"] = minf(100.0, float(n["company"]) + 38.0)
+
+func _site_work(sim,p:Dictionary,home:Dictionary,kind:String,task:String) -> bool:
+	var site: Dictionary=sim.nearest_site(kind,Vector2(float(home["x"]),float(home["y"])))
+	if site.is_empty():
+		_set_task(sim,p,home,"Procurando recursos",1.0)
+		return false
+	p["task"]=task
+	p["work_goal"]=true
+	p["target_x"]=float(site["x"])
+	p["target_y"]=float(site["y"])
+	return Vector2(float(p["x"]),float(p["y"])).distance_to(Vector2(float(site["x"]),float(site["y"])))<0.6
