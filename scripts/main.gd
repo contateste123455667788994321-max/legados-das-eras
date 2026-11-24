@@ -913,11 +913,22 @@ func _show_diplomacy() -> void:
 
 func _show_options() -> void:
 	var popup := PopupMenu.new()
+	popup.add_item("Construir casas / fazendas", 5)
+	popup.add_item("Explorar em primeira pessoa / Voltar ao mapa", 11)
+	popup.add_item("Inventario do personagem", 12)
+	popup.add_separator()
+	popup.add_item("Ver biomas", 10)
+	popup.add_item("Ciclo da vida e evolucao", 13)
+	popup.add_item("Ficha da pessoa / aldeia", 4)
+	popup.add_item("Diplomacia", 6)
+	popup.add_item("Ativar / desativar guerras", 7)
+	popup.add_item("Ativar / desativar tribos rivais", 8)
+	popup.add_item("Ativar / desativar predadores", 9)
+	popup.add_separator()
+	popup.add_item("Ir para primeira vila", 3)
+	popup.add_item("Salvar mundo", 2)
 	popup.add_item("Verificar atualizacoes", 0)
 	popup.add_item("Criar novo mundo", 1)
-	popup.add_item("Salvar mundo", 2)
-	popup.add_item("Ir para primeira vila", 3)
-	popup.add_item("Ver ficha completa", 4)
 	popup.id_pressed.connect(func(which: int) -> void:
 		match which:
 			0: _check_updates()
@@ -927,14 +938,62 @@ func _show_options() -> void:
 				if not world.towns.is_empty():
 					var t: Dictionary = world.towns[0]
 					character_view = false
-					if is_instance_valid(character_clip):
-						character_clip.visible = false
+					if viewport_3d != null:
+						viewport_3d.render_target_update_mode = SubViewport.UPDATE_DISABLED
 					_focus_at(Vector2(float(t["x"]) + 0.5, float(t["y"]) + 0.5))
 			4: _show_details()
+			5: _show_construction()
+			6: _show_diplomacy()
+			7: _toggle_war()
+			8: _toggle_rivals()
+			9: _toggle_predators()
+			10: _show_biomes()
+			11: _toggle_view()
+			12: _show_inventory()
+			13: _show_world_cycle()
 		popup.queue_free()
 	)
 	add_child(popup)
-	popup.popup_centered(Vector2i(350, 260))
+	popup.popup_centered(Vector2i(430, 650))
+
+func _show_biomes() -> void:
+	var popup := PopupMenu.new()
+	for option in [["Deserto", "sand"], ["Floresta", "forest"], ["Neve", "snow"], ["Montanhas", "mountain"]]:
+		popup.add_item(str(option[0]))
+	popup.id_pressed.connect(func(which: int) -> void:
+		var kinds := ["sand", "forest", "snow", "mountain"]
+		if which >= 0 and which < kinds.size():
+			_focus_biome(kinds[which])
+		popup.queue_free()
+	)
+	add_child(popup)
+	popup.popup_centered(Vector2i(360, 360))
+
+func _show_world_cycle() -> void:
+	var dialog := AcceptDialog.new()
+	dialog.title = "A vida continua"
+	dialog.dialog_text = "Ano: %d  |  %s\nCriancas crescem, adultos trabalham, familias se formam e lideres sao sucedidos.\n\nAs aldeias produzem alimentos e madeira, abrem fazendas, constroem casas e desenvolvem novas tecnicas.\n\nOs biomas mudam o que cada aldeia consegue produzir. O frio e a seca tornam a sobrevivencia mais dificil.\n\nUse o mapa para observar geracoes e o menu para tomar decisoes." % [int(world.day / 365.0) + 1, _season_name()]
+	add_child(dialog)
+	dialog.popup_centered(Vector2i(610, 390))
+	dialog.confirmed.connect(dialog.queue_free)
+
+func _show_inventory() -> void:
+	var actor: Dictionary = world.get_actor(controlled_id)
+	if actor.is_empty() and selected_person_id > 0:
+		actor = world.get_person(selected_person_id)
+	var dialog := AcceptDialog.new()
+	dialog.title = "Mochila e condicao"
+	if actor.is_empty():
+		dialog.dialog_text = "Selecione um habitante no mapa e toque em Explorar para assumir o controle."
+	else:
+		var message := "%s\nVida: %d\nMadeira: %d\nComida: %d" % [str(actor.get("name", "Habitante")), int(float(actor.get("health", 100.0))), int(actor.get("wood", 0)), int(actor.get("food", 0))]
+		if actor.has("town"):
+			var town: Dictionary = world.get_town(int(actor["town"]))
+			message += "\n\nAldeia: %s\nEstoque da tribo:\nMadeira: %d\nAlimentos: %d" % [str(town.get("name", "Sem aldeia")), int(float(town.get("wood", 0.0))), int(float(town.get("food", 0.0)))]
+		dialog.dialog_text = message
+	add_child(dialog)
+	dialog.popup_centered(Vector2i(470, 360))
+	dialog.confirmed.connect(dialog.queue_free)
 
 func _show_details() -> void:
 	var lines: Array[String] = []
@@ -994,10 +1053,10 @@ func _new_world() -> void:
 		selected_town_id = 0
 		controlled_id = 0
 		character_view = false
-		if is_instance_valid(character_clip):
-			character_clip.visible = false
+		if viewport_3d != null:
+			viewport_3d.render_target_update_mode = SubViewport.UPDATE_DISABLED
 		map_offset = Vector2.ZERO
-		zoom = 1.0
+		zoom = 1.43
 		world.save_world()
 		_refresh_ui()
 	)
