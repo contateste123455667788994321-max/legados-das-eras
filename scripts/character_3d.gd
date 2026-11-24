@@ -258,9 +258,37 @@ func _hut(parent: Node3D, p: Vector3, size: float = 1.0, era: int = 1) -> void:
 		_box(parent, p + Vector3(0, yy, -0.657 * size), Vector3(1.56 * size, 0.035 * size, 0.035 * size), "#68472e")
 		for side in [-1, 1]:
 			_box(parent, p + Vector3(float(side) * 0.78 * size, yy, 0), Vector3(0.035, 0.035, 1.31) * size, "#68472e")
-	var roof := _cone(parent, p + Vector3(0.0, 1.63, 0.0) * size, 0.83 * size, 1.26 * size, "#c68c47", 4)
-	roof.rotation.y = PI * 0.25
-	_box(parent, p + Vector3(0.0, 1.82, 0.0) * size, Vector3(0.28, 0.15, 0.28) * size, "#efb956")
+	# Telhado de duas aguas com palha em faixas e caibros aparentes.
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 781+absi(int(p.x*59+p.z*97))
+	for side in [-1,1]:
+		for row in range(9):
+			for col in range(19):
+				var u: float = float(row)/9.0
+				var u2: float = float(row+1)/9.0
+				var z: float = -0.93+float(col)*0.098
+				var tint := Color("#8d622c").lerp(Color("#d6ae59"),rng.randf())
+				var bump: float = rng.randf_range(-0.012,0.025)
+				var a := Vector3(side*u*1.02,2.13-u*0.91+bump,z)
+				var b := Vector3(side*u2*1.02,2.13-u2*0.91+bump,z)
+				var cc := Vector3(side*u2*1.02,2.13-u2*0.91+bump,z+0.10)
+				var d := Vector3(side*u*1.02,2.13-u*0.91+bump,z+0.10)
+				_triangle(st,a*size,b*size,cc*size,tint)
+				_triangle(st,a*size,cc*size,d*size,tint.lightened(0.08))
+	for edge in [-1,1]:
+		_triangle(st,Vector3(-0.82,1.22,edge*0.66)*size,Vector3(0,2.1,edge*0.66)*size,Vector3(0.82,1.22,edge*0.66)*size,Color("#755034"))
+	_colored_mesh(parent,p,st)
+	for side in [-1,1]:
+		for edge in [-1,1]:
+			var beam := _box(parent,p+Vector3(side*0.5,1.67,edge*0.95)*size,Vector3(1.4,0.09,0.09)*size,"#6a492e")
+			beam.rotation.z = -float(side)*0.72
+	_box(parent,p+Vector3(0,2.13,0)*size,Vector3(0.12,0.09,1.94)*size,"#a47d3e")
+	for edge in [-1,1]:
+		_box(parent,p+Vector3(edge*0.77,0.62,0.68)*size,Vector3(0.11,1.24,0.13)*size,"#65432a")
+		_box(parent,p+Vector3(edge*0.52,0.77,-0.67)*size,Vector3(0.26,0.29,0.08)*size,"#342b23")
+	_box(parent,p+Vector3(0,0.80,0.70)*size,Vector3(0.58,0.10,0.10)*size,"#5e3f29")
 
 func _evolved_house(parent: Node3D, p: Vector3, size: float, era: int) -> void:
 	var wall: String = ["#9e693e", "#9e693e", "#9b947f", "#a0a39a", "#c1c0ad"][clampi(era-1, 0, 4)]
