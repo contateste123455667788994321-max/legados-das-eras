@@ -242,6 +242,16 @@ func _run_tests() -> void:
 	world.speed = 1.0
 	world.toggle_predators()
 	_check(world.predators and world.beasts.size() == 8, "Animais ativaveis")
+	var victim:Dictionary=world.people[0]
+	var wolf:Dictionary=world.beasts[0]
+	world.tiles[5][5]="grass"
+	victim["x"]=5.0
+	victim["y"]=5.0
+	wolf["x"]=5.3
+	wolf["y"]=5.0
+	var victim_hp:float=float(victim["health"])
+	_check(world._hostile_animal_step(wolf,0.1) and float(victim["health"])<victim_hp,"Lobo ataca humano ao alcance")
+	victim["health"]=victim_hp
 	world.toggle_predators()
 	_check(not world.predators, "Animais desativaveis")
 	world.toggle_rivals()

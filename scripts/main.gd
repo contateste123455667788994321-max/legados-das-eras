@@ -15,7 +15,9 @@ var selected_beast_id := 0
 var selected_town_id := 0
 var controlled_id := 0
 var map_offset := Vector2.ZERO
-var zoom := 1.25
+var zoom := 1.05
+var visual_motion:Dictionary={}
+var people_variants:Array[Texture2D]=[]
 var landscape_texture: ImageTexture
 var landscape_signature := 0
 var landscape_objects: Dictionary = {}
@@ -80,6 +82,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_move_controlled(delta)
 	world.update_world(delta, controlled_id)
+	_track_visual_motion(delta)
 	if is_instance_valid(soundscape): soundscape.update_audio(world,_screen_to_world(MAP_AREA.get_center())-Vector2(0.5,0.5),MAP_AREA.size/(TILE_SIZE*zoom),delta)
 	autosave_timer += delta
 	ui_timer += delta
@@ -114,6 +117,7 @@ func _load_art() -> void:
 		if new_art is Texture2D: actor_textures[key] = new_art
 	landscape_objects["tree"] = load("res://assets/landscape/reference_tree.png")
 	landscape_objects["reference_characters"] = load("res://assets/landscape/reference_characters.png")
+	_prepare_people_variants()
 	if texture_missing:
 		push_warning("Alguns desenhos do mapa ainda nao foram carregados.")
 
@@ -495,7 +499,7 @@ func _draw() -> void:
 		if not MAP_AREA.has_point(center):
 			continue
 		var key := "bear" if str(b["species"]) == "Urso" else "wolf"
-		_draw_sprite(key, center, Vector2(38, 38) * zoom, true)
+		_draw_animated_beast(b,center,key)
 		if int(b["id"]) == selected_beast_id:
 			draw_arc(center, 15.0 * zoom, 0, TAU, 20, Color("#ffe890"), 2.0)
 		if int(b["id"]) == controlled_id:
@@ -538,6 +542,12 @@ func _draw_world_sites() -> void:
 			_draw_landscape_object("bridge",p,unit*1.9)
 		elif kind=="mine" and not bool(site.get("developed",false)):
 			_draw_landscape_object("rock",p,unit*0.95)
+		elif kind=="oven":
+			_draw_landscape_object("oven",p,unit*0.84)
+			if MAP_AREA.grow(-unit).has_point(p):
+				for i in range(3):
+					var age:float=fposmod(world.swamp_clock*0.34+float(i)*0.33,1.0)
+					draw_circle(p+Vector2(unit*(0.13+age*0.10),-unit*(0.59+age*0.55)),unit*(0.035+age*0.055),Color(0.72,0.72,0.68,(1-age)*0.18))
 		else:
 			_draw_landscape_object(kind,p,unit*(1.45 if kind=="mine" else 0.95))
 
@@ -577,19 +587,28 @@ func _draw_waterfall(p:Vector2,u:float) -> void:
 func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
 	var stage: int = world.life_stage(p)
 	var profession:String=str(p.get("profession",""))
-	var index:int=2 if stage<2 else (3 if profession in ["Agricultor","Minerador","Construtor"] else int(p["gender"]))
-	var s:float=36.0*zoom*[0.48,0.78,1.0,0.93][stage]
-	var atlas:Texture2D=landscape_objects["reference_characters"]
+	var index:int=2 if stage<2 else (3 if profession=="Agricultor" and str(p.get("task",""))=="Cultivando" else int(p["gender"]))
+	var s:float=27.0*zoom*[0.48,0.78,1.0,0.93][stage]
+	var variant:int=posmod(int(p.get("appearance",p["id"]))*3+int(p.get("skin",0))+int(p.get("hair",0)),people_variants.size())
+	var atlas:Texture2D=people_variants[variant]
 	var target:=Vector2(float(p.get("target_x",p["x"])),float(p.get("target_y",p["y"])))
 	var pos:=Vector2(float(p["x"]),float(p["y"]))
-	var moving:bool=target.distance_to(pos)>0.08 and world.speed>0
-	var bounce:float=roundf(sin(float(Time.get_ticks_msec())*0.012+float(p["id"]))*0.6)*zoom if moving else 0.0
-	var dest:=Rect2(center-Vector2(s*0.5,s*0.91+bounce),Vector2.ONE*s)
-	if MAP_AREA.encloses(dest):
-		var face:float=-1.0 if target.x<pos.x-0.08 else 1.0
-		draw_set_transform(center,0,Vector2(face,1))
-		draw_texture_rect_region(atlas,Rect2(-s*0.5,-s*0.91-bounce,s,s),Rect2(index*48,0,48,48))
-		draw_set_transform(Vector2.ZERO)
+	var movement:Dictionary=visual_motion.get(int(p["id"]),{})
+	var moving:bool=bool(movement.get("moving",false)) and world.speed>0
+	var phase:float=float(movement.get("phase",0))
+	var face:float=float(movement.get("face",1.0))
+	var bounce:float=absf(sin(phase))*s*0.025 if moving else 0.0
+	_contact_shadow(center,s*0.24,s*0.09)
+	_draw_walk_sprite(atlas,Rect2(index*48,0,48,48),center,s,face,phase,moving,bounce)
+	if stage>=2 and MAP_AREA.grow(-s).has_point(center):
+		if profession=="Pescador":
+			var hat:Vector2=center+Vector2(-s*0.15,-s*0.76-bounce)
+			draw_rect(Rect2(hat,Vector2(s*0.30,s*0.07)),Color("#bd9551"))
+			draw_rect(Rect2(hat+Vector2(s*0.08,-s*0.07),Vector2(s*0.15,s*0.08)),Color("#dbb66b"))
+		elif profession=="Minerador":
+			draw_rect(Rect2(center+Vector2(-s*0.13,-s*0.77-bounce),Vector2(s*0.26,s*0.06)),Color("#716f60"))
+		elif stage==3:
+			draw_line(center+Vector2(-s*0.09,-s*0.62-bounce),center+Vector2(s*0.09,-s*0.62-bounce),Color("#dbd7c4"),maxf(1,s*0.045))
 	_draw_equipment(p,center,s*0.78,bounce)
 	if bool(p.get("witch_staff",false)):
 		_draw_landscape_object("magic_staff",center+Vector2(s*0.30,0),s*0.8)
@@ -1192,7 +1211,7 @@ func _show_options() -> void:
 	popup.add_item("Diplomacia", 6)
 	popup.add_item("Ativar / desativar guerras", 7)
 	popup.add_item("Ativar / desativar tribos rivais", 8)
-	popup.add_item("Ativar / desativar predadores", 9)
+	popup.add_item("Ataques de animais: "+("ATIVOS" if world.predators else "DESATIVADOS"), 9)
 	popup.add_separator()
 	popup.add_item("Ir para primeira vila", 3)
 	popup.add_item("Salvar mundo", 2)
@@ -1476,7 +1495,7 @@ func _new_world() -> void:
 		character_view = false
 		_sync_character_ui()
 		map_offset = Vector2.ZERO
-		zoom = 1.25
+		zoom = 1.05
 		world.save_world()
 		_refresh_ui()
 	)
@@ -1729,16 +1748,92 @@ func _natural_tree_key(tree:Dictionary) -> String:
 func _draw_natural_animal(animal:Dictionary,p:Vector2) -> void:
 	var species:String=str(animal["species"])
 	var indices:Dictionary={"deer":4,"rabbit":5,"snow_hare":5,"chicken":6,"capybara":7,"duck":8,"crocodile":9,"frog":10}
-	if not indices.has(species):
-		_draw_landscape_object(species,p,zoom*(32.0 if species=="camel" else (24.0 if species in ["heron","boar","fox"] else 17.0)))
-		return
-	var s:float=zoom*float({"deer":39,"rabbit":23,"snow_hare":23,"chicken":22,"capybara":37,"duck":26,"crocodile":42,"frog":19}[species])
-	var dest:=Rect2(p-Vector2(s*0.5,s*0.91),Vector2.ONE*s)
-	if not MAP_AREA.encloses(dest): return
-	var source:=Rect2(int(indices[species])*48,0,48,48)
-	var atlas:Texture2D=landscape_objects["reference_characters"]
-	var face:float=-1.0 if float(animal.get("tx",animal["x"]))<float(animal["x"])-0.08 else 1.0
+	var s:float=zoom*float({"deer":31,"rabbit":18,"snow_hare":18,"chicken":17,"capybara":27,"duck":20,"crocodile":34,"frog":15,"camel":29,"heron":24,"boar":28,"fox":24,"turtle":18,"lizard":16}.get(species,18))
+	var movement:Dictionary=visual_motion.get(int(animal["id"]),{})
+	var phase:float=float(movement.get("phase",0))
+	var moving:bool=bool(movement.get("moving",false)) and world.speed>0
+	var face:float=float(movement.get("face",1.0))
 	if species=="deer": face=-face
-	draw_set_transform(p,0,Vector2(face,1))
-	draw_texture_rect_region(atlas,Rect2(-s*0.5,-s*0.91,s,s),source)
+	var bounce:float=absf(sin(phase))*s*(0.14 if species in ["frog","rabbit","snow_hare"] else 0.025) if moving else 0.0
+	_contact_shadow(p,s*0.30,s*0.08)
+	if indices.has(species):
+		var atlas:Texture2D=landscape_objects["reference_characters"]
+		var walking:bool=moving and species not in ["frog","crocodile","duck"]
+		_draw_walk_sprite(atlas,Rect2(int(indices[species])*48,0,48,48),p,s,face,phase,walking,bounce)
+	else:
+		if not landscape_objects.has(species): landscape_objects[species]=load("res://assets/landscape/"+species+".svg")
+		var texture:Texture2D=landscape_objects[species]
+		if texture!=null: _draw_walk_sprite(texture,Rect2(Vector2.ZERO,texture.get_size()),p,s,face,phase,moving,bounce)
+
+
+func _track_visual_motion(delta:float) -> void:
+	for group in [world.people,world.wildlife,world.beasts]:
+		for actor in group:
+			if not bool(actor.get("alive",true)): continue
+			var id:int=int(actor["id"])
+			var pos:=Vector2(float(actor["x"]),float(actor["y"]))
+			var state:Dictionary=visual_motion.get(id,{"pos":pos,"phase":0.0,"face":1.0})
+			var previous:Vector2=state["pos"]
+			var moved:Vector2=pos-previous
+			state["moving"]=moved.length()>0.0001 and delta>0
+			if absf(moved.x)>0.0001: state["face"]=-1.0 if moved.x<0 else 1.0
+			state["phase"]=fposmod(float(state["phase"])+moved.length()*27.0,TAU)
+			state["pos"]=pos
+			visual_motion[id]=state
+
+func _contact_shadow(p:Vector2,rx:float,ry:float) -> void:
+	if not MAP_AREA.grow(-rx).has_point(p): return
+	draw_set_transform(p,0,Vector2(1.0,ry/maxf(0.1,rx)))
+	draw_circle(Vector2.ZERO,rx,Color("#17251c",0.18))
+	draw_circle(Vector2.ZERO,rx*0.73,Color("#17251c",0.15))
 	draw_set_transform(Vector2.ZERO)
+
+# Separa os pes do corpo para que a passada alterne com a distancia percorrida.
+func _draw_walk_sprite(texture:Texture2D,source:Rect2,p:Vector2,s:float,face:float,phase:float,moving:bool,bounce:float) -> void:
+	var dest:=Rect2(-s*0.5,-s*0.91-bounce,s,s)
+	if not MAP_AREA.encloses(Rect2(p+dest.position,dest.size)): return
+	draw_set_transform(p,0,Vector2(face,1))
+	if not moving:
+		draw_texture_rect_region(texture,dest,source)
+	else:
+		var split:float=0.70
+		draw_texture_rect_region(texture,Rect2(dest.position,Vector2(s,s*split)),Rect2(source.position,Vector2(source.size.x,source.size.y*split)))
+		var stride:float=sin(phase)*s*0.045
+		for half in range(2):
+			var offset:float=stride if half==0 else -stride
+			var leg_dest:=Rect2(dest.position+Vector2(s*half*0.5,s*split+offset),Vector2(s*0.5,s*(1.0-split)))
+			var leg_src:=Rect2(source.position+Vector2(source.size.x*half*0.5,source.size.y*split),Vector2(source.size.x*0.5,source.size.y*(1.0-split)))
+			draw_texture_rect_region(texture,leg_dest,leg_src)
+	draw_set_transform(Vector2.ZERO)
+
+func _draw_animated_beast(b:Dictionary,p:Vector2,key:String) -> void:
+	var s:float=zoom*(34.0 if key=="bear" else 29.0)
+	var movement:Dictionary=visual_motion.get(int(b["id"]),{})
+	var moving:bool=bool(movement.get("moving",false)) and world.speed>0
+	var phase:float=float(movement.get("phase",0))
+	_contact_shadow(p,s*0.29,s*0.09)
+	var texture:Texture2D=actor_textures[key]
+	_draw_walk_sprite(texture,Rect2(Vector2.ZERO,texture.get_size()),p,s,float(movement.get("face",1.0)),phase,moving,absf(sin(phase))*s*0.025 if moving else 0.0)
+
+# Variacoes de roupas e cabelo preservam o rosto e os contornos dos sprites.
+func _prepare_people_variants() -> void:
+	people_variants.clear()
+	var base:Texture2D=landscape_objects["reference_characters"]
+	people_variants.append(base)
+	var original:Image=base.get_image()
+	var palette:Array[Color]=[Color("#597a56"),Color("#546d91"),Color("#96654b"),Color("#887942"),Color("#866b82"),Color("#7a8c88"),Color("#ad854e"),Color("#6b6856"),Color("#705047")]
+	for color in palette:
+		var img:Image=original.duplicate()
+		for index in range(4):
+			var region:Image=original.get_region(Rect2i(index*48,0,48,48))
+			var used:Rect2i=region.get_used_rect()
+			for y in range(used.position.y,used.end.y):
+				for x in range(used.position.x,used.end.x):
+					var pixel:Color=region.get_pixel(x,y)
+					if pixel.a<0.5: continue
+					var fy:float=float(y-used.position.y)/maxf(1.0,float(used.size.y))
+					var fx:float=float(x-used.position.x)/maxf(1.0,float(used.size.x))
+					if fy>0.43 and fy<0.76 and fx>0.20 and fx<0.80 and pixel.s>0.18 and pixel.v>0.23 and pixel.v<0.82:
+						var changed:=Color.from_hsv(color.h,color.s,pixel.v,pixel.a)
+						img.set_pixel(index*48+x,y,pixel.lerp(changed,0.72))
+		people_variants.append(ImageTexture.create_from_image(img))

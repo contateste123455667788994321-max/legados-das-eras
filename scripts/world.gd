@@ -265,7 +265,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 			_wander(p, dt, 0.65 * life_speed(p))
 	for b in beasts:
 		if bool(b["alive"]) and int(b["id"]) != controlled_id:
-			_wander(b, dt, 1.0)
+			if not predators or not _hostile_animal_step(b,dt): _wander(b, dt, 1.0)
 	if day >= next_growth:
 		next_growth += 80.0
 		_grow_economies()
@@ -273,8 +273,6 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 		next_birth += 120.0
 		_new_children()
 	politics.advance(self, dt)
-	if predators:
-		_predator_attacks(dt)
 	# IA local atualiza necessidades, trabalhos, relacionamentos e aldeias.
 	# Usa tempo da simulacao: pausa impede progresso e fechar o app nao avanca o mundo.
 	agent_ai.advance(self, dt, controlled_id)
@@ -515,18 +513,11 @@ func _battle(dt: float) -> void:
 				if float(p["health"]) <= 0.0:
 					kill_person(p)
 
-func _predator_attacks(dt: float) -> void:
-	for b in beasts:
-		if not bool(b["alive"]):
-			continue
-		for p in people:
-			if bool(p["alive"]) and Vector2(float(b["x"]), float(b["y"])).distance_to(Vector2(float(p["x"]), float(p["y"]))) < 0.75 and rng.randf() < dt * 0.1:
-				p["health"] = float(p["health"]) - maxf(1.0,animal_damage(b)-defense(p))
-				if float(p["health"])>0 and float(p["age"])>=16 and is_military(p):
-					hunt_animal(p,b)
-					if not bool(b["alive"]): break
-				if float(p["health"]) <= 0.0:
-					kill_person(p)
+func _predator_attacks(dt:float) -> void:
+	if not predators: return
+	for beast in beasts:
+		if bool(beast.get("alive",false)): _hostile_animal_step(beast,dt)
+
 
 func save_world() -> bool:
 	var file := FileAccess.open("user://world.json", FileAccess.WRITE)
@@ -788,6 +779,7 @@ func _update_wildlife(dt:float) -> void:
 				continue
 		elif float(animal["hunger"])<30.0:
 			animal["health"]=minf(float(animal["max_health"]),float(animal["health"])+dt*0.16)
+		if predators and _hostile_animal_step(animal,dt): continue
 		animal["timer"]=float(animal["timer"])-dt
 		animal["breed_timer"]=maxf(0,float(animal.get("breed_timer",rng.randf_range(90,200)))-dt)
 		if float(animal["timer"])<=0:
@@ -2239,3 +2231,77 @@ func _update_spider_poison(person:Dictionary,dt:float) -> void:
 	person["poison_remaining"]=maxf(0,remaining-elapsed)
 	person["health"]=maxf(0,float(person["health"])-3.0*elapsed)
 	if float(person["health"])<=0: kill_person(person)
+
+# Animais hostis identificam alvos proximos, perseguem e atacam com recarga.
+func _hostile_animal_step(animal:Dictionary,dt:float) -> bool:
+	if not predators or not bool(animal.get("alive",true)) or float(animal.get("health",1))<=0: return false
+	var species:String=str(animal.get("species",""))
+	if species not in ["Lobo","Urso","crocodile","boar"]: return false
+	var pos:=Vector2(float(animal["x"]),float(animal["y"]))
+	animal["human_attack_cd"]=maxf(0,float(animal.get("human_attack_cd",0))-dt)
+	var radius:float=float({"Lobo":3.8,"Urso":2.8,"crocodile":2.6,"boar":1.7}[species])
+	var victim:Dictionary={}
+	var best:float=radius
+	for person in people:
+		if not bool(person.get("alive",false)): continue
+		var q:=Vector2(float(person["x"]),float(person["y"]))
+		var d:float=pos.distance_to(q)
+		if d>=best: continue
+		var biome:String=str(tiles[clampi(int(q.y),0,SIZE-1)][clampi(int(q.x),0,WIDTH-1)])
+		if species in ["Lobo","Urso","boar"] and biome in ["water","mountain"]: continue
+		if species=="crocodile" and not animal_habitat(species,biome): continue
+		victim=person
+		best=d
+	if victim.is_empty():
+		if str(animal.get("state","")) in ["Perseguindo humano","Atacando humano"]:
+			animal["state"]="Explorando"
+			animal["timer"]=0.0
+			animal["wander"]=0.0
+		return false
+	var goal:=Vector2(float(victim["x"]),float(victim["y"]))
+	animal["tx"]=goal.x
+	animal["ty"]=goal.y
+	animal["target_x"]=goal.x
+	animal["target_y"]=goal.y
+	animal["state"]="Perseguindo humano"
+	if best>0.5:
+		var pace:float=float({"Lobo":1.35,"Urso":0.95,"crocodile":0.88,"boar":1.18}[species])
+		var next:=pos.move_toward(goal,dt*pace)
+		var biome:String=str(tiles[clampi(int(next.y),0,SIZE-1)][clampi(int(next.x),0,WIDTH-1)])
+		if (species=="crocodile" and animal_habitat(species,biome)) or (species!="crocodile" and biome not in ["water","mountain"]):
+			animal["x"]=next.x
+			animal["y"]=next.y
+		return true
+	animal["state"]="Atacando humano"
+	if float(animal["human_attack_cd"])<=0:
+		animal["human_attack_cd"]=2.2 if species!="Urso" else 3.0
+		_swamp_damage(victim,animal_damage(animal))
+		sound_at("growl",animal)
+		if bool(victim["alive"]) and float(victim["age"])>=16 and (is_military(victim) or bool(victim.get("combat_training",false))):
+			hunt_animal(victim,animal)
+		if not bool(victim["alive"]): animal["hunger"]=maxf(0,float(animal.get("hunger",0))-45)
+	return true
+
+func react_to_hostile_animal(person:Dictionary) -> bool:
+	if not predators: return false
+	var p:=Vector2(float(person["x"]),float(person["y"]))
+	var threat:Dictionary={}
+	var best:float=2.1
+	for group in [beasts,wildlife]:
+		for animal in group:
+			if not bool(animal.get("alive",true)) or float(animal.get("health",1))<=0 or str(animal.get("species","")) not in ["Lobo","Urso","crocodile","boar"]: continue
+			var d:float=p.distance_to(Vector2(float(animal["x"]),float(animal["y"])))
+			if d<best:
+				best=d
+				threat=animal
+	if threat.is_empty(): return false
+	var q:=Vector2(float(threat["x"]),float(threat["y"]))
+	if float(person["age"])>=16 and (is_military(person) or bool(person.get("combat_training",false))) and float(person["health"])>max_hp(person)*0.25:
+		_set_delivery_goal(person,q,"Defendendo contra animal")
+		if best<=0.65: hunt_animal(person,threat)
+	else:
+		var away:Vector2=(p-q).normalized()
+		if away.length()<0.01: away=Vector2(1,0)
+		var escape:Vector2=p+away*3
+		_set_delivery_goal(person,Vector2(clampf(escape.x,1,WIDTH-2),clampf(escape.y,1,SIZE-2)),"Fugindo de animal")
+	return true
