@@ -119,7 +119,7 @@ func _build_ui() -> void:
 	# Um unico mapa imersivo; todas as mecanicas ficam no menu do mundo.
 	_label("LEGADO DAS ERAS", Vector2(22, 7), Vector2(260, 40), 25, Color("#f4d48b"))
 	stats_label = _label("", Vector2(277, 14), Vector2(382, 27), 16, Color("#ecdec1"))
-	news_label = _label("", Vector2(22, 48), Vector2(1040, 24), 15, Color("#edd0a0"))
+	news_label = _label("", Vector2(22, 48), Vector2(650, 24), 15, Color("#edd0a0"))
 	news_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	speed_button = _button("1x", Vector2(737, 15), Vector2(72, 38), Callable(self, "_change_speed"))
 	pause_button = _button("Pausar", Vector2(813, 15), Vector2(82, 38), Callable(self, "_toggle_pause"))
