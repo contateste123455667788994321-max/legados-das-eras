@@ -22,6 +22,10 @@ func _run_tests() -> void:
 	_check(not world.wildlife.is_empty(), "Fauna pacifica gerada")
 	_check(world.habitats_v59 and world.wildlife.size()>24,"Fauna dos novos biomas")
 	_check(world.ecology_v60,"Ecologia diferenciada ativa")
+	world.sound_events.clear()
+	world.sound_event("wood",Vector2(5,5))
+	_check(world.sound_events.size()==1 and str(world.sound_events[0]["kind"])=="wood","Eventos sonoros sem alterar simulacao")
+	world.sound_events.clear()
 	for animal in world.wildlife:
 		_check(float(animal["health"])>0 and float(animal["max_health"])>=float(animal["health"]),"Animal nasce com vida")
 	var duck:Dictionary={"species":"duck"}

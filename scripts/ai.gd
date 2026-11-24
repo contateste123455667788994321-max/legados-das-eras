@@ -201,6 +201,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 				var fish:float=minf(float(home.get("fish",0)),fuel*4.0)
 				var meat:float=minf(float(home.get("meat",0)),maxf(0,fuel*4.0-fish))
 				if fish+meat>0:
+					sim.sound_at("cook",p)
 					home["wood"]=float(home["wood"])-(fish+meat)/4.0
 					home["fish"]=float(home.get("fish",0))-fish
 					home["meat"]=float(home.get("meat",0))-meat

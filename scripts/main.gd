@@ -2,12 +2,14 @@ extends Node2D
 ## Legado das Eras — tela jogavel. A simulacao permanece em world.gd.
 const World = preload("res://scripts/world.gd")
 const Updates = preload("res://scripts/update_manager.gd")
+const GameAudio = preload("res://scripts/game_audio.gd")
 const TILE_SIZE := 44.0
 const MAP_ORIGIN := Vector2(15.0, 79.0)
 const MAP_AREA := Rect2(12.0, 78.0, 1256.0, 626.0)
 const AUTOSAVE_SECONDS := 20.0
 
 var world = World.new()
+var soundscape:Node
 var selected_person_id := 0
 var selected_beast_id := 0
 var selected_town_id := 0
@@ -64,6 +66,8 @@ func _ready() -> void:
 	world.speed = 1.0
 	texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST
 	_load_art()
+	soundscape=GameAudio.new()
+	add_child(soundscape)
 	update_manager = Updates.new()
 	add_child(update_manager)
 	_build_ui()
@@ -76,6 +80,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_move_controlled(delta)
 	world.update_world(delta, controlled_id)
+	if is_instance_valid(soundscape): soundscape.update_audio(world,_screen_to_world(MAP_AREA.get_center())-Vector2(0.5,0.5),MAP_AREA.size/(TILE_SIZE*zoom),delta)
 	autosave_timer += delta
 	ui_timer += delta
 	if autosave_timer >= AUTOSAVE_SECONDS:
@@ -178,6 +183,9 @@ func _button(value: String, pos: Vector2, dimensions: Vector2, callback: Callabl
 	var pressed_style := style.duplicate()
 	pressed_style.bg_color = Color("#2a2118")
 	b.add_theme_stylebox_override("pressed", pressed_style)
+	b.pressed.connect(func() -> void:
+		if is_instance_valid(soundscape): soundscape.play_ui()
+	)
 	b.pressed.connect(callback)
 	add_child(b)
 	return b
@@ -1190,6 +1198,7 @@ func _show_options() -> void:
 	popup.add_item("Ir para primeira vila", 3)
 	popup.add_item("Salvar mundo", 2)
 	popup.add_item("Verificar atualizacoes", 0)
+	popup.add_item("Configurar som", 15)
 	popup.add_item("Criar novo mundo", 1)
 	popup.id_pressed.connect(func(which: int) -> void:
 		match which:
@@ -1213,6 +1222,7 @@ func _show_options() -> void:
 			12: _show_inventory()
 			13: _show_world_cycle()
 			14: _show_spawn_menu()
+			15: soundscape.show_settings()
 		popup.queue_free()
 	)
 	add_child(popup)

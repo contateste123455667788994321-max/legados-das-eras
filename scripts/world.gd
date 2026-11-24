@@ -23,6 +23,7 @@ var ecology_v60:bool=false
 var swamp_witch:Dictionary={}
 var swamp_spiders:Array=[]
 var resource_drops:Array=[]
+var sound_events:Array=[]
 var magic_bolts:Array=[]
 var swamp_clock:float=0.0
 var trees: Dictionary = {}
@@ -55,6 +56,7 @@ func generate_world() -> void:
 	swamp_witch.clear()
 	swamp_spiders.clear()
 	resource_drops.clear()
+	sound_events.clear()
 	magic_bolts.clear()
 	swamp_clock=0.0
 	sites.clear()
@@ -247,6 +249,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 		var new_level := mini(researched_level, era_cap)
 		if new_level > int(t["level"]):
 			t["level"] = mini(new_level, 5)
+			sound_at("era",t)
 			news = str(t["name"]) + " avancou para a era " + str(t["level"]) + "!"
 	for p in people:
 		if not bool(p["alive"]):
@@ -334,6 +337,7 @@ func start_construction(town_id: int, kind: String) -> bool:
 	town["stone"]=float(town.get("stone",0))-stone_cost
 	_prepare_project(town)
 
+	sound_at("build",town)
 	news = str(town["name"]) + " iniciou uma " + label + "."
 	return true
 
@@ -351,11 +355,14 @@ func progress_construction(town: Dictionary, dt: float) -> void:
 	var required:Dictionary=site["required"]
 	var delivered:Dictionary=site["delivered"]
 	var fraction:float=(float(delivered["wood"])+float(delivered["stone"]))/maxf(1.0,float(required["wood"])+float(required["stone"]))
-	site["progress"]=minf(float(site["duration"])*fraction,float(site["progress"])+dt*(1.0+minf(float(helpers)*0.35,0.9)))
+	var old_progress:float=float(site["progress"])
+	site["progress"]=minf(float(site["duration"])*fraction,old_progress+dt*(1.0+minf(float(helpers)*0.35,0.9)))
+	if floori(old_progress/2.0)<floori(float(site["progress"])/2.0): sound_at("build",site)
 
 	if float(site["progress"]) < float(site.get("duration", 12.0)):
 		return
 	var kind: String = str(site["kind"])
+	sound_at("complete",site)
 	for worker in people:
 		if bool(worker["alive"]) and int(worker["town"])==int(town["id"]) and str(worker.get("task",""))=="Construindo" and Vector2(float(worker["x"]),float(worker["y"])).distance_to(Vector2(float(site["x"]),float(site["y"])))<1.1:
 			gain_xp(worker,15.0,"trabalho")
@@ -455,6 +462,7 @@ func _new_children() -> void:
 		var father: Dictionary = get_person(int(mother["partner"]))
 		var baby_id: int = make_person(town_id, float(town["x"]) + rng.randf_range(-0.8, 0.8), float(town["y"]) + rng.randf_range(-0.8, 0.8), 0, int(father["id"]), int(mother["id"]))
 		town["food"] = float(town["food"]) - 5.0
+		sound_at("birth",get_person(baby_id))
 		news = "Nasceu " + str(get_person(baby_id)["name"]) + " em " + str(town["name"]) + "!"
 
 func active_population(town_id: int) -> int:
@@ -468,6 +476,7 @@ func kill_person(person: Dictionary) -> void:
 	if not bool(person["alive"]):
 		return
 	person["alive"] = false
+	sound_at("death",person)
 	agent_ai.on_death(self, person)
 	var town: Dictionary = get_town(int(person["town"]))
 	if not town.is_empty() and int(town["leader"]) == int(person["id"]):
@@ -581,6 +590,7 @@ func load_world() -> bool:
 		resource_drops=value.get("resource_drops",[])
 		swamp_clock=float(value.get("swamp_clock",0))
 		magic_bolts.clear()
+		sound_events.clear()
 		wildlife = value.get("wildlife",[])
 		sites = value.get("sites",[])
 		rivers_v58=bool(value.get("rivers_v58",false))
@@ -661,6 +671,7 @@ func cut_tree(actor: Dictionary, x: int,y: int) -> bool:
 		resource_drops.append({"id":new_id(),"source":-1,"x":float(x),"y":float(y),"items":{"fiber":2},"remaining":180.0})
 	if actor.has("town"): gain_xp(actor,3.0,"trabalho")
 	tree_revision+=1
+	sound_at("wood",actor)
 	news=str(actor["name"])+" derrubou uma arvore e recolheu 3 madeiras."
 	return true
 
@@ -777,6 +788,9 @@ func _update_wildlife(dt:float) -> void:
 		animal["breed_timer"]=maxf(0,float(animal.get("breed_timer",rng.randf_range(90,200)))-dt)
 		if float(animal["timer"])<=0:
 			_choose_animal_action(animal,p,kind)
+			if int(swamp_clock*10+float(animal["id"]))%7==0:
+				var effect:String=str({"chicken":"chicken","duck":"duck","frog":"frog","heron":"bird","deer":"animal","boar":"animal","crocodile":"growl","fox":"animal","camel":"animal"}.get(species,""))
+				if not effect.is_empty(): sound_at(effect,animal)
 		var state:String=str(animal.get("state","Andando"))
 		var goal:=Vector2(float(animal["tx"]),float(animal["ty"]))
 		var pace:float=float({"chicken":0.35,"deer":0.65,"rabbit":0.72,"frog":0.48,"capybara":0.37,"heron":0.60,"camel":0.48,"lizard":0.45,"snow_hare":0.72,"crocodile":0.52,"turtle":0.19,"duck":0.54,"boar":0.58,"fox":0.68}.get(species,0.42))
@@ -1056,6 +1070,7 @@ func transport_job(p:Dictionary,town:Dictionary) -> bool:
 			if pos.distance_to(goal)<0.65:
 				var key:String=str(cargo["kind"])
 				project["delivered"][key]=float(project["delivered"].get(key,0))+float(cargo["amount"])
+				sound_at("deposit",p)
 				gain_xp(p,2.0+float(cargo["amount"])*0.4,"trabalho")
 				p["cargo"]={}
 				p["task"]="Construindo"
@@ -1066,6 +1081,7 @@ func transport_job(p:Dictionary,town:Dictionary) -> bool:
 		if pos.distance_to(storage_pos)<0.65:
 			var key:String=str(cargo["kind"])
 			store_resource(town,storage_key,key,float(cargo["amount"]))
+			sound_at("deposit",p)
 			gain_xp(p,2.0+float(cargo["amount"])*0.4,"trabalho")
 			p["cargo"]={}
 		return true
@@ -1110,6 +1126,8 @@ func collect_cargo(p:Dictionary,kind:String,amount:float) -> bool:
 	var limit:float=minf(amount,floorf(free_load(p)/resource_weight(kind)))
 	if limit<=0: return false
 	p["cargo"]={"kind":kind,"amount":limit}
+	var effect:String=str({"stone":"mine","ore":"mine","fish":"fish","food":"harvest","meat":"pickup","wood":"pickup"}.get(kind,"pickup"))
+	sound_at(effect,p)
 	return true
 
 func add_resource(p:Dictionary,kind:String,amount:int) -> bool:
@@ -1320,8 +1338,10 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 			person["military_cd"]=(1.8 if ranged else 1.1)*maxf(0.75,1.0-float(person.get("war_xp",0))*0.001)
 			if ranged:
 				person["ammo"]=int(person["ammo"])-1
+				sound_at("bow",person)
 				magic_bolts.append({"x":pos.x,"y":pos.y,"target":enemy["id"],"kind":"human","life":3.0,"damage":attack_damage(person),"caster":person["id"],"arrow":true})
 			else:
+				sound_at("sword" if str(person.get("weapon_kind",""))=="sword" else "hit",person)
 				_swamp_damage(enemy,attack_damage(person))
 				gain_xp(person,2.0 if bool(enemy["alive"]) else 12.0,"combate")
 				gain_war_xp(person,town,2.0 if bool(enemy["alive"]) else 10.0)
@@ -1331,6 +1351,7 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 func begin_campaign(attacker:Dictionary,defender:Dictionary) -> bool:
 	if kingdom_id(attacker)==kingdom_id(defender) or int(attacker.get("raid_target",0))>0 or int(attacker.get("siege_by",0))>0 or int(defender.get("siege_by",0))>0 or int(defender.get("raid_target",0))>0: return false
 	if army_members(attacker,false).is_empty(): return false
+	sound_at("war",attacker)
 	attacker["raid_target"]=defender["id"]
 	defender["siege_by"]=attacker["id"]
 	news=str(attacker["name"])+" enviou seu exercito contra "+str(defender["name"])+"."
@@ -1360,6 +1381,7 @@ func annex_town(attacker:Dictionary,defender:Dictionary) -> void:
 	loot_stock(attacker,defender)
 	for veteran in army_members(attacker,false): gain_war_xp(veteran,attacker,12.0)
 	attacker["victories"]=int(attacker.get("victories",0))+1
+	sound_at("complete",defender)
 	for town in towns:
 		if kingdom_id(town)==old_kingdom:
 			town["kingdom"]=new_kingdom
@@ -1519,6 +1541,7 @@ func spawn_creature(species:String,point:Vector2) -> bool:
 			person["specialty_v57"]=true
 			choose_successor(town,0)
 			town["merit_election"]=true
+		sound_event("spawn",p)
 		news="%s chegou a %s."%[person["name"],town["name"]]
 		return true
 	if wildlife.size()+beasts.size()>=160:
@@ -1536,6 +1559,7 @@ func spawn_creature(species:String,point:Vector2) -> bool:
 			news="Este animal precisa de um bioma compativel."
 			return false
 		wildlife.append({"id":100000+new_id(),"species":species,"x":p.x,"y":p.y,"tx":p.x,"ty":p.y,"timer":0.2,"hunger":15.0,"breed_timer":120.0,"state":"Explorando"})
+	sound_event("spawn",p)
 	if species in ["wolf","bear"]: init_animal_health(beasts.back())
 	else: init_animal_health(wildlife.back())
 	news=str(SPAWN_NAMES[species])+" criado no mapa."
@@ -1624,6 +1648,7 @@ func strike_witch(person:Dictionary) -> bool:
 	if float(swamp_witch["health"])<=0:
 		swamp_witch["alive"]=false
 		swamp_witch["killer"]=int(person["id"])
+		sound_at("complete",person)
 		person["witch_staff"]=true
 		person["staff_cd"]=0.0
 		gain_xp(person,150.0,"combate")
@@ -1659,6 +1684,7 @@ func cast_staff(person:Dictionary) -> bool:
 	if target_id<0: return false
 	magic_bolts.append({"x":p.x+0.22,"y":p.y-0.15,"target":target_id,"kind":target_kind,"life":4.0,"damage":24.0,"caster":int(person["id"])})
 	person["staff_cd"]=4.5
+	sound_at("magic",person)
 	return true
 
 func _update_swamp(dt:float,controlled_id:int=0) -> void:
@@ -1678,6 +1704,7 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 		var target:Dictionary=_swamp_human(p,3.8)
 		if not target.is_empty() and float(witch["cast"])<=0:
 			magic_bolts.append({"x":p.x+0.22,"y":p.y-0.15,"target":target["id"],"kind":"human","life":4.0,"damage":24.0})
+			sound_at("magic",witch)
 			witch["cast"]=4.5
 			witch["state"]="Lancando magia"
 		elif target.is_empty():
@@ -1695,6 +1722,7 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 			witch["summon"]=18.0
 			if swamp_spiders.size()<7:
 				var q:Vector2=_swamp_target(p,1.3)
+				sound_at("summon",witch)
 				swamp_spiders.append({"id":new_id(),"x":q.x,"y":q.y,"tx":q.x,"ty":q.y,"health":35.0,"timer":0.0,"bite":0.0})
 		for person in people:
 			if int(person["id"])!=controlled_id and bool(person.get("alive",false)) and float(person["age"])>=16 and str(person.get("task",""))=="Combatendo bruxa": strike_witch(person)
@@ -1747,6 +1775,7 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 			if str(bolt["kind"])=="spider": target["health"]=maxf(0,float(target["health"])-float(bolt["damage"]))
 			elif bool(bolt.get("arrow",false)):
 				var hit:float=arrow_damage(target,float(bolt["damage"]))
+				sound_at("shield" if hit<float(bolt["damage"]) else "hit",target)
 				_swamp_damage(target,hit)
 			else: _swamp_damage(target,float(bolt["damage"]))
 			if bolt.has("caster"):
@@ -1829,9 +1858,11 @@ func damage_animal(animal:Dictionary,amount:float) -> bool:
 	if float(animal["health"])<=0:
 		if animal.has("alive"): animal["alive"]=false
 		_drop_animal_resources(animal)
+		sound_at("animal_hurt",animal)
 		return true
 	animal["state"]="Fugindo"
 	animal["timer"]=0.0
+	sound_at("animal_hurt",animal)
 	return false
 
 func hunt_animal(person:Dictionary,animal:Dictionary) -> bool:
@@ -2118,7 +2149,9 @@ func crafting_job(person:Dictionary,town:Dictionary,step:float) -> bool:
 	if Vector2(float(person["x"]),float(person["y"])).distance_to(pos)<0.65:
 		job["progress"]=float(job["progress"])+step
 		if float(job["progress"])>=(12.0 if item in ["metal","sword","iron_pickaxe","iron_shield"] else 5.0):
-			if craft_item(town,item): gain_xp(person,5.0,"trabalho")
+			if craft_item(town,item):
+				sound_at("forge" if item in ["metal","sword","iron_pickaxe","iron_shield"] else "build",person)
+				gain_xp(person,5.0,"trabalho")
 			town["craft_job"]={}
 	return true
 
@@ -2154,3 +2187,9 @@ func arrow_damage(person:Dictionary,damage:float) -> float:
 		var town:Dictionary=get_town(int(person["town"]))
 		if not town.is_empty() and army_tactics(town)>=2 and not nearby_shield(person,town,0.9).is_empty(): reduction=0.20
 	return maxf(1.0,damage*(1.0-reduction))
+
+func sound_event(kind:String,pos:Vector2) -> void:
+	if sound_events.size()<80: sound_events.append({"kind":kind,"position":pos})
+
+func sound_at(kind:String,entity:Dictionary) -> void:
+	if entity.has("x") and entity.has("y"): sound_event(kind,Vector2(float(entity["x"]),float(entity["y"])))
