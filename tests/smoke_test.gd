@@ -37,6 +37,10 @@ func _run_tests() -> void:
 	var craft_town:Dictionary={"id":777,"x":5,"y":5,"houses":1,"level":1,"wood":20.0,"stone":5.0,"fiber":2.0,"forge":false}
 	_check(not world.craft_item(craft_town,"sword"),"Espada nao existe antes da forja")
 	_check(world.craft_item(craft_town,"spear") and float(craft_town["spear"])==1,"Lanca produzida e armazenada")
+	_check(not world.craft_item(craft_town,"wood_shield"),"Escudo exige materiais")
+	var defender:Dictionary={"shield_kind":"wood_shield","war_xp":100.0}
+	_check(world.arrow_damage(defender,20.0)<world.arrow_damage({},20.0),"Escudo reduz dano de flecha")
+	_check(world.arrow_damage({"shield_kind":"iron_shield","war_xp":100.0},20.0)<world.arrow_damage(defender,20.0),"Escudo de ferro protege mais")
 	_check(not world.craft_item(craft_town,"bow"),"Arco exige corda")
 	_check(world.craft_item(craft_town,"cord") and world.craft_item(craft_town,"bow"),"Fibra vira corda e arco")
 	_check(world.craft_item(craft_town,"pickaxe"),"Picareta primitiva fabricada")

@@ -1387,6 +1387,8 @@ func _show_details() -> void:
 			lines.append("Diplomacia: %d | Inteligencia: %d | Agressividade: %d" % [int(p["diplomacy"]),int(p["intelligence"]),int(p["aggression"])])
 			lines.append("Armadura: nivel %d | Arma: nivel %d | Ferramenta: nivel %d" % [int(p.get("armor",0)),int(p.get("weapon",0)),int(p.get("tool",0))])
 			if p.has("armor_material"): lines.append("Material: "+str(World.RESOURCE_NAMES.get(str(p["armor_material"]),p["armor_material"])))
+			if world.is_military(p): lines.append("Experiencia de guerra: %.0f / 250"%float(p.get("war_xp",0)))
+			if p.has("shield_kind"): lines.append("Escudo: "+str(World.RESOURCE_NAMES.get(p["shield_kind"],p["shield_kind"])))
 			if p.has("weapon_kind"): lines.append("Arma: "+str(World.RESOURCE_NAMES.get(p["weapon_kind"],p["weapon_kind"])))
 			if p.has("tool_kind"): lines.append("Ferramenta: "+str(World.RESOURCE_NAMES.get(p["tool_kind"],p["tool_kind"])))
 			if str(p.get("weapon_kind",""))=="bow": lines.append("Flechas: "+str(int(p.get("ammo",0))))
@@ -1408,6 +1410,7 @@ func _show_details() -> void:
 			lines.append("Populacao: %d / %d vagas" % [world.active_population(selected_town_id),world.housing_capacity(town)])
 			var kingdom:Dictionary=world.get_town(world.kingdom_id(town))
 			lines.append("Reino: "+str(kingdom.get("name",town["name"])))
+			lines.append("Experiencia militar: %.0f | Vitorias: %d | Doutrina: %s"%[float(town.get("war_xp",0)),int(town.get("victories",0)),["Basica","Coordenada","Veterana"][world.army_tactics(town)]])
 			var counts:Dictionary={"royal":0,"soldier":0,"archer":0,"general":0}
 			for soldier in world.army_members(town): counts[soldier["military_role"]]+=1
 			lines.append("Escolta: %d | Guerreiros: %d | Arqueiros: %d | Generais: %d"%[counts["royal"],counts["soldier"],counts["archer"],counts["general"]])
@@ -1509,6 +1512,13 @@ func _draw_equipment(p:Dictionary,c:Vector2,s:float,bounce:float) -> void:
 		draw_rect(Rect2(c+Vector2(-s*0.20,-s*0.57-bounce),Vector2(s*0.08,s*0.50)),Color("#bba05a"))
 	elif str(p.get("military_role",""))=="general":
 		draw_rect(Rect2(c+Vector2(-s*0.20,-s*0.35-bounce),Vector2(s*0.08,s*0.55)),Color("#9c443b"))
+	var shield:String=str(p.get("shield_kind",""))
+	if not shield.is_empty():
+		var shield_pos:Vector2=c+Vector2(-s*0.26,-s*0.20-bounce)
+		var shield_color:Color=Color("#aeb7be") if shield=="iron_shield" else Color("#9e7445")
+		draw_circle(shield_pos,s*0.19,Color("#4f4235"))
+		draw_circle(shield_pos,s*0.15,shield_color)
+		draw_circle(shield_pos,s*0.05,Color("#dfc797"))
 	if str(p.get("weapon_kind",""))=="bow":
 		var grip:Vector2=c+Vector2(s*0.29,-s*0.20-bounce)
 		draw_arc(grip,s*0.25,-PI*0.5,PI*0.5,8,Color("#b18b52"),maxf(1.0,s*0.045))
@@ -1600,8 +1610,14 @@ func _draw_swamp_creatures() -> void:
 	for bolt in world.magic_bolts:
 		var p:Vector2=_world_to_screen(Vector2(float(bolt["x"])+0.5,float(bolt["y"])+0.5))
 		if MAP_AREA.grow(-12).has_point(p):
-			draw_rect(Rect2(p-Vector2.ONE*5*zoom,Vector2.ONE*10*zoom),Color("#a26edd",0.3))
-			draw_rect(Rect2(p-Vector2.ONE*2*zoom,Vector2.ONE*4*zoom),Color("#ebd1ff"))
+			if bool(bolt.get("arrow",false)):
+				var target:Dictionary=world.get_person(int(bolt["target"]))
+				if not target.is_empty():
+					var direction:Vector2=(_world_to_screen(Vector2(float(target["x"])+0.5,float(target["y"])+0.5))-p).normalized()
+					draw_line(p-direction*7*zoom,p+direction*3*zoom,Color("#c7a16b"),1.5)
+			else:
+				draw_rect(Rect2(p-Vector2.ONE*5*zoom,Vector2.ONE*10*zoom),Color("#a26edd",0.3))
+				draw_rect(Rect2(p-Vector2.ONE*2*zoom,Vector2.ONE*4*zoom),Color("#ebd1ff"))
 
 func _draw_selected_life(person:Dictionary,center:Vector2) -> void:
 	var bar:=Rect2(center+Vector2(-15,-29)*zoom,Vector2(30,4)*zoom)

@@ -1009,7 +1009,7 @@ func _seed_extra_animals() -> void:
 	ecology_v60=true
 
 func resource_weight(kind:String) -> float:
-	return float({"wood":2.0,"stone":3.0,"ore":3.0,"metal":3.0,"food":1.0,"water":1.0,"fish":1.0,"meat":1.0,"hide":1.0,"croc_hide":1.5,"feather":0.15,"bone":0.7,"shell":1.5,"fiber":0.2,"cord":0.4,"club":2.0,"spear":2.0,"bow":1.0,"sword":3.0,"pickaxe":3.0,"iron_pickaxe":4.0,"arrows":0.1,"hoe":3.0,"axe":2.0,"rod":1.0}.get(kind,1.0))
+	return float({"wood":2.0,"stone":3.0,"ore":3.0,"metal":3.0,"food":1.0,"water":1.0,"fish":1.0,"meat":1.0,"hide":1.0,"croc_hide":1.5,"feather":0.15,"bone":0.7,"shell":1.5,"fiber":0.2,"cord":0.4,"club":2.0,"spear":2.0,"bow":1.0,"sword":3.0,"pickaxe":3.0,"iron_pickaxe":4.0,"arrows":0.1,"hoe":3.0,"axe":2.0,"rod":1.0,"wood_shield":3.0,"iron_shield":5.0}.get(kind,1.0))
 
 func load_capacity(p:Dictionary) -> float:
 	var base:float=22.0
@@ -1275,17 +1275,26 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 	elif not enemy_town.is_empty() and kingdom_id(enemy_town)!=kingdom_id(town):
 		var invading:bool=int(town.get("raid_target",0))==int(enemy_town["id"])
 		var best:float=1000.0
+		var tactics:int=army_tactics(town)
 		for other in army_members(enemy_town):
 			if not invading and Vector2(float(other["x"]),float(other["y"])).distance_to(origin)>5.0: continue
 			var q:=Vector2(float(other["x"]),float(other["y"]))
 			var distance:float=pos.distance_to(q)
-			if distance<best:
-				best=distance
+			var priority:float=distance
+			if tactics>=1 and not str(person.get("shield_kind","")).is_empty() and str(other.get("military_role",""))=="archer": priority*=0.6
+			if priority<best:
+				best=priority
 				enemy=other
 		goal=Vector2(float(enemy_town["x"]),float(enemy_town["y"])) if invading else origin
 		if not enemy.is_empty():
 			goal=Vector2(float(enemy["x"]),float(enemy["y"]))
-			if role=="archer" and str(person.get("weapon_kind",""))=="bow" and int(person.get("ammo",0))>0 and best<2.0: goal=pos
+			var distance:float=pos.distance_to(goal)
+			if role=="archer" and str(person.get("weapon_kind",""))=="bow" and int(person.get("ammo",0))>0 and distance<2.0: goal=pos
+			elif tactics>=1 and role=="archer":
+				var escort:Dictionary=nearby_shield(person,town,3.0)
+				if not escort.is_empty():
+					var front:=Vector2(float(escort["x"]),float(escort["y"]))
+					goal=front+(front-goal).normalized()*0.7
 		_set_delivery_goal(person,goal,"Marchando para conquista" if invading else "Defendendo aldeia")
 	else:
 		var angle:float=float(slot)*2.39996+day*0.035
@@ -1308,13 +1317,14 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 		var d:float=pos.distance_to(Vector2(float(enemy["x"]),float(enemy["y"])))
 		var ranged:bool=role=="archer" and str(person.get("weapon_kind",""))=="bow" and int(person.get("ammo",0))>0
 		if d<(2.2 if ranged else 0.9):
-			person["military_cd"]=1.8 if ranged else 1.1
+			person["military_cd"]=(1.8 if ranged else 1.1)*maxf(0.75,1.0-float(person.get("war_xp",0))*0.001)
 			if ranged:
 				person["ammo"]=int(person["ammo"])-1
 				magic_bolts.append({"x":pos.x,"y":pos.y,"target":enemy["id"],"kind":"human","life":3.0,"damage":attack_damage(person),"caster":person["id"],"arrow":true})
 			else:
 				_swamp_damage(enemy,attack_damage(person))
 				gain_xp(person,2.0 if bool(enemy["alive"]) else 12.0,"combate")
+				gain_war_xp(person,town,2.0 if bool(enemy["alive"]) else 10.0)
 			person["task"]="Defendendo governante" if role=="royal" else "Combatendo inimigo"
 	town["morale"]=minf(100,float(town.get("morale",60))+step*0.08)
 
@@ -1348,6 +1358,8 @@ func annex_town(attacker:Dictionary,defender:Dictionary) -> void:
 	var new_kingdom:int=kingdom_id(attacker)
 	if old_kingdom==new_kingdom: return
 	loot_stock(attacker,defender)
+	for veteran in army_members(attacker,false): gain_war_xp(veteran,attacker,12.0)
+	attacker["victories"]=int(attacker.get("victories",0))+1
 	for town in towns:
 		if kingdom_id(town)==old_kingdom:
 			town["kingdom"]=new_kingdom
@@ -1395,6 +1407,14 @@ func equip_worker(town:Dictionary,p:Dictionary) -> void:
 			town["metal"]=float(town["metal"])-4
 			p["armor"]=target
 			p["armor_material"]="metal"
+		if str(p.get("military_role",""))!="archer":
+			var shield:String=str(p.get("shield_kind",""))
+			for item in ["iron_shield","wood_shield"]:
+				if shield==item: break
+				if not take_equipment(town,p,item): continue
+				if not shield.is_empty(): store_resource(town,preferred_storage(town,shield,p),shield,1)
+				p["shield_kind"]=item
+				break
 		var kind:String=str(p.get("weapon_kind",""))
 		var desired:Array=["bow","spear","club"] if str(p.get("military_role",""))=="archer" else ["sword","spear","club"]
 		for item in desired:
@@ -1725,10 +1745,17 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 		bolt["y"]=q.y
 		if q.distance_to(goal)<0.18:
 			if str(bolt["kind"])=="spider": target["health"]=maxf(0,float(target["health"])-float(bolt["damage"]))
+			elif bool(bolt.get("arrow",false)):
+				var hit:float=arrow_damage(target,float(bolt["damage"]))
+				_swamp_damage(target,hit)
 			else: _swamp_damage(target,float(bolt["damage"]))
 			if bolt.has("caster"):
 				var caster:Dictionary=get_person(int(bolt["caster"]))
-				if not caster.is_empty() and bool(caster["alive"]): gain_xp(caster,12.0 if float(target["health"])<=0 else 3.0,"combate")
+				if not caster.is_empty() and bool(caster["alive"]):
+					gain_xp(caster,12.0 if float(target["health"])<=0 else 3.0,"combate")
+					if bool(bolt.get("arrow",false)):
+						var home:Dictionary=get_town(int(caster["town"]))
+						if not home.is_empty(): gain_war_xp(caster,home,10.0 if float(target["health"])<=0 else 2.0)
 			magic_bolts.remove_at(i)
 
 func xp_required(person:Dictionary) -> float:
@@ -1818,7 +1845,7 @@ func hunt_animal(person:Dictionary,animal:Dictionary) -> bool:
 		collect_nearby_drop(person)
 	return true
 
-const RESOURCE_NAMES:Dictionary={"wood":"Madeira","stone":"Pedra","ore":"Minerio","metal":"Metal","food":"Comida","water":"Agua","fish":"Peixe","meat":"Carne","hide":"Couro","croc_hide":"Couro de crocodilo","feather":"Penas","bone":"Ossos","shell":"Casco","fiber":"Fibra vegetal","cord":"Corda","club":"Bastao","spear":"Lanca tribal","bow":"Arco","sword":"Espada de ferro","pickaxe":"Picareta de pedra","iron_pickaxe":"Picareta de ferro","arrows":"Flechas","hoe":"Enxada","axe":"Machado","rod":"Vara de pesca"}
+const RESOURCE_NAMES:Dictionary={"wood":"Madeira","stone":"Pedra","ore":"Minerio","metal":"Metal","food":"Comida","water":"Agua","fish":"Peixe","meat":"Carne","hide":"Couro","croc_hide":"Couro de crocodilo","feather":"Penas","bone":"Ossos","shell":"Casco","fiber":"Fibra vegetal","cord":"Corda","club":"Bastao","spear":"Lanca tribal","bow":"Arco","sword":"Espada de ferro","pickaxe":"Picareta de pedra","iron_pickaxe":"Picareta de ferro","arrows":"Flechas","hoe":"Enxada","axe":"Machado","rod":"Vara de pesca","wood_shield":"Escudo de madeira","iron_shield":"Escudo de ferro"}
 
 func animal_loot(species:String) -> Dictionary:
 	match species:
@@ -1950,6 +1977,8 @@ func loot_stock(attacker:Dictionary,defender:Dictionary) -> Dictionary:
 # Receitas abstratas de jogo; materiais e produtos fazem parte do estoque.
 const CRAFT_RECIPES:Dictionary={
 	"club":{"wood":2},
+	"wood_shield":{"wood":3,"hide":1},
+	"iron_shield":{"wood":2,"metal":2},
 	"spear":{"wood":2,"stone":1},
 	"cord":{"fiber":2},
 	"bow":{"wood":2,"cord":1},
@@ -1965,7 +1994,7 @@ const CRAFT_RECIPES:Dictionary={
 
 func craft_allowed(town:Dictionary,item:String) -> bool:
 	if not CRAFT_RECIPES.has(item): return false
-	if item in ["metal","sword","iron_pickaxe"] and (not bool(town.get("forge",false)) or int(town["level"])<3): return false
+	if item in ["metal","sword","iron_pickaxe","iron_shield"] and (not bool(town.get("forge",false)) or int(town["level"])<3): return false
 	if item in ["cord","bow","arrows","rod"] and int(town["level"])<1: return false
 	for material in CRAFT_RECIPES[item].keys():
 		if float(town.get(material,0))<float(CRAFT_RECIPES[item][material]): return false
@@ -2004,6 +2033,18 @@ func equipment_job(person:Dictionary,town:Dictionary) -> bool:
 			"Pescador": wanted=["rod"]
 	var current:String=str(person.get("weapon_kind","")) if is_military(person) else str(person.get("tool_kind",""))
 	var stocks:Dictionary=building_stocks(town)
+	if is_military(person) and str(person.get("military_role",""))!="archer":
+		var shield:String=str(person.get("shield_kind",""))
+		for item in ["iron_shield","wood_shield"]:
+			if shield==item: break
+			for key in stocks.keys():
+				if float(stocks[key].get(item,0))<1: continue
+				var pos:Vector2=storage_position(town,str(key))
+				if Vector2(float(person["x"]),float(person["y"])).distance_to(pos)<=1.4:
+					equip_worker(town,person)
+					return false
+				_set_delivery_goal(person,pos,"Buscando escudo")
+				return true
 	for item in wanted:
 		if current==item: break
 		for key in stocks.keys():
@@ -2028,6 +2069,9 @@ func next_craft(town:Dictionary) -> String:
 			if tool not in ["pickaxe","iron_pickaxe"]: desired.append("pickaxe")
 			elif tool!="iron_pickaxe" and bool(town.get("forge",false)): desired.append("iron_pickaxe")
 		elif is_military(person):
+			if str(person.get("military_role",""))!="archer" and not weapon.is_empty():
+				if str(person.get("shield_kind","")).is_empty(): desired.append("wood_shield")
+				if bool(town.get("forge",false)) and str(person.get("shield_kind",""))!="iron_shield": desired.append("iron_shield")
 			if str(person.get("military_role",""))=="archer":
 				if weapon!="bow":
 					bow_needed=true
@@ -2069,11 +2113,44 @@ func crafting_job(person:Dictionary,town:Dictionary,step:float) -> bool:
 	if not craft_allowed(town,item):
 		town["craft_job"]={}
 		return false
-	var pos:Vector2=workshop_position(town,"forge" if item in ["metal","sword","iron_pickaxe"] else "campfire")
+	var pos:Vector2=workshop_position(town,"forge" if item in ["metal","sword","iron_pickaxe","iron_shield"] else "campfire")
 	_set_delivery_goal(person,pos,"Fabricando "+str(RESOURCE_NAMES[item]))
 	if Vector2(float(person["x"]),float(person["y"])).distance_to(pos)<0.65:
 		job["progress"]=float(job["progress"])+step
-		if float(job["progress"])>=(12.0 if item in ["metal","sword","iron_pickaxe"] else 5.0):
+		if float(job["progress"])>=(12.0 if item in ["metal","sword","iron_pickaxe","iron_shield"] else 5.0):
 			if craft_item(town,item): gain_xp(person,5.0,"trabalho")
 			town["craft_job"]={}
 	return true
+
+func gain_war_xp(person:Dictionary,town:Dictionary,amount:float) -> void:
+	person["war_xp"]=minf(250.0,float(person.get("war_xp",0))+amount)
+	town["war_xp"]=minf(1000.0,float(town.get("war_xp",0))+amount)
+
+func army_tactics(town:Dictionary) -> int:
+	var xp:float=float(town.get("war_xp",0))
+	if int(town.get("level",1))>=3 and xp>=100: return 2
+	if xp>=20 or int(town.get("level",1))>=2: return 1
+	return 0
+
+func nearby_shield(person:Dictionary,town:Dictionary,radius:float) -> Dictionary:
+	var pos:=Vector2(float(person["x"]),float(person["y"]))
+	var nearest:Dictionary={}
+	var best:float=radius
+	for ally in army_members(town,false):
+		if int(ally["id"])==int(person["id"]) or str(ally.get("shield_kind","")).is_empty(): continue
+		var d:float=pos.distance_to(Vector2(float(ally["x"]),float(ally["y"])))
+		if d<best:
+			best=d
+			nearest=ally
+	return nearest
+
+func arrow_damage(person:Dictionary,damage:float) -> float:
+	var shield:String=str(person.get("shield_kind",""))
+	var reduction:float=0.0
+	if shield=="wood_shield": reduction=0.35
+	elif shield=="iron_shield": reduction=0.55
+	if reduction>0: reduction=minf(0.8,reduction+float(person.get("war_xp",0))*0.001)
+	elif is_military(person):
+		var town:Dictionary=get_town(int(person["town"]))
+		if not town.is_empty() and army_tactics(town)>=2 and not nearby_shield(person,town,0.9).is_empty(): reduction=0.20
+	return maxf(1.0,damage*(1.0-reduction))
