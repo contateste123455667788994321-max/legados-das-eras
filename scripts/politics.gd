@@ -112,11 +112,9 @@ func _raid(sim, a: Dictionary, b: Dictionary) -> void:
 	var attack_score: float = float(attackers) * sim.rng.randf_range(0.7, 1.3) + float(attacker.get("morale", 50)) * 0.05
 	var defense_score: float = float(defenders) * sim.rng.randf_range(0.7, 1.3) + float(defender.get("morale", 50)) * 0.05
 	if attack_score > defense_score:
-		var loot: float = minf(float(defender["food"]), sim.rng.randf_range(2.0, 7.0))
-		defender["food"] = maxf(0.0, float(defender["food"]) - loot)
-		attacker["food"] = float(attacker["food"]) + loot
+		var loot:Dictionary=sim.loot_stock(attacker,defender)
 		defender["morale"] = maxf(0.0, float(defender.get("morale", 60.0)) - 8.0)
-		sim.news = "%s saqueou alimentos de %s." % [attacker["name"], defender["name"]]
+		sim.news = "%s saqueou recursos de %s (%d tipos)." % [attacker["name"], defender["name"],loot.size()]
 	else:
 		attacker["morale"] = maxf(0.0, float(attacker.get("morale", 60.0)) - 4.0)
 		sim.news = "%s resistiu a um ataque de %s." % [defender["name"], attacker["name"]]

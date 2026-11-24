@@ -456,6 +456,7 @@ func _draw() -> void:
 		if float(animal.get("health",1))<=0: continue
 		var p: Vector2 = _world_to_screen(Vector2(float(animal["x"])+0.5,float(animal["y"])+0.5))
 		_draw_landscape_object(str(animal["species"]),p,zoom*(32.0 if str(animal["species"]) in ["deer","camel","crocodile"] else (24.0 if str(animal["species"]) in ["capybara","heron","boar","fox"] else 17.0)))
+	_draw_resource_drops()
 	_draw_swamp_creatures()
 	# Personagens separados visualmente por idade e aparencia.
 	for p in world.people:
@@ -843,6 +844,7 @@ func _touch_map(position: Vector2) -> void:
 		selected_person_id = 0
 		selected_town_id = 0
 	else:
+		if controlled_id==0 and _inspect_building(point-Vector2(0.5,0.5)): return
 		# Um toque na casa deve abrir sua ficha, mesmo quando um personagem ja esta sob controle.
 		var near_town: Dictionary = {}
 		for t in world.towns:
@@ -1247,7 +1249,7 @@ func _character_action() -> void:
 	var biome: String = str(world.tiles[py][px])
 	var facing := Vector2(-sin(look_yaw),-cos(look_yaw))
 	var origin := Vector2(float(actor["x"]),float(actor["y"]))
-	if world.cast_staff(actor) or world.strike_witch(actor):
+	if world.collect_nearby_drop(actor) or world.cast_staff(actor) or world.strike_witch(actor):
 		world.save_world()
 		_refresh_ui()
 		return
@@ -1335,6 +1337,14 @@ func _show_inventory() -> void:
 			var stock := Label.new()
 			stock.text = "Estoque da aldeia (separado da mochila)\nMadeira: %d   Comida: %d   Agua: %d" % [int(town.get("wood", 0)), int(town.get("food", 0)), int(town.get("water", 0))]
 			content.add_child(stock)
+			var extra:=Label.new()
+			var extra_lines:Array[String]=[]
+			for key in ["meat","hide","croc_hide","feather","bone","shell"]:
+				if float(actor.get(key,0))>0: extra_lines.append(str(World.RESOURCE_NAMES[key])+": "+str(actor[key]))
+			var cargo:Dictionary=actor.get("cargo",{})
+			if not cargo.is_empty(): extra_lines.append("Carga: "+str(World.RESOURCE_NAMES.get(cargo["kind"],cargo["kind"]))+" "+str(cargo["amount"]))
+			extra.text=" | ".join(extra_lines)
+			content.add_child(extra)
 			var transport:=Label.new()
 			transport.text="Transporte: "+str({"hands":"Maos","basket":"Cesta","cart":"Carrinho"}.get(str(actor.get("transport","hands")),"Maos"))
 			content.add_child(transport)
@@ -1372,6 +1382,7 @@ func _show_details() -> void:
 			lines.append("Forca: %.0f | Dano: %.1f | Defesa: %.0f" % [world.strength(p),world.attack_damage(p),world.defense(p)])
 			lines.append("Diplomacia: %d | Inteligencia: %d | Agressividade: %d" % [int(p["diplomacy"]),int(p["intelligence"]),int(p["aggression"])])
 			lines.append("Armadura: nivel %d | Arma: nivel %d | Ferramenta: nivel %d" % [int(p.get("armor",0)),int(p.get("weapon",0)),int(p.get("tool",0))])
+			if p.has("armor_material"): lines.append("Material: "+str(World.RESOURCE_NAMES.get(str(p["armor_material"]),p["armor_material"])))
 			lines.append("Saciedade: %d%%" % int(100-float(p.get("needs",{}).get("hunger",0))))
 			if bool(p.get("witch_staff",false)): lines.append("Artefato unico: Cajado do brejo | Magia 24 | Recarga 4,5s")
 			var father: Dictionary = world.get_person(int(p["father"]))
@@ -1473,6 +1484,8 @@ func _draw_equipment(p:Dictionary,c:Vector2,s:float,bounce:float) -> void:
 	var weapon:int=clampi(int(p.get("weapon",0)),0,4)
 	var tool:int=clampi(int(p.get("tool",0)),0,4)
 	var colors:Array[Color]=[Color("#705338"),Color("#956139"),Color("#ad8c56"),Color("#9ba6ad"),Color("#c7cdd0")]
+	if str(p.get("armor_material",""))=="croc_hide": colors[armor]=Color("#627b40")
+	elif str(p.get("armor_material",""))=="bone": colors[armor]=Color("#d5c5a0")
 	if armor>0:
 		var torso:Vector2=c+Vector2(-s*0.13,-s*0.35-bounce)
 		draw_rect(Rect2(torso,Vector2(s*0.26,s*0.29)),Color("#443b30"))
@@ -1609,3 +1622,46 @@ func _show_animal_card(animal:Dictionary) -> void:
 	dialog.confirmed.connect(dialog.queue_free)
 	dialog.canceled.connect(dialog.queue_free)
 	dialog.popup_centered(Vector2i(430,280))
+
+func _draw_resource_drops() -> void:
+	for drop in world.resource_drops:
+		if drop["items"].is_empty(): continue
+		var center:Vector2=_world_to_screen(Vector2(float(drop["x"])+0.5,float(drop["y"])+0.5))
+		if not MAP_AREA.grow(-12*zoom).has_point(center): continue
+		var i:int=0
+		for key in drop["items"].keys():
+			var color:Color=Color("#d8c9a3")
+			match str(key):
+				"meat": color=Color("#b85c50")
+				"croc_hide": color=Color("#71894b")
+				"hide": color=Color("#a17b4b")
+				"feather": color=Color("#e4dbca")
+				"shell": color=Color("#7c7750")
+			var q:=center+Vector2(float(i%3)*5-5,float(i/3)*5)*zoom
+			draw_rect(Rect2(q,Vector2(5,4)*zoom),Color("#48372a"))
+			draw_rect(Rect2(q,Vector2(4,3)*zoom),color)
+			i+=1
+
+func _inspect_building(point:Vector2) -> bool:
+	for town in world.towns:
+		var stocks:Dictionary=world.building_stocks(town)
+		for key in stocks.keys():
+			if key=="camp": continue
+			if point.distance_to(world.storage_position(town,str(key)))>(1.25 if key=="castle" else 0.60): continue
+			var dialog:=AcceptDialog.new()
+			dialog.title="Castelo" if key=="castle" else "Casa "+str(int(str(key).trim_prefix("house_"))+1)
+			var lines:Array[String]=[str(town["name"]),"Estoque desta construcao"]
+			if key!="castle":
+				var levels:Array=world.house_levels(town)
+				lines.append("Nivel "+str(levels[int(str(key).trim_prefix("house_"))]))
+			var stock:Dictionary=stocks[key]
+			for kind in World.RESOURCE_NAMES.keys():
+				if float(stock.get(kind,0))>0: lines.append(str(World.RESOURCE_NAMES[kind])+": "+str(snappedf(float(stock[kind]),0.1)))
+			if lines.size()==(2 if key=="castle" else 3): lines.append("Estoque vazio")
+			dialog.dialog_text="\n".join(lines)
+			add_child(dialog)
+			dialog.confirmed.connect(dialog.queue_free)
+			dialog.canceled.connect(dialog.queue_free)
+			dialog.popup_centered(Vector2i(440,400))
+			return true
+	return false

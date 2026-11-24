@@ -132,6 +132,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 		_set_task(sim, p, home, "Descansando", 0.35)
 		return
 	if sim.transport_job(p,home): return
+	if sim.gather_drop_job(p,home): return
 	if float(home["wood"])>=18 and home.get("construction",{}).is_empty() and bool(home.get("campfire",false)):
 		sim.equip_worker(home,p)
 	if float(p["age"])>=16 and bool(home.get("campfire",false)):
@@ -367,7 +368,8 @@ func _hunt(sim,p:Dictionary,home:Dictionary) -> void:
 	var best:Dictionary={}
 	var distance:float=6.0
 	for animal in sim.wildlife:
-		if str(animal["species"]) not in ["rabbit","deer","boar","chicken"] or float(animal.get("health",1))<=0: continue
+		if str(animal["species"]) not in ["rabbit","deer","boar","chicken","capybara","duck","crocodile"] or float(animal.get("health",1))<=0: continue
+		if str(animal["species"])=="crocodile" and not bool(p.get("combat_training",false)): continue
 		var q:=Vector2(float(animal["x"]),float(animal["y"]))
 		if q.distance_to(Vector2(float(home["x"]),float(home["y"])))>5.0: continue
 		var d:float=pos.distance_to(q)

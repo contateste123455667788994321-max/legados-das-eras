@@ -22,6 +22,7 @@ var habitats_v59:bool=false
 var ecology_v60:bool=false
 var swamp_witch:Dictionary={}
 var swamp_spiders:Array=[]
+var resource_drops:Array=[]
 var magic_bolts:Array=[]
 var swamp_clock:float=0.0
 var trees: Dictionary = {}
@@ -53,6 +54,7 @@ func generate_world() -> void:
 	wildlife.clear()
 	swamp_witch.clear()
 	swamp_spiders.clear()
+	resource_drops.clear()
 	magic_bolts.clear()
 	swamp_clock=0.0
 	sites.clear()
@@ -235,6 +237,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 	day += elapsed_days
 	_update_trees(dt)
 	_update_wildlife(dt)
+	_update_drops(dt)
 	_update_swamp(dt,controlled_id)
 	for t in towns:
 		# Avanco vinculado aos dias do mundo e a geracoes, nao aos quadros por segundo.
@@ -507,7 +510,10 @@ func _predator_attacks(dt: float) -> void:
 			continue
 		for p in people:
 			if bool(p["alive"]) and Vector2(float(b["x"]), float(b["y"])).distance_to(Vector2(float(p["x"]), float(p["y"]))) < 0.75 and rng.randf() < dt * 0.1:
-				p["health"] = float(p["health"]) - maxf(1.0,(14.0 if b["species"] == "Urso" else 8.0)-defense(p))
+				p["health"] = float(p["health"]) - maxf(1.0,animal_damage(b)-defense(p))
+				if float(p["health"])>0 and float(p["age"])>=16 and str(p.get("profession",""))=="Guarda":
+					hunt_animal(p,b)
+					if not bool(b["alive"]): break
 				if float(p["health"]) <= 0.0:
 					kill_person(p)
 
@@ -519,7 +525,7 @@ func save_world() -> bool:
 		"tiles": tiles, "towns": towns, "people": people, "beasts": beasts,
 		"trees": trees, "next_seed_day": next_seed_day,
 		"wildlife": wildlife, "sites": sites, "rivers_v58":rivers_v58, "habitats_v59":habitats_v59, "ecology_v60":ecology_v60,
-		"swamp_witch":swamp_witch,"swamp_spiders":swamp_spiders,"swamp_clock":swamp_clock,
+		"swamp_witch":swamp_witch,"swamp_spiders":swamp_spiders,"swamp_clock":swamp_clock,"resource_drops":resource_drops,
 		"next_id": next_id, "day": day, "next_birth": next_birth,
 		"next_growth": next_growth, "wars": wars, "rivals": rivals, "predators": predators
 	}
@@ -570,6 +576,7 @@ func load_world() -> bool:
 				if _tree_allowed(x,y) and not trees.has(tree_key(x,y)) and rng.randf()<0.55: _plant_tree(x,y,true)
 		swamp_witch=value.get("swamp_witch",{})
 		swamp_spiders=value.get("swamp_spiders",[])
+		resource_drops=value.get("resource_drops",[])
 		swamp_clock=float(value.get("swamp_clock",0))
 		magic_bolts.clear()
 		wildlife = value.get("wildlife",[])
@@ -757,7 +764,9 @@ func _update_wildlife(dt:float) -> void:
 		animal["hunger"]=clampf(float(animal.get("hunger",rng.randf_range(0,35)))+dt*0.48,0,100)
 		if float(animal["hunger"])>=100.0:
 			animal["health"]=maxf(0.0,float(animal["health"])-dt*0.18)
-			if float(animal["health"])<=0.0: continue
+			if float(animal["health"])<=0.0:
+				_drop_animal_resources(animal)
+				continue
 		elif float(animal["hunger"])<30.0:
 			animal["health"]=minf(float(animal["max_health"]),float(animal["health"])+dt*0.16)
 		animal["timer"]=float(animal["timer"])-dt
@@ -786,6 +795,7 @@ func _update_wildlife(dt:float) -> void:
 					animal["attack_cd"]=2.0
 					if damage_animal(prey,animal_damage(animal)):
 						animal["hunger"]=maxf(0,float(animal["hunger"])-45.0)
+						_consume_prey_meat(prey)
 						animal["state"]="Comendo"
 						animal["timer"]=3.0
 					else:
@@ -995,7 +1005,7 @@ func _seed_extra_animals() -> void:
 	ecology_v60=true
 
 func resource_weight(kind:String) -> float:
-	return float({"wood":2.0,"stone":3.0,"ore":3.0,"metal":3.0,"food":1.0,"water":1.0,"fish":1.0,"meat":1.0}.get(kind,1.0))
+	return float({"wood":2.0,"stone":3.0,"ore":3.0,"metal":3.0,"food":1.0,"water":1.0,"fish":1.0,"meat":1.0,"hide":1.0,"croc_hide":1.5,"feather":0.15,"bone":0.7,"shell":1.5}.get(kind,1.0))
 
 func load_capacity(p:Dictionary) -> float:
 	var base:float=22.0
@@ -1005,7 +1015,7 @@ func load_capacity(p:Dictionary) -> float:
 
 func carried_weight(p:Dictionary) -> float:
 	var total:float=0.0
-	for key in ["wood","stone","ore","metal","food","water","fish","meat"]:
+	for key in RESOURCE_NAMES.keys():
 		total+=float(p.get(key,0))*resource_weight(key)
 	var cargo:Dictionary=p.get("cargo",{})
 	if not cargo.is_empty(): total+=float(cargo.get("amount",0))*resource_weight(str(cargo.get("kind","wood")))
@@ -1045,10 +1055,12 @@ func transport_job(p:Dictionary,town:Dictionary) -> bool:
 				p["cargo"]={}
 				p["task"]="Construindo"
 			return true
-		_set_delivery_goal(p,store,"Levando recursos")
-		if pos.distance_to(store)<0.65:
+		var storage_key:String=preferred_storage(town,str(cargo["kind"]),p)
+		var storage_pos:Vector2=storage_position(town,storage_key)
+		_set_delivery_goal(p,storage_pos,"Levando recursos")
+		if pos.distance_to(storage_pos)<0.65:
 			var key:String=str(cargo["kind"])
-			town[key]=float(town.get(key,0))+float(cargo["amount"])
+			store_resource(town,storage_key,key,float(cargo["amount"]))
 			gain_xp(p,2.0+float(cargo["amount"])*0.4,"trabalho")
 			p["cargo"]={}
 		return true
@@ -1109,7 +1121,7 @@ func deposit_inventory(p:Dictionary) -> bool:
 	if Vector2(float(p["x"]),float(p["y"])).distance_to(Vector2(float(town["x"]),float(town["y"])))>1.2:
 		news="Aproxime-se do centro da aldeia para descarregar."
 		return false
-	for key in ["wood","stone","ore","metal","food","water","fish","meat"]:
+	for key in RESOURCE_NAMES.keys():
 		town[key]=float(town.get(key,0))+float(p.get(key,0))
 		p[key]=0
 	news="Recursos entregues ao estoque da aldeia."
@@ -1143,7 +1155,7 @@ func strength(p:Dictionary) -> float:
 	return float(p.get("strength",35+posmod(int(p["id"])*37,61)))
 
 func defense(p:Dictionary) -> float:
-	return float([0,2,5,9,14][clampi(int(p.get("armor",0)),0,4)])+(2.0 if bool(p.get("combat_training",false)) else 0.0)
+	return float([0,2,5,9,14][clampi(int(p.get("armor",0)),0,4)])+(2.0 if bool(p.get("combat_training",false)) else 0.0)+(2.0 if str(p.get("armor_material",""))=="croc_hide" else 0.0)
 
 func attack_damage(p:Dictionary) -> float:
 	return 2.0+strength(p)*0.05+float([0,2,5,9,14][clampi(int(p.get("weapon",0)),0,4)])+(4.0 if bool(p.get("combat_training",false)) else 0.0)
@@ -1181,10 +1193,27 @@ func equip_worker(town:Dictionary,p:Dictionary) -> void:
 	var is_ruler:bool=int(p["id"])==int(town["leader"])
 	if is_guard or is_ruler:
 		var target:int=era if bool(town.get("forge",false)) else mini(era,2)
-		if int(p.get("armor",0))<target and float(town.get("wood",0))>=2 and (target<=2 or float(town.get("metal",0))>=4):
+		if target<=2 and float(town.get("wood",0))>=2:
+			if float(town.get("croc_hide",0))>=2 and str(p.get("armor_material",""))!="croc_hide":
+				town["croc_hide"]=float(town["croc_hide"])-2
+				town["wood"]=float(town["wood"])-2
+				p["armor"]=2
+				p["armor_material"]="croc_hide"
+			elif int(p.get("armor",0))<target and float(town.get("hide",0))>=2:
+				town["hide"]=float(town["hide"])-2
+				town["wood"]=float(town["wood"])-2
+				p["armor"]=target
+				p["armor_material"]="hide"
+			elif int(p.get("armor",0))==0 and float(town.get("bone",0))>=2:
+				town["bone"]=float(town["bone"])-2
+				town["wood"]=float(town["wood"])-2
+				p["armor"]=1
+				p["armor_material"]="bone"
+		elif target>2 and int(p.get("armor",0))<target and float(town.get("wood",0))>=2 and float(town.get("metal",0))>=4:
 			town["wood"]=float(town["wood"])-2
-			if target>2: town["metal"]=float(town["metal"])-4
+			town["metal"]=float(town["metal"])-4
 			p["armor"]=target
+			p["armor_material"]="metal"
 		if int(p.get("weapon",0))<target and float(town.get("wood",0))>=2 and (target<=2 or float(town.get("metal",0))>=3):
 			town["wood"]=float(town["wood"])-2
 			if target>2: town["metal"]=float(town["metal"])-3
@@ -1569,6 +1598,7 @@ func damage_animal(animal:Dictionary,amount:float) -> bool:
 	animal["health"]=maxf(0.0,float(animal["health"])-maxf(0.0,amount))
 	if float(animal["health"])<=0:
 		if animal.has("alive"): animal["alive"]=false
+		_drop_animal_resources(animal)
 		return true
 	animal["state"]="Fugindo"
 	animal["timer"]=0.0
@@ -1582,5 +1612,132 @@ func hunt_animal(person:Dictionary,animal:Dictionary) -> bool:
 	gain_xp(person,2.0,"combate")
 	if killed:
 		gain_xp(person,8.0,"combate")
-		collect_cargo(person,"meat",float({"deer":7,"boar":8,"chicken":2,"rabbit":2,"crocodile":10}.get(str(animal["species"]),3)))
+		collect_nearby_drop(person)
 	return true
+
+const RESOURCE_NAMES:Dictionary={"wood":"Madeira","stone":"Pedra","ore":"Minerio","metal":"Metal","food":"Comida","water":"Agua","fish":"Peixe","meat":"Carne","hide":"Couro","croc_hide":"Couro de crocodilo","feather":"Penas","bone":"Ossos","shell":"Casco"}
+
+func animal_loot(species:String) -> Dictionary:
+	match species:
+		"crocodile": return {"meat":3,"croc_hide":2,"bone":1}
+		"chicken","duck","heron": return {"meat":1,"feather":2}
+		"deer","boar","camel","capybara","Urso": return {"meat":3,"hide":1,"bone":1}
+		"fox","Lobo","rabbit","snow_hare": return {"meat":1,"hide":1}
+		"turtle": return {"meat":1,"shell":1}
+		"frog","lizard": return {"meat":1}
+	return {"meat":1}
+
+func _drop_animal_resources(animal:Dictionary) -> void:
+	if bool(animal.get("dropped",false)) or not animal.has("x"): return
+	animal["dropped"]=true
+	if resource_drops.size()>=180: resource_drops.pop_front()
+	resource_drops.append({"id":new_id(),"source":int(animal.get("id",-1)),"x":float(animal["x"]),"y":float(animal["y"]),"items":animal_loot(str(animal["species"])),"remaining":180.0})
+
+func _consume_prey_meat(animal:Dictionary) -> void:
+	for drop in resource_drops:
+		if int(drop["source"])!=int(animal["id"]): continue
+		var items:Dictionary=drop["items"]
+		items.erase("meat")
+		break
+
+func _update_drops(dt:float) -> void:
+	for i in range(resource_drops.size()-1,-1,-1):
+		var drop:Dictionary=resource_drops[i]
+		drop["remaining"]=float(drop["remaining"])-dt
+		if drop["items"].is_empty() or float(drop["remaining"])<=0: resource_drops.remove_at(i)
+
+func collect_nearby_drop(person:Dictionary) -> bool:
+	if not person.get("cargo",{}).is_empty(): return false
+	var pos:=Vector2(float(person["x"]),float(person["y"]))
+	for drop in resource_drops:
+		if pos.distance_to(Vector2(float(drop["x"]),float(drop["y"])))>0.65: continue
+		var items:Dictionary=drop["items"]
+		for key in items.keys():
+			var amount:float=minf(float(items[key]),floorf(free_load(person)/resource_weight(str(key))))
+			if amount<=0: continue
+			if not collect_cargo(person,str(key),amount): continue
+			items[key]=float(items[key])-amount
+			if float(items[key])<=0: items.erase(key)
+			return true
+	return false
+
+func gather_drop_job(person:Dictionary,town:Dictionary) -> bool:
+	if float(person["age"])<16 or not person.get("cargo",{}).is_empty() or free_load(person)<1: return false
+	var pos:=Vector2(float(person["x"]),float(person["y"]))
+	var origin:=Vector2(float(town["x"]),float(town["y"]))
+	var best:Dictionary={}
+	var distance:float=5.0
+	for drop in resource_drops:
+		if drop["items"].is_empty(): continue
+		var q:=Vector2(float(drop["x"]),float(drop["y"]))
+		if q.distance_to(origin)>7: continue
+		var d:float=pos.distance_to(q)
+		if d<distance:
+			best=drop
+			distance=d
+	if best.is_empty(): return false
+	_set_delivery_goal(person,Vector2(float(best["x"]),float(best["y"])),"Recolhendo recursos")
+	if distance<0.65: collect_nearby_drop(person)
+	return true
+
+func storage_position(town:Dictionary,key:String) -> Vector2:
+	var origin:=Vector2(float(town["x"]),float(town["y"]))
+	if key=="castle": return workshop_position(town,"castle")+Vector2(0,0.4)
+	if key.begins_with("house_"):
+		var spots:Array[Vector2]=[Vector2(0,-0.35),Vector2(1.60,0.35),Vector2(-1.25,-0.75),Vector2(2.15,-0.85),Vector2(-2.4,0.15),Vector2(0.95,-1.65),Vector2(-1.35,1.45),Vector2(2.9,1.15)]
+		return origin+spots[clampi(int(key.trim_prefix("house_")),0,7)]
+	return origin
+
+func preferred_storage(town:Dictionary,kind:String,person:Dictionary={}) -> String:
+	if bool(town.get("castle",false)) and kind not in ["food","water","fish","meat"]: return "castle"
+	var count:int=int(town.get("houses",0))
+	if count<=0: return "camp"
+	return "house_"+str(posmod(int(person.get("id",0)),count))
+
+# Estoques por edificio sao uma particao do total usado pela economia.
+# Sincronizar consumos legados retira do estoque real, sem duplicar recursos.
+func building_stocks(town:Dictionary) -> Dictionary:
+	var stores:Dictionary=town.get("building_stocks",{})
+	var keys:Array=["camp"]
+	for index in range(int(town.get("houses",0))): keys.append("house_"+str(index))
+	if bool(town.get("castle",false)): keys.append("castle")
+	for key in keys:
+		if not stores.has(key): stores[key]={}
+	for kind in RESOURCE_NAMES.keys():
+		var total:float=maxf(0,float(town.get(kind,0)))
+		var allocated:float=0.0
+		for key in stores.keys(): allocated+=float(stores[key].get(kind,0))
+		if total>allocated+0.00001:
+			var key:String=preferred_storage(town,str(kind))
+			stores[key][kind]=float(stores[key].get(kind,0))+total-allocated
+		elif allocated>total+0.00001:
+			var remaining:float=allocated-total
+			for key in stores.keys():
+				var take:float=minf(remaining,float(stores[key].get(kind,0)))
+				stores[key][kind]=float(stores[key].get(kind,0))-take
+				remaining-=take
+				if remaining<=0.00001: break
+	town["building_stocks"]=stores
+	return stores
+
+func store_resource(town:Dictionary,key:String,kind:String,amount:float) -> void:
+	if amount<=0: return
+	var stocks:Dictionary=building_stocks(town)
+	if not stocks.has(key): key="camp"
+	stocks[key][kind]=float(stocks[key].get(kind,0))+amount
+	town[kind]=float(town.get(kind,0))+amount
+
+func loot_stock(attacker:Dictionary,defender:Dictionary) -> Dictionary:
+	var source:Dictionary=building_stocks(defender)
+	var stolen:Dictionary={}
+	var budget:float=12.0
+	for key in source.keys():
+		for kind in ["food","wood","stone","metal","croc_hide","hide","bone","feather","shell","meat","fish","ore","water"]:
+			var amount:float=minf(floorf(float(source[key].get(kind,0))*0.20),minf(3.0,floorf(budget/resource_weight(kind))))
+			if amount<=0: continue
+			source[key][kind]=float(source[key][kind])-amount
+			defender[kind]=maxf(0,float(defender.get(kind,0))-amount)
+			store_resource(attacker,preferred_storage(attacker,kind),kind,amount)
+			stolen[kind]=float(stolen.get(kind,0))+amount
+			budget-=amount*resource_weight(kind)
+	return stolen

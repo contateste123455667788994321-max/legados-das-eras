@@ -28,6 +28,12 @@ func _run_tests() -> void:
 	world.init_animal_health(duck)
 	_check(not world.damage_animal(duck,5.0) and float(duck["health"])==20.0,"Pato recebe dano sem morrer instantaneamente")
 	_check(world.damage_animal(duck,20.0) and float(duck["health"])==0.0,"Animal morre ao zerar vida")
+	var crocodile:Dictionary={"id":-50,"species":"crocodile","x":5.0,"y":5.0}
+	world.damage_animal(crocodile,200.0)
+	_check(int(world.resource_drops.back()["items"]["croc_hide"])==2,"Crocodilo deixa couro especial")
+	var stock_town:Dictionary=world.towns[0]
+	world.store_resource(stock_town,"house_0","bone",2)
+	_check(float(world.building_stocks(stock_town)["house_0"]["bone"])==2 and float(stock_town["bone"])==2,"Estoque por casa e total coerentes")
 	_check(world.animal_habitat("crocodile","water") and not world.animal_habitat("crocodile","sand"),"Crocodilo respeita habitat")
 	_check(world._animal_prey("crocodile","duck") and not world._animal_prey("deer","duck"),"Predacao especifica por especie")
 	_check(world.towns.size() == 3, "Tres aldeias iniciais")
