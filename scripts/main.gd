@@ -125,6 +125,7 @@ func _load_art() -> void:
 	for key in ["hut","farm"]:
 		var new_art: Resource = load("res://assets/landscape/reference_"+key+".png")
 		if new_art is Texture2D: actor_textures[key] = new_art
+	landscape_objects["tree"] = load("res://assets/landscape/reference_tree.png")
 	if texture_missing:
 		push_warning("Alguns desenhos do mapa ainda nao foram carregados.")
 
@@ -530,7 +531,7 @@ func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
 	var source := Rect2(float(variant%5)*64.0+16.0,float(int(p["gender"])*2+floori(float(variant)/5.0))*48.0,32.0,48.0)
 	var target := Vector2(float(p.get("target_x",p["x"])),float(p.get("target_y",p["y"])))
 	var moving: bool = target.distance_to(Vector2(float(p["x"]),float(p["y"])))>0.08 and world.speed>0.0
-	var bounce: float = floorf(absf(sin(float(Time.get_ticks_msec())*0.014+float(p["id"])))) * 2.0*zoom if moving else 0.0
+	var bounce: float = roundf(absf(sin(float(Time.get_ticks_msec())*0.014+float(p["id"])))) * 2.0*zoom if moving else 0.0
 	var dest := Rect2(center-Vector2(s/3.0,s*0.7+bounce),Vector2(s*2.0/3.0,s))
 	var clipped := dest.intersection(MAP_AREA)
 	if clipped.has_area():
