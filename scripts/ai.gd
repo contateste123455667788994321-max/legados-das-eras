@@ -124,7 +124,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 				home["wood"] = float(home["wood"]) + step * (0.3 + float(m["ambition"]) * 0.6)
 		"Explorador":
 			_set_task(sim, p, home, "Explorando", 3.7)
-			home["knowledge"] = float(home["knowledge"]) + step * (0.08 + float(m["curiosity"]) * 0.3)
+			home["knowledge"] = float(home["knowledge"]) + step * (0.005 + float(m["curiosity"]) * 0.015)
 		"Guarda":
 			_set_task(sim, p, home, "Patrulhando", 1.8)
 			home["morale"] = minf(100.0, float(home["morale"]) + step * 0.1)
