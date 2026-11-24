@@ -385,11 +385,15 @@ func _draw_clock() -> void:
 	draw_circle(c, 24.0, Color("#4a3829"))
 	draw_circle(c, 19.0, Color("#d9c38c"))
 	draw_circle(c, 16.5, Color("#423b2c"))
+	var seasons: Array[Color] = [Color("#7dbb6a"), Color("#f5c66a"), Color("#b77e49"), Color("#b0d6d9")]
+	for i in range(4):
+		draw_arc(c, 17.3, float(i) * TAU / 4.0 - PI * 0.5, float(i + 1) * TAU / 4.0 - PI * 0.5, 12, seasons[i], 2.5, true)
 	for hour in range(12):
 		var a: float = float(hour) * TAU / 12.0 - PI * 0.5
 		draw_line(c + Vector2(cos(a), sin(a)) * 13.0, c + Vector2(cos(a), sin(a)) * 16.0, Color("#f7dfa4"), 1.5)
-	var minutes: float = fposmod(world.day, 1.0)
-	var angle: float = minutes * TAU - PI * 0.5
+	# Uma volta do ponteiro representa um ano completo; nao gira a cada 2 segundos.
+	var year_progress: float = fposmod(world.day / 365.0, 1.0)
+	var angle: float = year_progress * TAU - PI * 0.5
 	draw_line(c, c + Vector2(cos(angle), sin(angle)) * 12.0, Color("#f6d68b"), 2.2, true)
 	draw_line(c, c + Vector2(cos(angle * 0.083), sin(angle * 0.083)) * 8.0, Color("#ffefe0"), 3.1, true)
 	draw_circle(c, 2.5, Color("#f4cf81"))
