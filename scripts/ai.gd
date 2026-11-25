@@ -102,7 +102,7 @@ func _manage_town(sim, town: Dictionary, step: float) -> void:
 			sim.start_construction(int(town["id"]),"forge")
 		elif int(town["level"])>=4 and bool(town.get("forge",false)) and not bool(town.get("castle",false)) and float(town["wood"])>=150 and float(town.get("stone",0))>=300:
 			sim.start_construction(int(town["id"]),"castle")
-	var harvest: float = step * float(town["farms"]) * 0.15
+	var harvest: float = step * float(town["farms"]) * 0.15 * sim.harvest_factor(town)
 	if sim.blockade_active(town) and float(town.get("food",0))<float(pop):
 		town["morale"]=maxf(0.0,float(town.get("morale",60))-step*0.6)
 	town["food"] = maxf(0.0, float(town["food"]) + harvest)
@@ -124,17 +124,20 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 	if sim.react_to_hostile_animal(p): return
 	if sim.swamp_combat_job(p): return
 	if float(n["hunger"]) >= 55.0:
-		if sim.is_military(p): sim.military_duty(p,home,0.0)
-		else: _set_task(sim, p, home, "Comendo", 0.25)
-		if float(home["food"]) >= 0.4:
-			home["food"] = float(home["food"]) - 0.4
-			n["hunger"] = maxf(0.0, float(n["hunger"]) - 45.0)
-			p["health"] = minf(sim.max_hp(p), float(p["health"]) + 1.0)
-		else:
-			p["health"] = float(p["health"]) - step * 0.12
-			if float(p["health"]) <= 0.0:
+		var ration:float=sim.food_ration(p,home)
+		if ration>0.001:
+			if sim.is_military(p): sim.military_duty(p,home,0.0)
+			else: _set_task(sim,p,home,"Comendo",0.25)
+			home["food"]=maxf(0.0,float(home["food"])-ration)
+			n["hunger"]=maxf(0.0,float(n["hunger"])-45.0*ration/0.4)
+			p["health"]=minf(sim.max_hp(p),float(p["health"])+ration/0.4)
+			return
+		# Sem comida, moradores ainda podem produzir e buscar recursos acessíveis.
+		if float(n["hunger"])>=85.0:
+			p["health"]=float(p["health"])-step*0.12
+			if float(p["health"])<=0.0:
 				sim.kill_person(p)
-		return
+				return
 	if float(n["energy"]) < 28.0:
 		n["energy"] = minf(100.0, float(n["energy"]) + step * 5.0)
 		if float(n["hunger"])<55: p["health"]=minf(sim.max_hp(p),float(p["health"])+step*0.3)
@@ -245,7 +248,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 				var field:Vector2=Vector2(float(home["x"]),float(home["y"]))+sim.farm_layout(home)[0]
 				sim._set_delivery_goal(p,field,"Cultivando" if int(home.get("farms",1))>0 else "Coletando alimento")
 				if Vector2(float(p["x"]),float(p["y"])).distance_to(field)<0.65:
-					sim.collect_cargo(p,"food",3.0)
+					sim.collect_cargo(p,"food",maxf(0.5,3.0*sim.harvest_factor(home)))
 	# Laços familiares e rivalidades alteram a lealdade entre pessoas.
 	if float(m["ambition"]) > 0.88 and str(p["role"]) == "Aldeao":
 		var ruler: Dictionary = sim.get_person(int(home["leader"]))
@@ -345,7 +348,7 @@ func on_death(sim, person: Dictionary) -> void:
 			n["company"] = minf(100.0, float(n["company"]) + 38.0)
 
 func _site_work(sim,p:Dictionary,home:Dictionary,kind:String,task:String) -> bool:
-	var site: Dictionary=sim.local_site(kind,int(home["id"]))
+	var site: Dictionary=sim.fishing_position(home) if kind=="fish" else sim.local_site(kind,int(home["id"]))
 	if site.is_empty():
 		_set_task(sim,p,home,"Procurando recursos",1.0)
 		return false
