@@ -204,19 +204,28 @@ func _run_tests() -> void:
 		for xx in range(6,19):
 			fence_world.tiles[yy][xx]="water" if xx==7 else "grass"
 	var fence_count:int=0
+	var gate_count:int=0
 	var fence_valid:bool=true
 	var fence_next:Dictionary=fence_world.next_palisade(fence_town)
 	while not fence_next.is_empty() and fence_count<50:
 		var fx:int=int(fence_next["x"])
 		var fy:int=int(fence_next["y"])
 		var gate:Dictionary=fence_town["palisade_gate"]
-		if str(fence_world.tiles[fy][fx])=="water" or (fx==int(gate["x"]) and fy==int(gate["y"])): fence_valid=false
+		if str(fence_world.tiles[fy][fx])=="water": fence_valid=false
+		if bool(fence_next.get("gate",false)):
+			gate_count+=1
+			if fx!=int(gate["x"]) or fy!=int(gate["y"]): fence_valid=false
 		var built:Array=fence_town.get("palisades",[])
 		built.append(fence_next)
 		fence_town["palisades"]=built
 		fence_count+=1
 		fence_next=fence_world.next_palisade(fence_town)
-	_check(fence_valid and fence_count>0 and fence_count<39 and fence_next.is_empty(),"Paliçada preserva rio e abertura")
+	_check(fence_valid and fence_count>0 and fence_count<40 and gate_count==1 and fence_next.is_empty(),"Paliçada preserva rio e portão único")
+	var siege_wall:Dictionary={"x":12,"y":17,"axis":"h","gate":true,"health":100.0}
+	fence_town["palisades"]=[siege_wall]
+	_check(not fence_world.damage_palisade(fence_town,siege_wall,35.0) and float(siege_wall["health"])==65.0,"Portão perde vida a cada ataque")
+	_check(fence_world.damage_palisade(fence_town,siege_wall,65.0) and fence_town["palisades"].is_empty(),"Portão destruído abre passagem")
+	_check(fence_world.WALL_HP==150.0 and fence_world.GATE_HP==100.0,"Resistência individual das defesas")
 
 	var original_wood: float = float(target_town["wood"])
 	_check(not building_world.start_construction(target_id, "bridge"), "Nao aceita construcoes desconhecidas")
