@@ -299,7 +299,8 @@ func construction_cost(kind: String) -> float:
 		"campfire": return 10.0
 		"house": return 14.0
 		"upgrade": return 18.0
-		"castle": return 80.0
+		"castle": return 150.0
+		"palisade": return 3.0
 		"farm": return 18.0
 		"oven": return 8.0
 		"forge": return 20.0
@@ -325,6 +326,7 @@ func start_construction(town_id: int, kind: String) -> bool:
 		news = "Esta aldeia atingiu o limite de fazendas."
 		return false
 	if kind=="upgrade" and upgrade_index(town)<0: return false
+	if kind=="palisade" and next_palisade(town).is_empty(): return false
 	if kind=="castle" and (int(town["level"])<4 or bool(town.get("castle",false)) or not bool(town.get("forge",false))):
 		news="Castelo exige era 4 e forja."
 		return false
@@ -343,8 +345,8 @@ func start_construction(town_id: int, kind: String) -> bool:
 		news = "Madeira insuficiente: precisa de %d, tem %d." % [int(cost), int(float(town["wood"]))]
 		return false
 	town["wood"] = float(town["wood"]) - cost
-	var label:String={"castle":"castelo","upgrade":"melhoria de casa","campfire":"fogueira","house":"casa","farm":"fazenda","oven":"forno","forge":"forja","crossing":"ponte"}[kind]
-	town["construction"]={"kind":kind,"progress":0.0,"duration":float({"castle":85,"upgrade":24,"campfire":8,"house":12,"farm":15,"oven":20,"forge":32,"crossing":26}[kind])}
+	var label:String={"castle":"castelo","upgrade":"melhoria de casa","campfire":"fogueira","house":"casa","farm":"fazenda","oven":"forno","forge":"forja","crossing":"ponte","palisade":"paliçada"}[kind]
+	town["construction"]={"kind":kind,"progress":0.0,"duration":float({"castle":150,"palisade":7,"upgrade":24,"campfire":8,"house":12,"farm":15,"oven":20,"forge":32,"crossing":26}[kind])}
 	var stone_cost:float=workshop_stone_cost(kind)
 	town["stone"]=float(town.get("stone",0))-stone_cost
 	_prepare_project(town)
@@ -388,11 +390,15 @@ func progress_construction(town: Dictionary, dt: float) -> void:
 		if index>=0 and index<levels.size(): levels[index]=mini(4,int(levels[index])+1)
 	elif kind=="farm":
 		town["farms"]=int(town.get("farms",1))+1
+	elif kind=="palisade":
+		var completed:Array=town.get("palisades",[])
+		completed.append({"x":site["x"],"y":site["y"],"axis":site.get("axis","h")})
+		town["palisades"]=completed
 	else:
 		town[kind]=true
 		sites.append({"kind":kind,"x":site["x"],"y":site["y"],"town":town["id"]})
 	town["construction"]={}
-	var label:String={"castle":"Castelo construido","upgrade":"Casa ampliada","campfire":"Fogueira acesa","house":"Casa pronta","farm":"Fazenda pronta","oven":"Forno construido","forge":"Forja construida","crossing":"Ponte construida"}[kind]
+	var label:String={"castle":"Castelo construido","upgrade":"Casa ampliada","campfire":"Fogueira acesa","house":"Casa pronta","farm":"Fazenda pronta","oven":"Forno construido","forge":"Forja construida","crossing":"Ponte construida","palisade":"Trecho de paliçada pronto"}[kind]
 	var history: Array = town.get("historical_events", [])
 	history.append({"day": int(day), "event": label + "."})
 	if history.size() > 12:
@@ -1006,8 +1012,47 @@ func move_actor(actor:Dictionary,step:Vector2,dt:float) -> void:
 	actor["y"]=q.y
 
 
+# Paliçada modular: o rio ocupa as interrupcoes naturais do perimetro.
+func next_palisade(town:Dictionary) -> Dictionary:
+	var origin:=Vector2i(int(town["x"]),int(town["y"]))
+	var radius:int=5
+	var plan:Array=[]
+	for dy in range(-radius,radius+1):
+		for dx in range(-radius,radius+1):
+			if abs(dx)!=radius and abs(dy)!=radius: continue
+			var cell:=origin+Vector2i(dx,dy)
+			if cell.x<1 or cell.y<1 or cell.x>=WIDTH-1 or cell.y>=SIZE-1: continue
+			if str(tiles[cell.y][cell.x])=="water" or water_surface_weight(Vector2(cell))>0.46: continue
+			plan.append({"x":cell.x,"y":cell.y,"axis":"h" if abs(dy)==radius else "v"})
+	if plan.is_empty(): return {}
+	if not town.has("palisade_gate"):
+		var gate:Dictionary=plan[0]
+		var best:float=10000.0
+		for segment in plan:
+			var d:float=Vector2(float(segment["x"]),float(segment["y"])).distance_squared_to(Vector2(origin)+Vector2(0,radius))
+			if d<best:
+				best=d
+				gate=segment
+		town["palisade_gate"]=gate.duplicate()
+	var opening:Dictionary=town["palisade_gate"]
+	for segment in plan:
+		if int(segment["x"])==int(opening["x"]) and int(segment["y"])==int(opening["y"]): continue
+		var done:bool=false
+		for built in town.get("palisades",[]):
+			if int(built["x"])==int(segment["x"]) and int(built["y"])==int(segment["y"]):
+				done=true
+				break
+		if not done: return segment
+	return {}
+
+func village_at_war(town:Dictionary) -> bool:
+	if not wars: return false
+	for other in towns:
+		if int(other["id"])!=int(town["id"]) and kingdom_id(other)!=kingdom_id(town) and politics.get_status(self,int(town["id"]),int(other["id"]))=="war": return true
+	return false
+
 func workshop_stone_cost(kind:String) -> float:
-	return float({"oven":12,"forge":24,"crossing":4,"upgrade":12,"castle":120}.get(kind,0))
+	return float({"oven":12,"forge":24,"crossing":4,"upgrade":12,"castle":300}.get(kind,0))
 
 func workshop_position(town:Dictionary,kind:String) -> Vector2:
 	var origin:=Vector2(float(town["x"]),float(town["y"]))
@@ -1105,6 +1150,11 @@ func _prepare_project(town:Dictionary) -> void:
 	if project.is_empty() or project.has("required"): return
 	var kind:String=str(project["kind"])
 	var pos:Vector2=workshop_position(town,kind)
+	if kind=="palisade":
+		var segment:Dictionary=next_palisade(town)
+		if not segment.is_empty():
+			pos=Vector2(float(segment["x"]),float(segment["y"]))
+			project["axis"]=segment["axis"]
 	project["x"]=pos.x
 	project["y"]=pos.y
 	if kind=="upgrade": project["house_index"]=upgrade_index(town)
@@ -1131,6 +1181,7 @@ func transport_job(p:Dictionary,town:Dictionary) -> bool:
 				sound_at("deposit",p)
 				gain_xp(p,2.0+float(cargo["amount"])*0.4,"trabalho")
 				p["cargo"]={}
+				_mark_action(p,"deposit",0.65)
 				p["task"]="Construindo"
 			return true
 		var storage_key:String=preferred_storage(town,str(cargo["kind"]),p)
@@ -1151,7 +1202,7 @@ func transport_job(p:Dictionary,town:Dictionary) -> bool:
 		if not bool(other["alive"]) or int(other["town"])!=int(town["id"]) or float(other["age"])<16.0 or is_military(other): continue
 		if int(other["id"])==int(p["id"]): break
 		rank+=1
-	if rank>=2: return false
+	if rank>=(4 if str(project["kind"])=="castle" and active_population(int(town["id"]))>=12 else 2): return false
 	var needed:Dictionary=project["required"]
 	var delivered:Dictionary=project["delivered"]
 	for key in ["wood","stone"]:
