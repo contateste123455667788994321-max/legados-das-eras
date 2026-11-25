@@ -265,6 +265,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 		init_traits(p)
 		p["hunt_cd"]=maxf(0.0,float(p.get("hunt_cd",0))-dt)
 		p["military_cd"]=maxf(0.0,float(p.get("military_cd",0))-dt)
+		p["spike_cd"]=maxf(0.0,float(p.get("spike_cd",0))-dt)
 		p["age"] = float(p["age"]) + elapsed_days / 365.0
 		if float(p["age"]) > 79 and rng.randf() < elapsed_days * 0.0008:
 			kill_person(p)
@@ -392,7 +393,9 @@ func progress_construction(town: Dictionary, dt: float) -> void:
 		town["farms"]=int(town.get("farms",1))+1
 	elif kind=="palisade":
 		var completed:Array=town.get("palisades",[])
-		completed.append({"x":site["x"],"y":site["y"],"axis":site.get("axis","h")})
+		var gate:bool=bool(site.get("gate",false))
+		var hp:float=GATE_HP if gate else WALL_HP
+		completed.append({"x":site["x"],"y":site["y"],"axis":site.get("axis","h"),"gate":gate,"health":hp,"max_health":hp})
 		town["palisades"]=completed
 	else:
 		town[kind]=true
@@ -415,7 +418,11 @@ func _wander(actor: Dictionary, dt: float, pace: float) -> void:
 			actor["target_x"] = clampf(float(actor["x"]) + rng.randf_range(-2.0, 2.0), 2.0, float(WIDTH - 3))
 			actor["target_y"] = clampf(float(actor["y"]) + rng.randf_range(-2.0, 2.0), 2.0, float(SIZE - 3))
 			actor["wander"] = rng.randf_range(1.5, 4.0)
-	var toward := Vector2(float(actor["target_x"]) - float(actor["x"]), float(actor["target_y"]) - float(actor["y"]))
+	var current:=Vector2(float(actor["x"]),float(actor["y"]))
+	var destination:=Vector2(float(actor["target_x"]),float(actor["target_y"]))
+	if actor.has("town"):
+		destination=allied_gate_waypoint(actor,current,destination)
+	var toward:=destination-current
 	if toward.length() > 0.06:
 		var burden:float=1.0-0.25*clampf(carried_weight(actor)/maxf(1.0,load_capacity(actor)),0.0,1.0)
 		var step := toward.limit_length(pace*dt*burden)
@@ -1008,11 +1015,79 @@ func move_actor(actor:Dictionary,step:Vector2,dt:float) -> void:
 	var q:=p+step
 	q.x=clampf(q.x,1.0,WIDTH-2.0)
 	q.y=clampf(q.y,1.0,SIZE-2.0)
+	if actor.has("town"):
+		var collision:Dictionary=wall_on_path(actor,p,q)
+		if not collision.is_empty():
+			var owner:Dictionary=collision["town"]
+			var wall:Dictionary=collision["wall"]
+			if hostile_wall(actor,owner) and is_military(actor) and not bool(wall.get("gate",false)) and float(actor.get("spike_cd",0))<=0:
+				actor["spike_cd"]=1.2
+				_swamp_damage(actor,4.0)
+			return
 	actor["x"]=q.x
 	actor["y"]=q.y
 
 
 # Paliçada modular: o rio ocupa as interrupcoes naturais do perimetro.
+const WALL_HP:float=150.0
+const GATE_HP:float=100.0
+
+func hostile_wall(actor:Dictionary,town:Dictionary) -> bool:
+	var home:Dictionary=get_town(int(actor.get("town",0)))
+	return not home.is_empty() and kingdom_id(home)!=kingdom_id(town) and politics.get_status(self,int(home["id"]),int(town["id"]))=="war"
+
+func wall_on_path(actor:Dictionary,start:Vector2,finish:Vector2,only_enemy:bool=false) -> Dictionary:
+	if start.distance_squared_to(finish)<0.000001: return {}
+	var nearest:Dictionary={}
+	var distance:float=INF
+	for town in towns:
+		var hostile:bool=hostile_wall(actor,town)
+		if only_enemy and not hostile: continue
+		for segment in town.get("palisades",[]):
+			if float(segment.get("health",WALL_HP))<=0 or (bool(segment.get("gate",false)) and not hostile): continue
+			var center:=Vector2(float(segment["x"]),float(segment["y"]))
+			var point:Vector2=Geometry2D.get_closest_point_to_segment(center,start,finish)
+			if point.distance_to(center)>0.53: continue
+			# Permite sair de uma posição sobreposta, mas nunca atravessar a barreira.
+			if start.distance_to(center)<0.53 and finish.distance_to(center)>start.distance_to(center) and point.distance_to(center)>=start.distance_to(center)-0.001: continue
+			var d:float=start.distance_squared_to(center)
+			if d<distance:
+				distance=d
+				nearest={"town":town,"wall":segment}
+	return nearest
+
+func allied_gate_waypoint(actor:Dictionary,start:Vector2,destination:Vector2) -> Vector2:
+	# Evita recalcular rotas quando ainda não há uma defesa construída.
+	for town in towns:
+		if town.get("palisades",[]).is_empty() or hostile_wall(actor,town): continue
+		if int(actor.get("town",0))!=int(town["id"]): continue
+		var origin:=Vector2(float(town["x"]),float(town["y"]))
+		var inside:bool=maxf(absf(start.x-origin.x),absf(start.y-origin.y))<5.0
+		var goal_inside:bool=maxf(absf(destination.x-origin.x),absf(destination.y-origin.y))<5.0
+		if inside==goal_inside: continue
+		var gate:Dictionary=town.get("palisade_gate",{})
+		if gate.is_empty(): continue
+		var center:=Vector2(float(gate["x"]),float(gate["y"]))
+		var normal:Vector2=Vector2(0,signf(center.y-origin.y)) if str(gate.get("axis","h"))=="h" else Vector2(signf(center.x-origin.x),0)
+		if start.distance_to(center)<0.65: return center+normal*(0.9 if inside else -0.9)
+		return center
+	return destination
+
+func damage_palisade(town:Dictionary,wall:Dictionary,amount:float) -> bool:
+	var maximum:float=GATE_HP if bool(wall.get("gate",false)) else WALL_HP
+	wall["max_health"]=maximum
+	wall["health"]=maxf(0.0,float(wall.get("health",maximum))-maxf(0.0,amount))
+	wall["hit_until"]=swamp_clock+0.25
+	if float(wall["health"])>0: return false
+	var breaches:Array=town.get("palisade_breaches",[])
+	breaches.append(str(wall["x"])+":"+str(wall["y"]))
+	town["palisade_breaches"]=breaches
+	var walls:Array=town.get("palisades",[])
+	walls.erase(wall)
+	sound_at("build",wall)
+	news=str(town["name"])+": uma abertura foi criada nas defesas!"
+	return true
+
 func next_palisade(town:Dictionary) -> Dictionary:
 	var origin:=Vector2i(int(town["x"]),int(town["y"]))
 	var radius:int=5
@@ -1036,7 +1111,8 @@ func next_palisade(town:Dictionary) -> Dictionary:
 		town["palisade_gate"]=gate.duplicate()
 	var opening:Dictionary=town["palisade_gate"]
 	for segment in plan:
-		if int(segment["x"])==int(opening["x"]) and int(segment["y"])==int(opening["y"]): continue
+		if int(segment["x"])==int(opening["x"]) and int(segment["y"])==int(opening["y"]): segment["gate"]=true
+		if str(segment["x"])+":"+str(segment["y"]) in town.get("palisade_breaches",[]): continue
 		var done:bool=false
 		for built in town.get("palisades",[]):
 			if int(built["x"])==int(segment["x"]) and int(built["y"])==int(segment["y"]):
@@ -1075,6 +1151,7 @@ func dismantle_palisade_job(p:Dictionary,town:Dictionary,step:float) -> bool:
 
 func stop_wartime_construction(town:Dictionary) -> void:
 	if village_at_war(town): return
+	town.erase("palisade_breaches")
 	var project:Dictionary=town.get("construction",{})
 	if str(project.get("kind",""))!="palisade": return
 	var refund:float=float(project.get("required",{}).get("wood",3.0))
@@ -1189,6 +1266,7 @@ func _prepare_project(town:Dictionary) -> void:
 		if not segment.is_empty():
 			pos=Vector2(float(segment["x"]),float(segment["y"]))
 			project["axis"]=segment["axis"]
+			project["gate"]=bool(segment.get("gate",false))
 	project["x"]=pos.x
 	project["y"]=pos.y
 	if kind=="upgrade": project["house_index"]=upgrade_index(town)
@@ -1440,7 +1518,7 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 		var best:float=1000.0
 		var tactics:int=army_tactics(town)
 		for other in army_members(enemy_town):
-			if not invading and Vector2(float(other["x"]),float(other["y"])).distance_to(origin)>5.0: continue
+			if not invading and Vector2(float(other["x"]),float(other["y"])).distance_to(origin)>(8.5 if role=="archer" else 6.5): continue
 			var q:=Vector2(float(other["x"]),float(other["y"]))
 			var distance:float=pos.distance_to(q)
 			var priority:float=distance
@@ -1455,7 +1533,7 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 		if not enemy.is_empty():
 			goal=Vector2(float(enemy["x"]),float(enemy["y"]))
 			var distance:float=pos.distance_to(goal)
-			if role=="archer" and str(person.get("weapon_kind",""))=="bow" and int(person.get("ammo",0))>0 and distance<2.0: goal=pos
+			if role=="archer" and str(person.get("weapon_kind",""))=="bow" and int(person.get("ammo",0))>0 and distance<3.8: goal=pos
 			elif tactics>=1 and role=="archer":
 				var escort:Dictionary=nearby_shield(person,town,3.0)
 				if not escort.is_empty():
@@ -1464,7 +1542,24 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 		if tactics>=2 and role=="soldier" and str(person.get("shield_kind","")).is_empty() and not enemy.is_empty() and pos.distance_to(goal)>1.1:
 			var heading:Vector2=(goal-origin).normalized()
 			goal+=Vector2(-heading.y,heading.x)*(0.55 if slot%2==0 else -0.55)
+		if role=="archer" and not invading and not town.get("palisades",[]).is_empty():
+			var outward:Vector2=(goal-origin).normalized()
+			goal=origin+outward*3.9
 		_set_delivery_goal(person,goal,"Marchando para conquista" if invading else "Defendendo aldeia")
+		var ranged_ready:bool=role=="archer" and str(person.get("weapon_kind",""))=="bow" and int(person.get("ammo",0))>0
+		if invading and not ranged_ready:
+			var siege_goal:Vector2=Vector2(float(enemy["x"]),float(enemy["y"])) if not enemy.is_empty() else goal
+			var obstruction:Dictionary=wall_on_path(person,pos,siege_goal,true)
+			if not obstruction.is_empty():
+				var wall:Dictionary=obstruction["wall"]
+				var wall_pos:=Vector2(float(wall["x"]),float(wall["y"]))
+				_set_delivery_goal(person,wall_pos,"Atacando portão" if bool(wall.get("gate",false)) else "Atacando paliçada")
+				if pos.distance_to(wall_pos)<0.90 and float(person.get("military_cd",0))<=0:
+					person["military_cd"]=1.1
+					_mark_action(person,"combat",0.85)
+					damage_palisade(obstruction["town"],wall,attack_damage(person))
+					sound_at("hit",wall)
+				return
 	else:
 		var angle:float=float(slot)*2.39996+day*0.035
 		goal=origin+Vector2(cos(angle),sin(angle))*(2.2 if role=="archer" else (1.0 if role=="general" else 3.0))
@@ -1485,7 +1580,7 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 	if not enemy.is_empty() and float(person.get("military_cd",0))<=0:
 		var d:float=pos.distance_to(Vector2(float(enemy["x"]),float(enemy["y"])))
 		var ranged:bool=role=="archer" and str(person.get("weapon_kind",""))=="bow" and int(person.get("ammo",0))>0
-		if d<(2.2 if ranged else 0.9):
+		if d<(4.0 if ranged else 0.9) and (ranged or wall_on_path(person,pos,Vector2(float(enemy["x"]),float(enemy["y"])),true).is_empty()):
 			person["military_cd"]=(1.8 if ranged else 1.1)*maxf(0.75,1.0-float(person.get("war_xp",0))*0.001)
 			_mark_action(person,"combat",1.0)
 			if ranged:
