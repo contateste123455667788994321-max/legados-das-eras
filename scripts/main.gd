@@ -24,6 +24,11 @@ var update_restarting:bool=false
 var update_previous_speed:float=1.0
 var home_open:bool=false
 var home_panel:Control
+var home_art: TextureRect
+const HOME_ART_PATH := "res://assets/landscape/legado_das_eras_vale_dourado.png"
+const HOME_ART_SIZE := Vector2(1280, 720)
+const HOME_BUTTON_SIZE := Vector2(348, 58)
+const HOME_BUTTON_TOPS := [270, 338, 407]
 var home_buttons:Array[Button]=[]
 var title_font:SystemFont
 const ANIMAL_ROWS:Array[String]=["chicken","deer","rabbit","frog","capybara","heron","camel","lizard","snow_hare","crocodile","turtle","duck","boar","fox","wolf","bear","cow","sheep","goat","horse","pig","dog","cat","eagle","owl","crow","bat","penguin"]
@@ -2174,11 +2179,28 @@ func _open_home(save_first:bool=true) -> void:
 	home_panel=Control.new()
 	home_panel.mouse_filter=Control.MOUSE_FILTER_STOP
 	add_child(home_panel)
+	home_art=null
+	if ResourceLoader.exists(HOME_ART_PATH):
+		var artwork:=load(HOME_ART_PATH) as Texture2D
+		if artwork!=null:
+			home_art=TextureRect.new()
+			home_art.texture=artwork
+			home_art.expand_mode=TextureRect.EXPAND_IGNORE_SIZE
+			home_art.stretch_mode=TextureRect.STRETCH_SCALE
+			home_art.mouse_filter=Control.MOUSE_FILTER_IGNORE
+			home_art.texture_filter=CanvasItem.TEXTURE_FILTER_LINEAR
+			var material := ShaderMaterial.new()
+			material.shader = preload("res://assets/landscape/menu_vale_dourado.gdshader")
+			home_art.material = material
+			home_panel.add_child(home_art)
 	home_buttons.clear()
 	for item in [{"label":"Carregar mundo","action":Callable(self,"_continue_world")},{"label":"Mundos salvos","action":Callable(self,"_show_saved_worlds")},{"label":"Opções","action":Callable(self,"_show_home_options")}]:
 		var button:Button=_button(str(item["label"]),Vector2.ZERO,Vector2(360,62),item["action"])
 		button.reparent(home_panel,false)
 		button.add_theme_font_size_override("font_size",24)
+		if is_instance_valid(home_art):
+			button.self_modulate = Color.TRANSPARENT
+			button.clip_text = true
 		home_buttons.append(button)
 	_layout_home()
 	queue_redraw()
@@ -2187,6 +2209,15 @@ func _layout_home() -> void:
 	if not is_instance_valid(home_panel): return
 	home_panel.position=Vector2.ZERO
 	home_panel.size=Vector2(screen_width,720)
+	if is_instance_valid(home_art):
+		home_panel.size = get_viewport_rect().size
+		var fit := minf(home_panel.size.x / HOME_ART_SIZE.x, home_panel.size.y / HOME_ART_SIZE.y)
+		home_art.size = HOME_ART_SIZE * fit
+		home_art.position = (home_panel.size - home_art.size) * 0.5
+		for i in range(home_buttons.size()):
+			home_buttons[i].position = home_art.position + Vector2(466, HOME_BUTTON_TOPS[i]) * fit
+			home_buttons[i].size = HOME_BUTTON_SIZE * fit
+		return
 	for i in range(home_buttons.size()):
 		home_buttons[i].position=Vector2(screen_width*0.5-184,320+i*77)
 		home_buttons[i].size=Vector2(368,62)
@@ -2385,6 +2416,9 @@ func _menu_notice(message:String) -> void:
 	dialog.popup_centered()
 
 func _draw_home_art() -> void:
+	if is_instance_valid(home_art):
+		draw_rect(get_viewport_rect(), Color("#0d1925"))
+		return
 	if not landscape_objects.has("title_landscape"): landscape_objects["title_landscape"]=load("res://assets/landscape/title_landscape_v2.svg")
 	var art:Texture2D=landscape_objects["title_landscape"]
 	var extent:Vector2=Vector2(screen_width,720)
