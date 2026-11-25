@@ -18,6 +18,9 @@ var beasts: Array = []
 var wildlife: Array = []
 var sites: Array = []
 var rivers_v58:bool=false
+var map_seed:int=0
+var river_centers:Array=[10,25]
+var river_phase:float=0.0
 var habitats_v59:bool=false
 var ecology_v60:bool=false
 var swamp_witch:Dictionary={}
@@ -70,42 +73,44 @@ func generate_world() -> void:
 	wars = false
 	rivals = false
 	predators = false
-	# Biomas agrupados em regioes naturais, com um rio sinuoso.
-	# Antes eram quadrados aleatorios; agora o territorio influencia a historia.
-	var noise := FastNoiseLite.new()
-	noise.seed = rng.randi_range(1000, 900000)
-	noise.frequency = 0.115
-	# Continentes coerentes, floresta a oeste, deserto no sul e neve nas montanhas.
-	# Um rio sinuoso atravessa as regioes; pequenas variacoes preservam diversidade.
+
+	# Novas regioes sao sorteadas a cada criacao; mapas existentes nao sao regenerados.
+	map_seed=rng.randi_range(1,2147483647)
+	river_centers=[rng.randi_range(9,11),rng.randi_range(24,30)]
+	river_phase=rng.randf_range(0,TAU)
+	var noise:=FastNoiseLite.new()
+	noise.seed=map_seed
+	noise.frequency=0.16
+	var biomes:Array=["grass","forest","sand","snow","mountain","swamp"]
+	for n in range(biomes.size()-1,0,-1):
+		var k:int=rng.randi_range(0,n)
+		var temp:String=biomes[n]
+		biomes[n]=biomes[k]
+		biomes[k]=temp
+	var centers:Array[Vector2]=[]
+	for n in range(6):
+		centers.append(Vector2(7.5+float(n%3)*16+rng.randf_range(-2,2),5.0+float(int(n/3))*10+rng.randf_range(-1,1)))
 	for y in range(SIZE):
-		var row: Array = []
-		var river_x: int = 9 + roundi(sin(float(y) * 0.49) * 2.8)
+		var row:Array=[]
 		for x in range(WIDTH):
-			var r: float = rng.randf()
-			var biome := "grass"
-			var river_distance: int = absi(x - river_x)
-			if river_distance <= (1 if y%5==0 else 0):
-				biome = "water"
-			elif x >= 20:
-				biome = _east_biome(x,y)
-			elif y < 3 and x > 13:
-				biome = "snow"
-			elif x > 12 and y < 8:
-				biome = "snow" if r < 0.74 else "mountain"
-			elif x < 7 and y > 11:
-				biome = "sand" if r < 0.82 else "grass"
-			elif x > 12 and y >= 8 and y <= 13:
-				biome = "mountain" if r < 0.63 else "forest"
-			elif x < 9 and y < 12:
-				biome = "forest" if r < 0.67 else "grass"
-			elif river_distance == 1:
-				biome = "sand" if r < 0.35 else "grass"
-			elif r < 0.11:
-				biome = "forest"
-			if (x <= 1 or y <= 1 or x >= WIDTH - 2 or y >= SIZE - 2) and r < 0.34:
-				biome = "water"
+			var p:=Vector2(x+noise.get_noise_2d(x,y)*5.2,y+noise.get_noise_2d(x+77,y+113)*4.2)
+			var closest:int=0
+			var distance:float=100000.0
+			for n in range(centers.size()):
+				var d:float=p.distance_squared_to(centers[n])
+				if d<distance:
+					distance=d
+					closest=n
+			var biome:String=biomes[closest]
+			if biome=="swamp" and noise.get_noise_2d(x+300,y+400)>0.32: biome="water"
+			if biome=="forest" and noise.get_noise_2d(x+90,y+30)>0.43: biome="grass"
 			row.append(biome)
 		tiles.append(row)
+	# Pequenas clareiras iniciais garantem moradia e recursos; os biomas ao redor variam.
+	for origin in [Vector2i(5,5),Vector2i(15,5),Vector2i(16,15)]:
+		for yy in range(origin.y-2,origin.y+3):
+			for xx in range(origin.x-3,origin.x+4):
+				if str(tiles[yy][xx]) in ["water","mountain","swamp"]: tiles[yy][xx]="forest" if posmod(xx*13+yy*7,4)==0 else "grass"
 	make_town("Vale Verde", 5, 5, false)
 	make_town("Pedra Alta", 15, 5, false)
 	make_town("Campo do Sol", 16, 15, false)
@@ -532,7 +537,7 @@ func save_world() -> bool:
 	if file == null:
 		return false
 	var data := {
-		"world_name":world_name,
+		"world_name":world_name,"map_seed":map_seed,"river_centers":river_centers,"river_phase":river_phase,"village_layout_v2":true,
 		"tiles": tiles, "towns": towns, "people": people, "beasts": beasts,
 		"trees": trees, "next_seed_day": next_seed_day,
 		"wildlife": wildlife, "sites": sites, "rivers_v58":rivers_v58, "habitats_v59":habitats_v59, "ecology_v60":ecology_v60,
@@ -569,6 +574,10 @@ func load_world() -> bool:
 	if typeof(value) != TYPE_DICTIONARY:
 		return false
 	world_name=str(value.get("world_name","Meu mundo"))
+	map_seed=int(value.get("map_seed",0))
+	river_centers=value.get("river_centers",[10,25])
+	if river_centers.size()!=2: river_centers=[10,25]
+	river_phase=float(value.get("river_phase",0.0))
 	tiles = value.get("tiles", [])
 	towns = value.get("towns", [])
 	people = value.get("people", [])
@@ -632,6 +641,13 @@ func load_world() -> bool:
 			if not p.has("appearance"): p["appearance"] = posmod(int(p["id"]), 10)
 			if not p.has("skin"): p["skin"] = posmod(int(p["id"])*3,5)
 			if not p.has("hair"): p["hair"] = posmod(int(p["id"])*7,6)
+		if not bool(value.get("village_layout_v2",false)):
+			for town in towns:
+				var project:Dictionary=town.get("construction",{})
+				if str(project.get("kind","")) in ["house","farm","upgrade"]:
+					var point:Vector2=workshop_position(town,str(project["kind"]))
+					project["x"]=point.x
+					project["y"]=point.y
 		politics.prepare(self)
 		return true
 	return false
@@ -942,7 +958,7 @@ func _animal_destination(p:Vector2,species:String,kinds:Array) -> Vector2:
 	return best
 
 func river_x(y:int,index:int) -> int:
-	return (10 if index==0 else 25)+roundi(sin(float(y)*0.36+float(index)*0.9)*2.0)
+	return int(river_centers[clampi(index,0,1)])+roundi(sin(float(y)*0.36+float(index)*0.9+river_phase)*2.0)
 
 func _connect_rivers() -> void:
 	for index in range(2):
@@ -962,7 +978,7 @@ func is_bridge(x:int,y:int) -> bool:
 
 func water_flow(p:Vector2) -> Vector2:
 	var y:int=clampi(int(p.y),0,SIZE-1)
-	var i:int=0 if p.x<18 else 1
+	var i:int=0 if absf(p.x-river_x(y,0))<=absf(p.x-river_x(y,1)) else 1
 	var next:int=river_x(mini(y+1,SIZE-1),i)
 	return Vector2(float(next-river_x(y,i)),1.0).normalized()
 
@@ -990,10 +1006,10 @@ func workshop_position(town:Dictionary,kind:String) -> Vector2:
 	if kind=="campfire": return origin+Vector2(0.7,1.0)
 	if kind=="castle": return origin+Vector2(0,-3.0)
 	if kind in ["house","upgrade"]:
-		var spots:Array[Vector2]=[Vector2(0,-0.35),Vector2(1.60,0.35),Vector2(-1.25,-0.75),Vector2(2.15,-0.85),Vector2(-2.4,0.15),Vector2(0.95,-1.65),Vector2(-1.35,1.45),Vector2(2.9,1.15)]
+		var spots:Array[Vector2]=house_layout(town)
 		return origin+spots[clampi(upgrade_index(town) if kind=="upgrade" else int(town.get("houses",2)),0,7)]
 	if kind=="farm":
-		var spots:Array[Vector2]=[Vector2(-1.4,1.15),Vector2(-2.2,2.20),Vector2(1.3,1.85),Vector2(2.9,2.0),Vector2(-2.8,-1.1),Vector2(3.1,-1.4)]
+		var spots:Array[Vector2]=farm_layout(town)
 		return origin+spots[clampi(int(town.get("farms",1)),0,5)]
 	if kind=="crossing":
 		var best:=Vector2(river_x(6,0),6)
@@ -1030,7 +1046,7 @@ func _seed_habitat_animals() -> void:
 		var suitable:Array[Vector2]=[]
 		var habitat:String="swamp" if species in ["frog","capybara","heron"] else ("snow" if species=="snow_hare" else "sand")
 		for y in range(1,SIZE-1):
-			for x in range(32,WIDTH-1):
+			for x in range(1,WIDTH-1):
 				if str(tiles[y][x])==habitat: suitable.append(Vector2(x,y))
 		if suitable.is_empty(): continue
 		for i in range(5):
@@ -1045,7 +1061,7 @@ func _seed_extra_animals() -> void:
 			for x in range(1,WIDTH-1):
 				var kind:String=str(tiles[y][x])
 				if species in ["crocodile","turtle","duck"]:
-					if x<32 or kind not in ["swamp","water"]: continue
+					if kind not in ["swamp","water"]: continue
 				elif kind!="forest": continue
 				candidates.append(Vector2(x+0.3,y+0.3))
 		if candidates.is_empty(): continue
@@ -2028,7 +2044,7 @@ func storage_position(town:Dictionary,key:String) -> Vector2:
 	var origin:=Vector2(float(town["x"]),float(town["y"]))
 	if key=="castle": return workshop_position(town,"castle")+Vector2(0,0.4)
 	if key.begins_with("house_"):
-		var spots:Array[Vector2]=[Vector2(0,-0.35),Vector2(1.60,0.35),Vector2(-1.25,-0.75),Vector2(2.15,-0.85),Vector2(-2.4,0.15),Vector2(0.95,-1.65),Vector2(-1.35,1.45),Vector2(2.9,1.15)]
+		var spots:Array[Vector2]=house_layout(town)
 		return origin+spots[clampi(int(key.trim_prefix("house_")),0,7)]+Vector2(0,0.42)
 	return origin
 
@@ -2398,8 +2414,8 @@ func _witch_ground(p:Vector2) -> bool:
 	return swamp_at(p)
 
 func _animal_avoid_buildings(next:Vector2,previous:Vector2) -> Vector2:
-	var spots:Array[Vector2]=[Vector2(0,-0.35),Vector2(1.60,0.35),Vector2(-1.25,-0.75),Vector2(2.15,-0.85),Vector2(-2.4,0.15),Vector2(0.95,-1.65),Vector2(-1.35,1.45),Vector2(2.9,1.15)]
 	for town in towns:
+		var spots:Array[Vector2]=house_layout(town)
 		var origin:=Vector2(float(town["x"]),float(town["y"]))
 		if next.distance_squared_to(origin)>20: continue
 		for i in range(mini(int(town.get("houses",0)),spots.size())):
@@ -2507,3 +2523,27 @@ func _nearest_swim_bank(p:Vector2) -> Vector2:
 				distance=d
 				best=q
 	return best
+
+func house_layout(town:Dictionary) -> Array[Vector2]:
+	var options:Array[Vector2]=[Vector2(-0.95,-0.85),Vector2(0.95,-0.85),Vector2(-2.85,-0.85),Vector2(2.85,-0.85),Vector2(-0.95,-2.3),Vector2(0.95,-2.3),Vector2(-2.85,-2.3),Vector2(2.85,-2.3),Vector2(-4.75,-0.85),Vector2(4.75,-0.85),Vector2(-4.75,-2.3),Vector2(4.75,-2.3)]
+	return _dry_layout(town,options,8)
+
+func farm_layout(town:Dictionary) -> Array[Vector2]:
+	var options:Array[Vector2]=[Vector2(-1.9,1.8),Vector2(1.9,1.8),Vector2(0,3.2),Vector2(-1.9,3.2),Vector2(1.9,3.2),Vector2(0,4.6),Vector2(-3.8,1.8),Vector2(3.8,1.8),Vector2(-3.8,3.2),Vector2(3.8,3.2)]
+	return _dry_layout(town,options,6)
+
+func _dry_layout(town:Dictionary,options:Array[Vector2],count:int) -> Array[Vector2]:
+	var dry:Array[Vector2]=[]
+	var reserve:Array[Vector2]=[]
+	var origin:=Vector2(float(town["x"]),float(town["y"]))
+	for spot in options:
+		var p:Vector2=origin+spot
+		if p.x<1 or p.x>WIDTH-2 or p.y<1 or p.y>SIZE-2:
+			reserve.append(spot)
+			continue
+		var kind:String=str(tiles[int(p.y)][int(p.x)])
+		if kind in ["water","mountain"]: reserve.append(spot)
+		else: dry.append(spot)
+	dry.append_array(reserve)
+	dry.resize(count)
+	return dry

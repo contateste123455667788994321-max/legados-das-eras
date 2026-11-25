@@ -231,7 +231,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 			if bool(home.get("campfire",false)) and int(p["id"])%5==0 and float(home.get("meat",0))<3:
 				_hunt(sim,p,home)
 			else:
-				var field:Vector2=Vector2(float(home["x"])-1.4,float(home["y"])+1.15)
+				var field:Vector2=Vector2(float(home["x"]),float(home["y"]))+sim.farm_layout(home)[0]
 				sim._set_delivery_goal(p,field,"Cultivando")
 				if Vector2(float(p["x"]),float(p["y"])).distance_to(field)<0.65:
 					sim.collect_cargo(p,"food",3.0)

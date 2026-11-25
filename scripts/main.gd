@@ -25,6 +25,7 @@ var update_previous_speed:float=1.0
 var home_open:bool=false
 var home_panel:Control
 var home_buttons:Array[Button]=[]
+var title_font:SystemFont
 var game_hud:Array[Control]=[]
 var startup_speed:float=1.0
 const WORLDS_DIR:String="user://worlds"
@@ -348,7 +349,7 @@ func _make_landscape() -> void:
 			var water: float = lerpf(lerpf(float(str(world.tiles[y0][x0]) == "water"), float(str(world.tiles[y0][x1]) == "water"), tx), lerpf(float(str(world.tiles[y1][x0]) == "water"), float(str(world.tiles[y1][x1]) == "water"), tx), ty)
 			var grain: float = float(posmod(px * 79 + py * 131 + px * py * 17, 97)) / 97.0
 			var shade:float=roundf((noise.get_noise_2d(px,py)*0.26+(grain-0.5)*0.075)*22.0)/22.0
-			var wetland:bool=fx>=31.5 and fx<=43.2 and fy>=5.5 and fy<=15.6
+			var wetland:bool=str(world.tiles[y0][x0])=="swamp" or str(world.tiles[y0][x1])=="swamp" or str(world.tiles[y1][x0])=="swamp" or str(world.tiles[y1][x1])=="swamp"
 			var wet:float=noise.get_noise_2d(px*0.48+803,py*0.48+301)
 			if col==Color("#536e47"):
 				col=Color("#455b36").lerp(Color("#797c45"),clampf(wet+0.45,0.0,1.0))
@@ -460,16 +461,9 @@ func _draw() -> void:
 	_draw_world_sites()
 	scene_depth.clear()
 	# Quantidade real de casas e fazendas aparece no mapa, conforme o estoque da vila.
-	var house_spots: Array[Vector2] = [
-		Vector2(0.0, -0.35), Vector2(1.60, 0.35), Vector2(-1.25, -0.75),
-		Vector2(2.15, -0.85), Vector2(-2.4, 0.15), Vector2(0.95, -1.65),
-		Vector2(-1.35, 1.45), Vector2(2.9, 1.15)
-	]
-	var farm_spots: Array[Vector2] = [
-		Vector2(-1.4, 1.15), Vector2(-2.2, 2.20), Vector2(1.3, 1.85),
-		Vector2(2.9, 2.0), Vector2(-2.8, -1.1), Vector2(3.1, -1.4)
-	]
 	for town in world.towns:
+		var house_spots:Array[Vector2]=world.house_layout(town)
+		var farm_spots:Array[Vector2]=world.farm_layout(town)
 		var center := _world_to_screen(Vector2(float(town["x"]) + 0.5, float(town["y"]) + 0.5))
 		if not MAP_AREA.grow(140.0).has_point(center):
 			continue
@@ -542,18 +536,33 @@ func _draw() -> void:
 		draw_rect(Rect2(17, 650, 1207, 41), Color("#172219", 0.86), true)
 		draw_rect(Rect2(17, 650, 1207, 41), Color("#d1ab6c"), false, 1.0)
 
-func _draw_village_paths(town: Dictionary, center: Vector2, unit: float, houses: Array[Vector2], farms: Array[Vector2]) -> void:
+func _draw_village_paths(town:Dictionary,center:Vector2,unit:float,houses:Array[Vector2],farms:Array[Vector2]) -> void:
+	# Ruas retas e estreitas, com ramais para a porta de cada casa e para as hortas.
+	var lane_y:float=0.58
+	var left:float=0.0
+	var right:float=0.0
 	for i in range(mini(int(town.get("houses",2)),houses.size())):
-		_draw_dirt_path(center+Vector2(0.7,1.0)*unit,center+houses[i]*unit+Vector2(0,unit*0.30),unit)
+		var spot:Vector2=houses[i]
+		left=minf(left,spot.x)
+		right=maxf(right,spot.x)
+		var door:Vector2=spot+Vector2(0,0.36)
+		_draw_dirt_path(center+door*unit,center+Vector2(spot.x,lane_y)*unit,unit)
 	for i in range(mini(int(town.get("farms",1)),farms.size())):
-		_draw_dirt_path(center+Vector2(0.7,1.0)*unit,center+farms[i]*unit,unit)
+		var spot:Vector2=farms[i]
+		left=minf(left,spot.x)
+		right=maxf(right,spot.x)
+		_draw_dirt_path(center+Vector2(spot.x,lane_y)*unit,center+(spot-Vector2(0,0.43))*unit,unit)
+	_draw_dirt_path(center+Vector2(left,lane_y)*unit,center+Vector2(right,lane_y)*unit,unit)
+
 
 func _draw_dirt_path(a: Vector2,b: Vector2,unit: float) -> void:
 	var count: int = maxi(2,int(a.distance_to(b)/(unit*0.07)))
 	for i in range(count+1):
 		var t: float = float(i)/float(count)
 		var p: Vector2 = a.lerp(b,t)
-		var size: float = unit*(0.19+0.04*sin(t*19.0))
+		var size: float = unit*(0.13+0.015*sin(t*19.0))
+		var cell:Vector2=_screen_to_world(p)
+		if world.water_depth(cell-Vector2(0.5,0.5))>0.0: continue
 		if not MAP_AREA.grow(-size).has_point(p): continue
 		draw_rect(Rect2(p-Vector2.ONE*size*0.5,Vector2.ONE*size),Color("#a78a4f"))
 		if i%3==0:
@@ -1261,6 +1270,8 @@ func _show_options() -> void:
 	popup.add_item("Configurar som", 15)
 	popup.add_item("Criar novo mundo", 1)
 	popup.add_item("Salvar e voltar ao menu inicial", 16)
+	popup.add_item("Reiniciar este mundo", 17)
+	popup.add_item("Apagar este mundo", 18)
 	popup.id_pressed.connect(func(which: int) -> void:
 		match which:
 			0: _check_updates()
@@ -1285,6 +1296,8 @@ func _show_options() -> void:
 			14: _show_spawn_menu()
 			15: soundscape.show_settings()
 			16: _open_home(true)
+			17: _confirm_world_action(world.save_path,world.world_name,true)
+			18: _confirm_world_action(world.save_path,world.world_name,false)
 		popup.queue_free()
 	)
 	add_child(popup)
@@ -2038,8 +2051,8 @@ func _world_slots() -> Array:
 	var dir:=DirAccess.open(WORLDS_DIR)
 	if dir!=null:
 		for file in dir.get_files():
-			var path:String=WORLDS_DIR+"/"+file
-			if _valid_world_path(path): candidates.append(path)
+			var path:String=WORLDS_DIR+"/"+file.trim_suffix(".bak")
+			if _valid_world_path(path) and not candidates.has(path): candidates.append(path)
 	for path in candidates:
 		var actual:String=path if FileAccess.file_exists(path) else path+".bak"
 		if not FileAccess.file_exists(actual): continue
@@ -2070,8 +2083,7 @@ func _open_home(save_first:bool=true) -> void:
 	home_panel.mouse_filter=Control.MOUSE_FILTER_STOP
 	add_child(home_panel)
 	home_buttons.clear()
-	var slots:Array=_world_slots()
-	for item in [{"label":"Continuar mundo" if not slots.is_empty() else "Comecar aventura","action":Callable(self,"_continue_world")},{"label":"Mundos salvos","action":Callable(self,"_show_saved_worlds")},{"label":"Opcoes","action":Callable(self,"_show_home_options")}]:
+	for item in [{"label":"Carregar mundo","action":Callable(self,"_continue_world")},{"label":"Mundos salvos","action":Callable(self,"_show_saved_worlds")},{"label":"Opções","action":Callable(self,"_show_home_options")}]:
 		var button:Button=_button(str(item["label"]),Vector2.ZERO,Vector2(360,62),item["action"])
 		button.reparent(home_panel,false)
 		button.add_theme_font_size_override("font_size",24)
@@ -2167,7 +2179,7 @@ func _show_saved_worlds() -> void:
 	dialog.title="Mundos salvos"
 	dialog.ok_button_text="Voltar"
 	var layout:=VBoxContainer.new()
-	layout.custom_minimum_size=Vector2(650,470)
+	layout.custom_minimum_size=Vector2(850,470)
 	layout.add_theme_constant_override("separation",12)
 	var create:=Button.new()
 	create.text="+ Criar novo mundo"
@@ -2179,7 +2191,7 @@ func _show_saved_worlds() -> void:
 	)
 	layout.add_child(create)
 	var scroll:=ScrollContainer.new()
-	scroll.custom_minimum_size=Vector2(640,390)
+	scroll.custom_minimum_size=Vector2(840,390)
 	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL
 	var list:=VBoxContainer.new()
 	list.size_flags_horizontal=Control.SIZE_EXPAND_FILL
@@ -2193,7 +2205,10 @@ func _show_saved_worlds() -> void:
 		list.add_child(empty)
 	for slot in slots:
 		var path:String=str(slot["path"])
+		var row:=HBoxContainer.new()
+		row.add_theme_constant_override("separation",8)
 		var button:=Button.new()
+		button.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 		var day:float=float(slot["day"])
 		button.text="%s   |   Ano %d, dia %d   |   %d moradores"%[str(slot["name"]),int(day/365)+1,int(day)%365+1,int(slot["population"])]
 		button.custom_minimum_size=Vector2(0,58)
@@ -2203,12 +2218,23 @@ func _show_saved_worlds() -> void:
 			dialog.queue_free()
 			_open_saved_world.call_deferred(path)
 		)
-		list.add_child(button)
+		row.add_child(button)
+		for reset in [true,false]:
+			var action:=Button.new()
+			action.text="Reiniciar" if reset else "Apagar"
+			action.custom_minimum_size=Vector2(100,58)
+			action.pressed.connect(func():
+				dialog.hide()
+				dialog.queue_free()
+				_confirm_world_action.call_deferred(path,str(slot["name"]),reset)
+			)
+			row.add_child(action)
+		list.add_child(row)
 	dialog.add_child(layout)
 	add_child(dialog)
 	dialog.confirmed.connect(dialog.queue_free)
 	dialog.canceled.connect(dialog.queue_free)
-	dialog.popup_centered(Vector2i(700,540))
+	dialog.popup_centered(Vector2i(900,540))
 
 func _show_home_options() -> void:
 	var dialog:=AcceptDialog.new()
@@ -2267,18 +2293,92 @@ func _menu_notice(message:String) -> void:
 	dialog.popup_centered()
 
 func _draw_home_art() -> void:
-	if not landscape_objects.has("title_landscape"): landscape_objects["title_landscape"]=load("res://assets/landscape/title_landscape.svg")
+	if not landscape_objects.has("title_landscape"): landscape_objects["title_landscape"]=load("res://assets/landscape/title_landscape_v2.svg")
 	var art:Texture2D=landscape_objects["title_landscape"]
+	var extent:Vector2=Vector2(screen_width,720)
 	if art!=null:
-		var extent:Vector2=Vector2(screen_width,720)
 		var scale:float=maxf(extent.x/art.get_width(),extent.y/art.get_height())
 		var size:Vector2=art.get_size()*scale
 		draw_texture_rect(art,Rect2((extent-size)*0.5,size),false)
-	draw_rect(Rect2(0,0,screen_width,720),Color(0.035,0.065,0.054,0.20))
+	# Reutiliza os sprites detalhados do jogo, nao casas geometricas do menu antigo.
 	var middle:float=screen_width*0.5
-	draw_rect(Rect2(middle-239,151,478,432),Color(0.071,0.105,0.083,0.90))
-	draw_rect(Rect2(middle-239,151,478,432),Color("#a78a56"),false,2)
-	draw_line(Vector2(middle-180,279),Vector2(middle+180,279),Color("#987c4e"),1)
-	draw_string(ThemeDB.fallback_font,Vector2(middle-226,220),"LEGADO DAS ERAS",HORIZONTAL_ALIGNMENT_CENTER,452,43,Color("#f1d28d"))
-	draw_string(ThemeDB.fallback_font,Vector2(middle-226,255),"Cada civilizacao escreve sua historia.",HORIZONTAL_ALIGNMENT_CENTER,452,18,Color("#ddd0ad"))
-	draw_string(ThemeDB.fallback_font,Vector2(24,690),"SIMULACAO DE CIVILIZACOES",HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("#ddcda7"))
+	for i in range(26):
+		var left:bool=i%2==0
+		var x:float=middle+(-1.0 if left else 1.0)*(270+float(posmod(i*97,mini(430,int(screen_width*0.5-230)))))
+		var y:float=340+float(posmod(i*71,315))
+		var size:float=55+(y-300)*0.24
+		var tree:Texture2D=landscape_objects["tree"]
+		if tree!=null: draw_texture_rect(tree,Rect2(Vector2(x-size*0.5,y-size),Vector2.ONE*size),false)
+	for i in range(6):
+		var side:float=-1.0 if i<3 else 1.0
+		var x:float=middle+side*(300+float(i%3)*100)
+		var y:float=470+float(posmod(i*83,156))
+		var size:float=112+(y-450)*0.23
+		_draw_sprite("hut",Vector2(x,y),Vector2(size,size*0.82))
+		if i%2==0: _draw_sprite("farm",Vector2(x+side*35,y+size*0.62),Vector2(size*0.8,size*0.55))
+	draw_rect(Rect2(0,0,screen_width,720),Color(0.024,0.05,0.04,0.14))
+	draw_rect(Rect2(middle-264,122,528,474),Color(0.04,0.07,0.06,0.76))
+	draw_rect(Rect2(middle-264,122,528,474),Color("#896b3e"),false,2)
+	draw_rect(Rect2(middle-255,131,510,456),Color("#c6a66a"),false,1)
+	for x in [middle-254,middle+254]:
+		for y in [132.0,586.0]:
+			draw_rect(Rect2(Vector2(x-5,y-5),Vector2(10,10)),Color("#b18d50"))
+	if title_font==null:
+		title_font=SystemFont.new()
+		title_font.font_names=PackedStringArray(["serif","Noto Serif","DejaVu Serif"])
+		title_font.font_weight=800
+	var headline:String="LEGADO DAS ERAS"
+	draw_string(title_font,Vector2(middle-248,220),headline,HORIZONTAL_ALIGNMENT_CENTER,496,45,Color("#322317"))
+	draw_string(title_font,Vector2(middle-248,216),headline,HORIZONTAL_ALIGNMENT_CENTER,496,45,Color("#f4dc99"))
+	draw_line(Vector2(middle-175,264),Vector2(middle+175,264),Color("#bb9555"),2)
+	draw_set_transform(Vector2(middle,264),PI/4)
+	draw_rect(Rect2(-5,-5,10,10),Color("#eed08d"))
+	draw_set_transform(Vector2.ZERO)
+
+
+func _confirm_world_action(path:String,name:String,restart:bool) -> void:
+	if not _valid_world_path(path): return
+	var dialog:=ConfirmationDialog.new()
+	dialog.title="Reiniciar mundo?" if restart else "Apagar mundo?"
+	dialog.dialog_text="O progresso de \""+name+"\" sera substituido por um mapa novo." if restart else "O mundo \""+name+"\" sera excluido deste aparelho. Esta acao nao pode ser desfeita."
+	dialog.ok_button_text="Reiniciar" if restart else "Apagar"
+	dialog.cancel_button_text="Cancelar"
+	add_child(dialog)
+	dialog.confirmed.connect(func():
+		dialog.queue_free()
+		if restart: _restart_saved_world(path,name)
+		else: _delete_saved_world(path)
+	)
+	dialog.canceled.connect(dialog.queue_free)
+	dialog.popup_centered(Vector2i(500,200))
+
+func _restart_saved_world(path:String,name:String) -> void:
+	if not _valid_world_path(path): return
+	if not home_open and world.save_path!=path and not world.save_world():
+		_menu_notice("Nao foi possivel salvar o mundo atual.")
+		return
+	var chosen=World.new()
+	chosen.save_path=path
+	chosen.world_name=name
+	chosen.generate_world()
+	if not chosen.save_world():
+		_menu_notice("Nao foi possivel reiniciar o mundo.")
+		return
+	world=chosen
+	_enter_world()
+
+func _delete_saved_world(path:String) -> void:
+	if not _valid_world_path(path): return
+	# Remove copias auxiliares antes do arquivo principal; nao reabre um mundo excluido.
+	for suffix in [".tmp",".bak",""]:
+		var file:String=path+suffix
+		if FileAccess.file_exists(file) and DirAccess.remove_absolute(ProjectSettings.globalize_path(file))!=OK:
+			_menu_notice("Nao foi possivel apagar o mundo por completo.")
+			return
+	if world.save_path==path:
+		world=World.new()
+		world.generate_world()
+		world.speed=0.0
+		if not home_open: _open_home(false)
+		_remember_world()
+	if home_open: _show_saved_worlds.call_deferred()
