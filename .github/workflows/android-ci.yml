@@ -15,6 +15,7 @@ permissions:
 jobs:
   validar:
     name: Validar Godot e simulação
+    timeout-minutes: 15
     runs-on: ubuntu-24.04
     container:
       image: barichello/godot-ci:4.4.1
@@ -33,8 +34,12 @@ jobs:
         shell: bash
         run: |
           set -eo pipefail
-          godot --headless --path . --script res://tests/smoke_test.gd 2>&1 | tee godot-test.log
+          timeout --kill-after=15s 5m godot --headless --path . --script res://tests/smoke_test.gd 2>&1 | tee godot-test.log
           grep -q 'SUCESSO: todos os testes basicos passaram.' godot-test.log
+          if grep -E 'SCRIPT ERROR|Parse Error|FALHOU:|ERROR:.*Invalid' godot-test.log; then
+            echo "Falha na validacao da simulacao."
+            exit 1
+          fi
       - name: Salvar logs se houver erro
         if: failure()
         uses: actions/upload-artifact@v4
@@ -48,6 +53,7 @@ jobs:
   avaliar_jogadores:
     name: "Jogador exigente: ${{ matrix.profile }}"
     needs: validar
+    timeout-minutes: 20
     runs-on: ubuntu-24.04
     container:
       image: barichello/godot-ci:4.4.1
@@ -65,7 +71,7 @@ jobs:
         shell: bash
         run: |
           set -eo pipefail
-          godot --headless --path . --script res://tests/player_scenarios.gd -- "${{ matrix.profile }}" 2>&1 | tee player-test.log
+          timeout --kill-after=15s 12m godot --headless --path . --script res://tests/player_scenarios.gd -- "${{ matrix.profile }}" 2>&1 | tee player-test.log
           grep -q 'SUCESSO: jogador' player-test.log
           if grep -E 'SCRIPT ERROR|Parse Error|FALHOU:|JOGADOR SIMULADO:|ERROR:.*Invalid' player-test.log; then
             echo "Erro no perfil de jogador ${{ matrix.profile }}"

@@ -70,7 +70,12 @@ func _run_tests() -> void:
 	_check(int(world.resource_drops.back()["items"]["croc_hide"])==2,"Crocodilo deixa couro especial")
 	var stock_town:Dictionary=world.towns[0]
 	world.store_resource(stock_town,"house_0","bone",2)
-	_check(float(world.building_stocks(stock_town)["house_0"]["bone"])==2 and float(stock_town["bone"])==2,"Estoque por casa e total coerentes")
+	var camp_stocks:Dictionary=world.building_stocks(stock_town)
+	_check(not camp_stocks.has("house_0") and float(camp_stocks.get("camp",{}).get("bone",0))==2 and float(stock_town["bone"])==2,"Tribo sem casas guarda recursos no acampamento")
+	# Uma aldeia independente com casa pronta permite validar o estoque por edificio.
+	var housed_town:Dictionary={"houses":1,"house_levels":[1],"bone":0.0}
+	world.store_resource(housed_town,"house_0","bone",2)
+	_check(float(world.building_stocks(housed_town).get("house_0",{}).get("bone",0))==2 and float(housed_town["bone"])==2,"Estoque por casa e total coerentes")
 	var craft_town:Dictionary={"id":777,"x":5,"y":5,"houses":1,"level":1,"wood":20.0,"stone":5.0,"fiber":2.0,"forge":false}
 	_check(not world.craft_item(craft_town,"sword"),"Espada nao existe antes da forja")
 	_check(world.craft_item(craft_town,"spear") and float(craft_town["spear"])==1,"Lanca produzida e armazenada")
@@ -257,7 +262,12 @@ func _run_tests() -> void:
 	parent_b["partner"] = parent_a["id"]
 	var count_before: int = world.people.size()
 	world._new_children()
-	_check(world.people.size() > count_before, "Casais podem ter filhos")
+	_check(world.people.size()==count_before,"Sem moradia, aldeias fundadoras nao aumentam a populacao")
+	# Simula duas casas ja concluidas para testar a reproducao separadamente.
+	world.towns[0]["houses"]=2
+	world.towns[0]["house_levels"]=[1,1]
+	world._new_children()
+	_check(world.people.size() > count_before, "Casais podem ter filhos quando ha moradia")
 	for i in range(count_before, world.people.size()):
 		var child: Dictionary = world.people[i]
 		_check(int(child["father"]) > 0 and int(child["mother"]) > 0, "Criancas tem pais identificaveis")
