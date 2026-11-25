@@ -80,7 +80,8 @@ func _builder() -> void:
 	_assert(w.politics.set_treaty(w, first, second, "alliance"), "Construtor: consegue assinar alianca")
 	_assert(w.politics.get_status(w, second, first) == "alliance", "Construtor: alianca reciproca")
 	_assert(w.politics.set_treaty(w, first, second, "war"), "Construtor: consegue declarar guerra")
-	_assert(w.politics.set_treaty(w, first, second, "peace"), "Construtor: consegue terminar guerra")
+	_assert(not w.politics.set_treaty(w, first, second, "peace"), "Construtor: guerra nao termina por tratado prematuro")
+	_assert(w.politics.set_treaty(w, first, second, "peace",true), "Construtor: paz apos desfecho militar")
 	for i in range(2):
 		w._new_children()
 	_assert(w.people.size() >= 18, "Construtor: geracoes sem apagar moradores")
@@ -244,7 +245,7 @@ func _diplomat() -> void:
 	var a: int = int(w.towns[0]["id"])
 	var b: int = int(w.towns[1]["id"])
 	for kind in ["alliance", "war", "peace"]:
-		_assert(w.politics.set_treaty(w, a, b, kind), "Diplomata: consegue estabelecer " + kind)
+		_assert(w.politics.set_treaty(w, a, b, kind,kind=="peace"), "Diplomata: consegue estabelecer " + kind)
 		_assert(w.politics.get_status(w, a, b) == kind, "Diplomata: acordo ativo de um lado")
 		_assert(w.politics.get_status(w, b, a) == kind, "Diplomata: acordo ativo do outro lado")
 	_assert(not w.politics.set_treaty(w, a, a, "war"), "Diplomata: impede guerra contra si mesmo")
