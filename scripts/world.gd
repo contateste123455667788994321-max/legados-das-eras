@@ -1051,6 +1051,40 @@ func village_at_war(town:Dictionary) -> bool:
 		if int(other["id"])!=int(town["id"]) and kingdom_id(other)!=kingdom_id(town) and politics.get_status(self,int(town["id"]),int(other["id"]))=="war": return true
 	return false
 
+func dismantle_palisade_job(p:Dictionary,town:Dictionary,step:float) -> bool:
+	if village_at_war(town) or is_military(p) or float(p["age"])<16.0 or int(p["id"])==int(town["leader"]): return false
+	var segments:Array=town.get("palisades",[])
+	if segments.is_empty(): return false
+	var worker:Dictionary=get_person(int(town.get("dismantle_worker",0)))
+	if not worker.is_empty() and bool(worker.get("alive",false)) and not is_military(worker) and int(worker["id"])!=int(p["id"]): return false
+	town["dismantle_worker"]=p["id"]
+	var segment:Dictionary=segments.back()
+	var goal:=Vector2(float(segment["x"]),float(segment["y"]))
+	_set_delivery_goal(p,goal,"Desmontando paliçada")
+	if Vector2(float(p["x"]),float(p["y"])).distance_to(goal)<0.8:
+		_mark_action(p,"chopping",1.0)
+		town["dismantle_progress"]=float(town.get("dismantle_progress",0))+step
+		if float(town["dismantle_progress"])>=3.0:
+			segments.pop_back()
+			store_resource(town,preferred_storage(town,"wood",p),"wood",1.0)
+			town["dismantle_progress"]=0.0
+			town["dismantle_worker"]=0
+			sound_at("build",p)
+			if segments.is_empty(): town.erase("palisade_gate")
+	return true
+
+func stop_wartime_construction(town:Dictionary) -> void:
+	if village_at_war(town): return
+	var project:Dictionary=town.get("construction",{})
+	if str(project.get("kind",""))!="palisade": return
+	var refund:float=float(project.get("required",{}).get("wood",3.0))
+	for person in people:
+		var cargo:Dictionary=person.get("cargo",{})
+		if bool(cargo.get("project",false)) and int(cargo.get("project_id",-1))==int(project.get("project_id",-2)):
+			if bool(person.get("alive",false)): person["cargo"]={}
+	town["wood"]=float(town.get("wood",0))+refund
+	town["construction"]={}
+
 func workshop_stone_cost(kind:String) -> float:
 	return float({"oven":12,"forge":24,"crossing":4,"upgrade":12,"castle":300}.get(kind,0))
 
@@ -1414,6 +1448,9 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 			if priority<best:
 				best=priority
 				enemy=other
+		if invading and enemy.is_empty() and army_members(enemy_town).is_empty():
+			var enemy_ruler:Dictionary=get_person(int(enemy_town.get("wartime_ruler",enemy_town["leader"])))
+			if not enemy_ruler.is_empty() and bool(enemy_ruler.get("alive",false)) and not accepts_province(enemy_town): enemy=enemy_ruler
 		goal=Vector2(float(enemy_town["x"]),float(enemy_town["y"])) if invading else origin
 		if not enemy.is_empty():
 			goal=Vector2(float(enemy["x"]),float(enemy["y"]))
@@ -1484,10 +1521,43 @@ func _update_campaigns() -> void:
 			continue
 		if not army_members(defender).is_empty(): continue
 		var origin:=Vector2(float(defender["x"]),float(defender["y"]))
-		for soldier in troops:
-			if Vector2(float(soldier["x"]),float(soldier["y"])).distance_to(origin)<1.1:
-				annex_town(attacker,defender)
-				break
+		if ruler_fallen(defender):
+			finish_defeat(attacker,defender)
+			continue
+		if accepts_province(defender):
+			for soldier in troops:
+				if Vector2(float(soldier["x"]),float(soldier["y"])).distance_to(origin)<1.1:
+					annex_town(attacker,defender)
+					break
+	# Uma guerra também pode terminar sem campanha ativa, se a liderança e o exército caíram.
+	for i in range(towns.size()):
+		for j in range(i+1,towns.size()):
+			var a:Dictionary=towns[i]
+			var b:Dictionary=towns[j]
+			if politics.get_status(self,int(a["id"]),int(b["id"]))!="war" or kingdom_id(a)==kingdom_id(b): continue
+			if army_members(a).is_empty() and ruler_fallen(a): finish_defeat(b,a)
+			elif army_members(b).is_empty() and ruler_fallen(b): finish_defeat(a,b)
+
+func accepts_province(town:Dictionary) -> bool:
+	# Líderes mais diplomáticos podem aceitar a rendição em vez de resistir até o fim.
+	return leader_diplomacy(town)>=leader_aggression(town) or float(town.get("morale",60))<=20.0
+
+func ruler_fallen(town:Dictionary) -> bool:
+	var ruler:Dictionary=get_person(int(town.get("wartime_ruler",town.get("leader",0))))
+	return ruler.is_empty() or not bool(ruler.get("alive",false))
+
+func finish_defeat(winner:Dictionary,loser:Dictionary) -> void:
+	politics.set_treaty(self,int(winner["id"]),int(loser["id"]),"peace",true)
+	winner["raid_target"]=0
+	winner["siege_by"]=0
+	loser["raid_target"]=0
+	loser["siege_by"]=0
+	winner["victories"]=int(winner.get("victories",0))+1
+	news=str(loser["name"])+" perdeu seu exercito e governante. "+str(winner["name"])+" venceu a guerra."
+	for town in [winner,loser]:
+		var history:Array=town.get("historical_events",[])
+		history.append({"day":int(day),"event":news})
+		town["historical_events"]=history
 
 func annex_town(attacker:Dictionary,defender:Dictionary) -> void:
 	var old_kingdom:int=kingdom_id(defender)
@@ -1504,7 +1574,7 @@ func annex_town(attacker:Dictionary,defender:Dictionary) -> void:
 			town["siege_by"]=0
 	attacker["raid_target"]=0
 	defender["siege_by"]=0
-	politics.set_treaty(self,int(attacker["id"]),int(defender["id"]),"peace")
+	politics.set_treaty(self,int(attacker["id"]),int(defender["id"]),"peace",true)
 	news=str(attacker["name"])+" conquistou e anexou "+str(defender["name"])+"!"
 	for town in [attacker,defender]:
 		var history:Array=town.get("historical_events",[])
