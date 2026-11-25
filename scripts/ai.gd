@@ -79,6 +79,7 @@ func _init_town(t: Dictionary) -> void:
 func _manage_town(sim, town: Dictionary, step: float) -> void:
 	var pop: int = sim.active_population(int(town["id"]))
 	sim.update_roles(town)
+	sim.stop_wartime_construction(town)
 	# Moradores levantam UMA obra de cada vez. Madeira e tempo tem custos reais.
 	if town.get("construction", {}).is_empty():
 		if pop>0 and int(town["houses"])==0 and float(town["wood"])>=14:
@@ -144,6 +145,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 			sim.equip_worker(home,p)
 		sim.military_duty(p,home,step)
 		return
+	if p.get("cargo",{}).is_empty() and sim.dismantle_palisade_job(p,home,step): return
 	if sim.transport_job(p,home): return
 	if sim.gather_drop_job(p,home): return
 	if sim.equipment_job(p,home): return
