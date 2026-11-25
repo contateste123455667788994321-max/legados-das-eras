@@ -2270,39 +2270,28 @@ func _draw_home_art() -> void:
 		var scale:float=maxf(extent.x/art.get_width(),extent.y/art.get_height())
 		var size:Vector2=art.get_size()*scale
 		draw_texture_rect(art,Rect2((extent-size)*0.5,size),false)
-	# Reutiliza os sprites detalhados do jogo, nao casas geometricas do menu antigo.
 	var middle:float=screen_width*0.5
-	for i in range(26):
-		var left:bool=i%2==0
-		var x:float=middle+(-1.0 if left else 1.0)*(270+float(posmod(i*97,mini(430,int(screen_width*0.5-230)))))
-		var y:float=340+float(posmod(i*71,315))
-		var size:float=55+(y-300)*0.24
-		var tree:Texture2D=landscape_objects["tree"]
-		if tree!=null: draw_texture_rect(tree,Rect2(Vector2(x-size*0.5,y-size),Vector2.ONE*size),false)
-	for i in range(6):
-		var side:float=-1.0 if i<3 else 1.0
-		var x:float=middle+side*(300+float(i%3)*100)
-		var y:float=470+float(posmod(i*83,156))
-		var size:float=112+(y-450)*0.23
-		_draw_sprite("hut",Vector2(x,y),Vector2(size,size*0.82))
-		if i%2==0: _draw_sprite("farm",Vector2(x+side*35,y+size*0.62),Vector2(size*0.8,size*0.55))
-	draw_rect(Rect2(0,0,screen_width,720),Color(0.024,0.05,0.04,0.14))
-	draw_rect(Rect2(middle-264,122,528,474),Color(0.04,0.07,0.06,0.76))
-	draw_rect(Rect2(middle-264,122,528,474),Color("#896b3e"),false,2)
-	draw_rect(Rect2(middle-255,131,510,456),Color("#c6a66a"),false,1)
-	for x in [middle-254,middle+254]:
-		for y in [132.0,586.0]:
-			draw_rect(Rect2(Vector2(x-5,y-5),Vector2(10,10)),Color("#b18d50"))
+	# Escurecimento suave no centro; a paisagem continua visivel em volta.
+	for i in range(18):
+		var half:float=400.0-float(i)*10.0
+		draw_rect(Rect2(middle-half,0,half*2,720),Color(0.025,0.045,0.045,0.035))
 	if title_font==null:
 		title_font=SystemFont.new()
-		title_font.font_names=PackedStringArray(["serif","Noto Serif","DejaVu Serif"])
+		title_font.font_names=PackedStringArray(["Noto Serif","serif","DejaVu Serif"])
 		title_font.font_weight=800
-	var headline:String="LEGADO DAS ERAS"
-	draw_string(title_font,Vector2(middle-248,220),headline,HORIZONTAL_ALIGNMENT_CENTER,496,45,Color("#322317"))
-	draw_string(title_font,Vector2(middle-248,216),headline,HORIZONTAL_ALIGNMENT_CENTER,496,45,Color("#f4dc99"))
-	draw_line(Vector2(middle-175,264),Vector2(middle+175,264),Color("#bb9555"),2)
-	draw_set_transform(Vector2(middle,264),PI/4)
-	draw_rect(Rect2(-5,-5,10,10),Color("#eed08d"))
+	# Marca em duas linhas, dourado envelhecido com contorno escuro.
+	var gold:=Color("#e8ce8e")
+	var shade:=Color("#232d2a")
+	for offset in [Vector2(-2,0),Vector2(2,0),Vector2(0,-2),Vector2(0,3),Vector2(0,6)]:
+		draw_string(title_font,Vector2(middle-340,173)+offset,"LEGADO",HORIZONTAL_ALIGNMENT_CENTER,680,82,shade)
+		draw_string(title_font,Vector2(middle-300,242)+offset,"DAS ERAS",HORIZONTAL_ALIGNMENT_CENTER,600,55,shade)
+	draw_string(title_font,Vector2(middle-340,173),"LEGADO",HORIZONTAL_ALIGNMENT_CENTER,680,82,gold)
+	draw_string(title_font,Vector2(middle-300,242),"DAS ERAS",HORIZONTAL_ALIGNMENT_CENTER,600,55,Color("#f5e2b3"))
+	for side in [-1.0,1.0]:
+		draw_line(Vector2(middle+side*18,276),Vector2(middle+side*187,276),Color("#b69b63"),2)
+		draw_line(Vector2(middle+side*187,276),Vector2(middle+side*207,268),Color("#b69b63"),2)
+	draw_set_transform(Vector2(middle,276),PI/4)
+	draw_rect(Rect2(-6,-6,12,12),Color("#e8ce8e"))
 	draw_set_transform(Vector2.ZERO)
 
 
