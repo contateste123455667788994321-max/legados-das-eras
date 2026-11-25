@@ -81,13 +81,15 @@ func _manage_town(sim, town: Dictionary, step: float) -> void:
 	sim.update_roles(town)
 	# Moradores levantam UMA obra de cada vez. Madeira e tempo tem custos reais.
 	if town.get("construction", {}).is_empty():
-		if not bool(town.get("campfire",false)) and float(town["wood"])>=10:
+		if pop>0 and int(town["houses"])==0 and float(town["wood"])>=14:
+			sim.start_construction(int(town["id"]),"house")
+		elif int(town["houses"])>0 and not bool(town.get("campfire",false)) and float(town["wood"])>=10:
 			sim.start_construction(int(town["id"]),"campfire")
 		elif (pop>=sim.housing_capacity(town)-2 or int(town["houses"])>=4) and sim.upgrade_index(town)>=0 and float(town["wood"])>=18 and float(town.get("stone",0))>=12:
 			sim.start_construction(int(town["id"]),"upgrade")
 		elif pop >= sim.housing_capacity(town)-1 and float(town["wood"]) >= 14.0 and int(town["houses"]) < 8:
 			sim.start_construction(int(town["id"]), "house")
-		elif float(town["food"]) < float(pop) * 1.5 and float(town["wood"]) >= 18.0 and int(town["farms"]) < 6:
+		elif pop>0 and int(town["houses"])>0 and (int(town["farms"])==0 or float(town["food"]) < float(pop) * 1.5) and float(town["wood"]) >= 18.0 and int(town["farms"]) < 6:
 			sim.start_construction(int(town["id"]), "farm")
 		elif bool(town.get("campfire",false)) and not bool(town.get("oven",false)) and float(town.get("stone",0))>=12 and float(town["wood"])>=8:
 			sim.start_construction(int(town["id"]),"oven")
@@ -169,7 +171,8 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 			1, 4: p["profession"]="Minerador"
 			2: p["profession"]="Cozinheiro"
 	# Garante que uma aldeia sem madeira tenha pelo menos um coletor.
-	if float(p["age"])>=16 and float(home["wood"])<14.0 and int(p["id"])!=int(home["leader"]) and int(p["id"])%2==0:
+	var wood_goal:float=18.0 if int(home.get("farms",1))==0 and int(home.get("houses",2))>0 else 14.0
+	if float(p["age"])>=16 and float(home["wood"])<wood_goal and (int(home.get("houses",2))==0 or (int(p["id"])!=int(home["leader"]) and int(p["id"])%2==0)):
 		_gather_wood(sim,p,home)
 		return
 	if int(p["id"])==int(home["leader"]) and bool(home.get("castle",false)):
@@ -232,7 +235,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 				_hunt(sim,p,home)
 			else:
 				var field:Vector2=Vector2(float(home["x"]),float(home["y"]))+sim.farm_layout(home)[0]
-				sim._set_delivery_goal(p,field,"Cultivando")
+				sim._set_delivery_goal(p,field,"Cultivando" if int(home.get("farms",1))>0 else "Coletando alimento")
 				if Vector2(float(p["x"]),float(p["y"])).distance_to(field)<0.65:
 					sim.collect_cargo(p,"food",3.0)
 	# Laços familiares e rivalidades alteram a lealdade entre pessoas.

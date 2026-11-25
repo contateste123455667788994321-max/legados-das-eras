@@ -538,6 +538,7 @@ func _draw() -> void:
 		draw_rect(Rect2(17, 650, 1207, 41), Color("#d1ab6c"), false, 1.0)
 
 func _draw_village_paths(town:Dictionary,center:Vector2,unit:float,houses:Array[Vector2],farms:Array[Vector2]) -> void:
+	if int(town.get("houses",2))==0 and int(town.get("farms",1))==0: return
 	# Ruas retas e estreitas, com ramais para a porta de cada casa e para as hortas.
 	var lane_y:float=0.58
 	var left:float=0.0

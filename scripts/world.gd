@@ -126,7 +126,7 @@ func generate_world() -> void:
 	for animal in wildlife: init_animal_health(animal)
 	_seed_swamp_witch()
 	politics.prepare(self)
-	news = "Tres aldeias vivem em paz. Voce decide o futuro."
+	news = "Tres tribos chegaram. Os moradores vao coletar recursos e construir suas aldeias."
 
 func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
 	var town_id := new_id()
@@ -138,7 +138,7 @@ func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
 		"law": "merito", "water": 18.0,
 		"home_biome": founding_biome,
 		"clothing": 0.0, "drought_preparation": false,
-		"houses": 2, "house_levels":[1,1], "castle":false, "farms": 1, "campfire":false, "oven":false, "forge":false, "crossing":false, "stone":0.0, "construction": {}, "historical_events": []
+		"houses": 0, "house_levels":[], "castle":false, "farms": 0, "campfire":false, "oven":false, "forge":false, "crossing":false, "stone":0.0, "construction": {}, "historical_events": []
 	}
 	towns.append(town)
 	tiles[y][x] = "grass"

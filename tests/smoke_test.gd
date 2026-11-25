@@ -21,6 +21,8 @@ func _run_tests() -> void:
 	var random_map=World.new()
 	random_map.generate_world()
 	_check(world.map_seed!=random_map.map_seed and world.tiles!=random_map.tiles,"Cada mundo novo possui distribuicao aleatoria")
+	for town in world.towns:
+		_check(int(town["houses"])==0 and int(town["farms"])==0 and world.housing_capacity(town)==0 and town["construction"].is_empty(),"Mundo novo inicia sem casas ou fazendas prontas")
 	_check(world.house_layout(world.towns[0]).size()==8 and world.farm_layout(world.towns[0]).size()==6,"Aldeia usa lotes organizados para casas e plantacoes")
 	_check(not world.sites.is_empty(), "Locais de producao gerados")
 	_check(not world.wildlife.is_empty(), "Fauna pacifica gerada")
@@ -157,15 +159,24 @@ func _run_tests() -> void:
 
 
 	# Um jogador deve poder mandar construir, ver o trabalho e manter os recursos.
+	var founding_world = World.new()
+	founding_world.generate_world()
+	founding_world.towns[0]["wood"]=14.0
+	founding_world.agent_ai.advance(founding_world,1.0)
+	_check(str(founding_world.towns[0]["construction"].get("kind",""))=="house" and int(founding_world.towns[0]["houses"])==0,"Primeira casa e iniciada pela IA, nao gerada pronta")
 	var building_world = World.new()
 	building_world.generate_world()
 	var target_town: Dictionary = building_world.towns[0]
 	var target_id: int = int(target_town["id"])
 	var original_houses: int = int(target_town.get("houses", 2))
+	_check(building_world.housing_capacity(target_town)==0,"Tribo nova nao tem capacidade de moradia antes de construir")
+	target_town["houses"]=2
+	target_town["house_levels"]=[1,1]
 	_check(building_world.housing_capacity(target_town)==8,"Duas cabanas abrigam oito moradores")
 	target_town["house_levels"]=[1,2]
 	_check(building_world.housing_capacity(target_town)==10,"Casa ampliada aumenta capacidade")
-	target_town["house_levels"]=[1,1]
+	target_town["houses"]=0
+	target_town["house_levels"]=[]
 	_check(not building_world.start_construction(target_id,"castle"),"Castelo exige tecnologia")
 	var original_wood: float = float(target_town["wood"])
 	_check(not building_world.start_construction(target_id, "bridge"), "Nao aceita construcoes desconhecidas")
