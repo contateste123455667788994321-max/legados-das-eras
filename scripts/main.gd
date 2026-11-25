@@ -338,8 +338,10 @@ func _make_landscape() -> void:
 				if wet>0.04: col=Color("#3c5d48").lerp(Color("#244e49"),clampf(wet*1.7,0.0,1.0))
 				if wet>0.26 and grain>0.9 and py%4==0: col=col.lightened(0.15)
 			if water > 0.46:
-				col = (Color("#214f47").lerp(Color("#537d65"),clampf((1.0-water)*1.4+shade,0.0,0.9)) if wetland else Color("#176583").lerp(Color("#54adc0"),clampf((1.0-water)*1.5+shade,0.0,0.85)))
-				if water < 0.60: col = Color("#6d8a62") if wetland else Color("#7ebfc7")
+				var depth:float=smoothstep(0.54,0.98,water)
+				col = Color("#648c72").lerp(Color("#143d3b"),depth) if wetland else Color("#58b8bc").lerp(Color("#104567"),depth)
+				col=col.lerp(Color("#26778f") if not wetland else Color("#3d7660"),clampf((grain-0.35)*0.13,0.0,0.10))
+				if water < 0.60: col = Color("#769d86") if wetland else Color("#8dd1cd")
 				elif grain > 0.89 and py % 5 == 0: col = col.lightened(0.20)
 			elif water > 0.28:
 				col = Color("#706342") if wetland else (Color("#b8cfd4") if season==3 else Color("#b6a274"))
@@ -366,7 +368,7 @@ func _draw_landscape() -> void:
 				if Vector2(x,y).distance_to(Vector2(float(town["x"]),float(town["y"]))) < 2.8:
 					near_house = true
 					break
-			if near_house: continue
+			if near_house and kind!="water": continue
 			if kind == "water":
 				var phase: float = fposmod(float(Time.get_ticks_msec())*0.00016+float(seed)*0.017,1.0)
 				var wave: Vector2 = pos+Vector2((phase-0.5)*side*0.38,side*0.04)
@@ -402,7 +404,7 @@ func _draw_landscape() -> void:
 			var key: String = tree_key
 			if not landscape_objects.has(key):
 				landscape_objects[key] = load("res://assets/landscape/"+key+".svg")
-			if MAP_AREA.grow(-s*1.2).has_point(p):
+			if landscape_objects.get(key) is Texture2D and MAP_AREA.grow(-s*1.2).has_point(p):
 				draw_set_transform(p,float(tree["fall"])*PI*0.5)
 				draw_texture_rect(landscape_objects[key],Rect2(-s*0.5,-s*0.85,s,s),false)
 				draw_set_transform(Vector2.ZERO)
@@ -410,10 +412,9 @@ func _draw_landscape() -> void:
 		else:
 			_draw_landscape_object(tree_key,p,s)
 
-func draw_ellipse_stump(p: Vector2,s: float) -> void:
-	draw_circle(p,s*0.11,Color("#513b25"))
-	draw_circle(p-Vector2(0,s*0.055),s*0.10,Color("#b98a50"))
-	draw_arc(p-Vector2(0,s*0.055),s*0.057,0,TAU,12,Color("#825a35"),1.0)
+func draw_ellipse_stump(p:Vector2,s:float) -> void:
+	_draw_landscape_object("stump_detailed",p,s*0.47)
+
 
 func _draw_landscape_object(key: String, p: Vector2, size: float) -> void:
 	if not landscape_objects.has(key):
@@ -582,19 +583,21 @@ func _draw_rivers() -> void:
 				draw_rect(Rect2(q,Vector2(unit*0.12, maxf(1.0,unit*0.027))),Color("#8edbe1",0.6))
 
 func _draw_waterfall(p:Vector2,u:float) -> void:
-	if not MAP_AREA.grow(-u).has_point(p): return
-	for side in [-1,1]:
-		_draw_landscape_object("rock",p+Vector2(float(side)*u*0.46,-u*0.16),u*0.83)
-	var base:Vector2=p-Vector2(u*0.23,u*0.67)
-	draw_rect(Rect2(base,Vector2(u*0.46,u*0.78)),Color("#248db1"))
-	for i in range(7):
-		var x:float=float(i)*u*0.065
-		var f:float=fposmod(float(Time.get_ticks_msec())*0.0014+float(i)*0.19,1.0)
-		draw_rect(Rect2(base+Vector2(x,f*u*0.56),Vector2(u*0.035,u*0.19)),Color("#b8f2f2" if i%2==0 else "#65c8dc"))
-	for i in range(9):
-		var f:float=fposmod(float(Time.get_ticks_msec())*0.0005+float(i)*0.12,1.0)
-		var q:Vector2=p+Vector2((float(i%3)-1.0)*u*0.17,f*u*0.33)
-		draw_rect(Rect2(q,Vector2(u*0.10,u*0.035)),Color("#def9f4",1.0-f))
+	if not MAP_AREA.grow(-u*1.3).has_point(p): return
+	# Cascata encaixada num paredao, com agua continua e espuma no pe.
+	_draw_landscape_object("waterfall_cliff",p+Vector2(0,u*0.34),u*2.25)
+	var base:Vector2=p-Vector2(u*0.33,u*0.76)
+	var time:float=world.swamp_clock
+	for i in range(14):
+		var x:float=float(i)*u*0.048
+		var f:float=fposmod(time*0.85+float(i)*0.137,1.0)
+		var q:Vector2=base+Vector2(x+sin(f*5.0+float(i))*u*0.018,f*u*0.71)
+		draw_rect(Rect2(q,Vector2(maxf(1,u*0.022),u*(0.09+float(i%3)*0.043))),Color("#b6e9e7",0.45+0.25*sin(float(i))))
+	for i in range(22):
+		var f:float=fposmod(time*0.46+float(i)*0.071,1.0)
+		var q:Vector2=p+Vector2((float(i%7)-3)*u*0.085*(1+f*0.5),u*(0.04+f*0.36))
+		draw_rect(Rect2(q,Vector2(u*(0.08+f*0.07),maxf(1,u*0.026))),Color(0.87,0.98,0.95,(1-f)*0.78))
+
 
 func _draw_person_variant(p:Dictionary,center:Vector2) -> void:
 	var stage:int=world.life_stage(p)
@@ -629,6 +632,11 @@ func _draw_person_variant(p:Dictionary,center:Vector2) -> void:
 		if str(p.get("armor_material","")) in ["bone","shell","croc_hide"] and armor>0: tier=3
 		row=role*16+tier*4+sex*2+variation
 	var bounce:float=absf(sin(phase))*s*0.012 if moving else 0.0
+	var depth:float=world.water_depth(Vector2(float(p["x"]),float(p["y"])))
+	if depth>0:
+		var swim_frame:int=int(world.swamp_clock*4.0+float(int(p["id"])%3))%4
+		_draw_water_actor(atlas,Rect2((swim_frame+0)*32,row*32,32,32),center,s,face,depth,"human",moving)
+		return
 	_contact_shadow(center,s*0.24,s*0.09)
 	_draw_walk_sprite(atlas,Rect2(frame*32,row*32,32,32),center,s,face,phase,false,bounce)
 	_draw_equipment(p,center,s,bounce,face)
@@ -937,15 +945,10 @@ func _move_controlled(delta: float) -> void:
 			var nx: float = clampf(float(actor["x"]) + movement.x, 1.0, float(World.WIDTH - 2))
 			var ny: float = clampf(float(actor["y"]) + movement.y, 1.0, float(World.SIZE - 2))
 			var kind: String = str(world.tiles[clampi(int(ny), 0, World.SIZE - 1)][clampi(int(nx), 0, World.WIDTH - 1)])
-			if kind == "water":
-				movement *= 0.28
-				nx = clampf(float(actor["x"])+movement.x,1.0,float(World.WIDTH-2))
-				ny = clampf(float(actor["y"])+movement.y,1.0,float(World.SIZE-2))
 			if kind != "mountain":
-				actor["x"] = nx
-				actor["y"] = ny
-				actor["target_x"] = nx
-				actor["target_y"] = ny
+				world.move_actor(actor,movement,delta)
+				actor["target_x"] = actor["x"]
+				actor["target_y"] = actor["y"]
 		return
 	var toward := Vector2(float(actor["target_x"]) - float(actor["x"]), float(actor["target_y"]) - float(actor["y"]))
 	if toward.length() > 0.04:
@@ -1788,6 +1791,10 @@ func _draw_natural_animal(animal:Dictionary,p:Vector2) -> void:
 		var wing:int=int(world.swamp_clock*5.0)%4
 		_draw_walk_sprite(landscape_objects["bird_flight"],Rect2(wing*64,0 if species=="heron" else 64,64,64),p-Vector2(0,height*36.0*zoom),s*1.28,face,0,false,0)
 		return
+	var depth:float=world.water_depth(Vector2(float(animal["x"]),float(animal["y"])))
+	if depth>0:
+		_draw_swimming_animal(species,indices,p,s,face,depth,moving)
+		return
 	var bounce:float=absf(sin(phase))*s*(0.14 if species in ["frog","rabbit","snow_hare"] else 0.025) if moving else 0.0
 	_contact_shadow(p,s*0.30,s*0.08)
 	if indices.has(species):
@@ -1841,6 +1848,10 @@ func _draw_animated_beast(b:Dictionary,p:Vector2,key:String) -> void:
 	var movement:Dictionary=visual_motion.get(int(b["id"]),{})
 	var moving:bool=bool(movement.get("moving",false)) and world.speed>0
 	var phase:float=float(movement.get("phase",0))
+	var depth:float=world.water_depth(Vector2(float(b["x"]),float(b["y"])))
+	if depth>0:
+		_draw_swimming_animal(key,{},p,s,float(movement.get("face",1.0)),depth,moving)
+		return
 	_contact_shadow(p,s*0.29,s*0.09)
 	_draw_animal_frames(key,p,s,float(movement.get("face",1.0)),phase,moving)
 
@@ -1935,3 +1946,53 @@ func _draw_combat_feedback() -> void:
 		var font_size:int=maxi(12,int(14*zoom))
 		draw_string(ThemeDB.fallback_font,label_pos+Vector2(1,1),text,HORIZONTAL_ALIGNMENT_LEFT,-1,font_size,Color(0.1,0.06,0.05,clampf(remaining*3,0,1)))
 		draw_string(ThemeDB.fallback_font,label_pos,text,HORIZONTAL_ALIGNMENT_LEFT,-1,font_size,Color(1.0,0.46,0.37,clampf(remaining*3,0,1)))
+
+func _draw_swimming_animal(species:String,indices:Dictionary,p:Vector2,s:float,face:float,depth:float,moving:bool) -> void:
+	var texture:Texture2D
+	var source:Rect2
+	var frame:int=int(world.swamp_clock*4.0)%4 if moving else 0
+	if indices.has(species):
+		texture=landscape_objects["reference_characters"]
+		source=Rect2(int(indices[species])*48,0,48,48)
+	else:
+		var key:String=species+"_walk"
+		if not landscape_objects.has(key): landscape_objects[key]=load("res://assets/landscape/"+key+".svg")
+		texture=landscape_objects[key]
+		source=Rect2(frame*64,0,64,64)
+	if texture!=null: _draw_water_actor(texture,source,p,s,face,depth,species,moving)
+
+func _draw_water_actor(texture:Texture2D,source:Rect2,p:Vector2,s:float,face:float,depth:float,species:String,moving:bool) -> void:
+	if not MAP_AREA.grow(-s).has_point(p): return
+	var cycle:float=world.swamp_clock*(4.8 if species in ["turtle","camel","bear"] else 7.5)
+	var deep:bool=depth>=0.60
+	# A altura visivel e a remada variam por especie; preserva o rosto e a roupa de cada humano.
+	var fraction:float=0.78
+	if deep:
+		fraction=float({"human":0.51,"deer":0.65,"rabbit":0.72,"snow_hare":0.72,"chicken":0.75,"capybara":0.68,"duck":0.79,"crocodile":0.83,"frog":0.79,"heron":0.70,"camel":0.65,"boar":0.70,"fox":0.72,"turtle":0.79,"lizard":0.79,"wolf":0.68,"bear":0.69}.get(species,0.72))
+	else: fraction=lerpf(0.91,0.76,depth)
+	var bob:float=sin(cycle)*s*0.022 if moving and deep else 0.0
+	var cut:Rect2=Rect2(source.position,Vector2(source.size.x,source.size.y*fraction))
+	var dest:Rect2=Rect2(-s*0.5,-s*fraction+bob,s,s*fraction)
+	draw_set_transform(p,0,Vector2(face,1))
+	draw_texture_rect_region(texture,dest,cut)
+	if deep and moving:
+		var reach:float=sin(cycle)*s*0.16
+		if species=="human":
+			# Bracos alternados entram e saem da agua; sem arma ou ferramenta na mao.
+			draw_line(Vector2(s*0.10,-s*0.13),Vector2(s*0.27+reach,-s*0.035),Color("#73523d"),maxf(2,s*0.085))
+			draw_line(Vector2(-s*0.11,-s*0.07),Vector2(-s*0.25-reach,s*0.015),Color("#c39770"),maxf(1,s*0.052))
+		elif species not in ["duck","crocodile","turtle","frog","lizard"]:
+			var paddle:float=sin(cycle)*s*0.12
+			draw_line(Vector2(-s*0.14,-s*0.055),Vector2(-s*0.18+paddle,s*0.07),Color(0.21,0.29,0.27,0.68),maxf(1,s*0.06))
+			draw_line(Vector2(s*0.12,-s*0.055),Vector2(s*0.16-paddle,s*0.06),Color(0.21,0.29,0.27,0.68),maxf(1,s*0.06))
+		elif species in ["crocodile","lizard","frog"]:
+			draw_line(Vector2(-s*0.20,-s*0.025),Vector2(-s*0.45,sin(cycle)*s*0.08),Color("#58794d",0.75),maxf(1,s*0.05))
+	draw_set_transform(Vector2.ZERO)
+	# Linha d'agua e ondulacoes cobrem as partes submersas, nunca os pes sobre a superficie.
+	draw_line(p-Vector2(s*0.32,0),p+Vector2(s*0.32,0),Color("#80cbd1",0.82),maxf(1,s*0.04))
+	var spread:float=0.5 if moving else 0.25
+	for i in range(3):
+		var f:float=fposmod(world.swamp_clock*1.25+float(i)*0.33,1.0)
+		var width:float=s*(0.18+f*spread)
+		var q:=p+Vector2(-face*f*s*0.16,f*s*0.13)
+		draw_line(q-Vector2(width,0),q+Vector2(width,0),Color(0.70,0.91,0.90,(1-f)*0.56),maxf(1,s*0.026))

@@ -22,6 +22,28 @@ func _run_tests() -> void:
 	_check(not world.wildlife.is_empty(), "Fauna pacifica gerada")
 	_check(world.habitats_v59 and world.wildlife.size()>24,"Fauna dos novos biomas")
 	_check(world.ecology_v60,"Ecologia diferenciada ativa")
+	var swim_world=World.new()
+	swim_world.generate_world()
+	for yy in range(7,10):
+		for xx in range(7,10): swim_world.tiles[yy][xx]="water"
+	_check(swim_world.water_depth(Vector2(8,8))>=0.60,"Agua central tem profundidade para nadar")
+	swim_world.tiles[8][7]="grass"
+	_check(swim_world.water_depth(Vector2(7,8))==0.0,"Terra firme nao tem profundidade")
+	var swimmer:Dictionary={"x":8.0,"y":8.0,"task":"Pescando"}
+	_check(swim_world.visible_action(swimmer)=="swimming","Humano guarda itens ao nadar")
+	_check(swim_world.swim_speed({"species":"duck"},1.0)>swim_world.swim_speed(swimmer,1.0),"Pato nada mais rapido que humano")
+	swim_world.sites.append({"kind":"crossing","x":8,"y":8})
+	_check(swim_world.water_depth(Vector2(8,8))==0,"Ponte permite caminhada")
+	swim_world.trees.clear()
+	swim_world._plant_tree(5,5,true)
+	var stump:Dictionary=swim_world.trees["5:5"]
+	stump["state"]="stump"
+	stump["stump_until"]=swim_world.day+1.0
+	swim_world._update_trees(0.1)
+	_check(swim_world.trees.has("5:5"),"Toco permanece durante prazo")
+	swim_world.day+=2.0
+	swim_world._update_trees(0.1)
+	_check(not swim_world.trees.has("5:5"),"Toco desaparece apos prazo")
 	world.sound_events.clear()
 	world.sound_event("wood",Vector2(5,5))
 	_check(world.sound_events.size()==1 and str(world.sound_events[0]["kind"])=="wood","Eventos sonoros sem alterar simulacao")

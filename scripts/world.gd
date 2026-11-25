@@ -668,6 +668,7 @@ func cut_tree(actor: Dictionary, x: int,y: int) -> bool:
 	tree["state"]="falling"
 	tree["fall"]=0.0
 	tree["regrow"]=day+rng.randf_range(50.0,100.0)
+	tree["stump_until"]=day+rng.randf_range(12.0,24.0)
 	actor["wood"]=int(actor.get("wood",0))+3
 	if resource_drops.size()<180:
 		resource_drops.append({"id":new_id(),"source":-1,"x":float(x),"y":float(y),"items":{"fiber":2},"remaining":180.0})
@@ -687,15 +688,11 @@ func _update_trees(dt: float) -> void:
 					tree["state"]="stump"
 					tree_revision+=1
 			"stump":
-				if day>=float(tree["regrow"]):
-					if _tree_allowed(int(tree["x"]),int(tree["y"])):
-						tree["state"]="live"
-						tree["born"]=day
-						tree["fall"]=0.0
-						tree_revision+=1
-					else:
-						trees.erase(key)
-						tree_revision+=1
+				if not tree.has("stump_until"): tree["stump_until"]=minf(float(tree.get("regrow",day+12)),day+12.0)
+				if day>=float(tree["stump_until"]):
+					# O toco desaparece; novas mudas surgem pela ecologia, nao do tronco cortado.
+					trees.erase(key)
+					tree_revision+=1
 	if day>=next_seed_day:
 		next_seed_day=day+15.0
 		for attempt in range(18):
@@ -799,11 +796,21 @@ func _update_wildlife(dt:float) -> void:
 		var goal:=Vector2(float(animal["tx"]),float(animal["ty"]))
 		var pace:float=float({"chicken":0.35,"deer":0.65,"rabbit":0.72,"frog":0.48,"capybara":0.37,"heron":0.60,"camel":0.48,"lizard":0.45,"snow_hare":0.72,"crocodile":0.52,"turtle":0.19,"duck":0.54,"boar":0.58,"fox":0.68}.get(species,0.42))
 		if state in ["Fugindo","Cacando"]: pace*=1.75
-		if species=="crocodile" and kind=="water": pace*=1.4
+		if species=="crocodile" and kind=="water": pace*=1.2
 		if state in ["Saltando","Pulando"] and fposmod(float(animal["timer"])*3.0,1.0)>0.55: pace=0.0
 		if state in ["Descansando","Aquecendo","Emboscando","Pescando","Pastando","Bicando","Fuçando","Comendo"]: pace=0.0
+		var depth:float=water_depth(p)
+		if depth>=0.60 and species not in ["frog","capybara","crocodile","turtle","duck","heron"] and (pace<=0.01 or goal.distance_to(p)<0.15):
+			goal=_nearest_swim_bank(p)
+			animal["tx"]=goal.x
+			animal["ty"]=goal.y
+			animal["state"]="Buscando margem"
+			animal["timer"]=2.0
+			pace=0.45
 		var n:=p.move_toward(goal,dt*pace)
-		n=_animal_avoid_buildings(n,p)
+		var crossing_depth:float=maxf(depth,water_depth(n))
+		if crossing_depth>0: n=p+(n-p)*swim_speed(animal,crossing_depth)
+		if crossing_depth<=0: n=_animal_avoid_buildings(n,p)
 		animal["x"]=n.x
 		animal["y"]=n.y
 		if state in ["Pescando","Pastando","Bicando","Fuçando","Comendo"]:
@@ -947,14 +954,17 @@ func move_actor(actor:Dictionary,step:Vector2,dt:float) -> void:
 	var p:=Vector2(float(actor["x"]),float(actor["y"]))
 	var x:int=clampi(int(p.x),0,WIDTH-1)
 	var y:int=clampi(int(p.y),0,SIZE-1)
-	if str(tiles[y][x])=="water" and not is_bridge(x,y):
-		step=step*0.42+water_flow(p)*dt*0.20
-	if str(tiles[y][x])=="swamp": step*=0.65
+	var depth:float=maxf(water_depth(p),water_depth(p+step))
+	if depth>0:
+		step*=swim_speed(actor,depth)
+		if water_depth(p)>=0.60: step+=water_flow(p)*dt*0.035
+	elif str(tiles[y][x])=="swamp": step*=0.65
 	var q:=p+step
 	q.x=clampf(q.x,1.0,WIDTH-2.0)
 	q.y=clampf(q.y,1.0,SIZE-2.0)
 	actor["x"]=q.x
 	actor["y"]=q.y
+
 
 func workshop_stone_cost(kind:String) -> float:
 	return float({"oven":12,"forge":24,"crossing":4,"upgrade":12,"castle":120}.get(kind,0))
@@ -2316,8 +2326,7 @@ func _hostile_animal_step(animal:Dictionary,dt:float) -> bool:
 		var pace:float=float({"Lobo":1.35,"Urso":0.95,"crocodile":0.88,"boar":1.18}[species])
 		var next:=pos.move_toward(goal,dt*pace)
 		var biome:String=str(tiles[clampi(int(next.y),0,SIZE-1)][clampi(int(next.x),0,WIDTH-1)])
-		animal["x"]=next.x
-		animal["y"]=next.y
+		move_actor(animal,next-pos,dt)
 		return true
 	animal["state"]="Atacando humano"
 	if float(animal["human_attack_cd"])<=0:
@@ -2432,6 +2441,7 @@ func _mark_action(actor:Dictionary,kind:String,duration:float) -> void:
 	actor["visual_action"]=kind
 	actor["action_until"]=swamp_clock+duration
 func visible_action(actor:Dictionary) -> String:
+	if water_depth(Vector2(float(actor.get("x",0)),float(actor.get("y",0))))>=0.60: return "swimming"
 	var task:String=str(actor.get("task",""))
 	if float(actor.get("action_until",0))>swamp_clock: return str(actor.get("visual_action",""))
 	var pos:=Vector2(float(actor.get("x",0)),float(actor.get("y",0)))
@@ -2446,3 +2456,38 @@ func visible_action(actor:Dictionary) -> String:
 		"Coletando madeira": return "chopping"
 		"Combatendo inimigo","Combatendo bruxa","Defendendo contra animal","Cacando": return "combat"
 	return ""
+
+# Profundidade calculada pela distancia a margem, sem alterar mundos salvos.
+func water_depth(p:Vector2) -> float:
+	if tiles.size()!=SIZE or p.x<0 or p.y<0 or p.x>=WIDTH or p.y>=SIZE: return 0.0
+	var x:int=int(p.x)
+	var y:int=int(p.y)
+	if str(tiles[y][x])!="water" or is_bridge(x,y): return 0.0
+	# As coordenadas dos seres se referem ao centro visual do quadrado.
+	var local:=Vector2(fposmod(p.x+0.5,1.0),fposmod(p.y+0.5,1.0))
+	var distance:float=1.0
+	for offset in [Vector2i(-1,0),Vector2i(1,0),Vector2i(0,-1),Vector2i(0,1)]:
+		var nx:int=x+offset.x
+		var ny:int=y+offset.y
+		if nx>=0 and nx<WIDTH and ny>=0 and ny<SIZE and str(tiles[ny][nx])=="water": continue
+		var edge:float=local.x if offset.x<0 else (1.0-local.x if offset.x>0 else (local.y if offset.y<0 else 1.0-local.y))
+		distance=minf(distance,edge)
+	return lerpf(0.28,1.0,smoothstep(0.06,0.44,distance))
+
+func swim_speed(actor:Dictionary,depth:float) -> float:
+	var species:String=str(actor.get("species","human"))
+	var factor:float=float({"human":0.47,"Lobo":0.64,"Urso":0.72,"deer":0.60,"rabbit":0.44,"snow_hare":0.44,"chicken":0.32,"capybara":1.08,"duck":1.15,"crocodile":1.2,"frog":0.94,"heron":0.52,"camel":0.43,"boar":0.63,"fox":0.57,"turtle":1.15,"lizard":0.52}.get(species,0.47))
+	return lerpf(0.9,factor,clampf((depth-0.28)/0.72,0.0,1.0))
+
+func _nearest_swim_bank(p:Vector2) -> Vector2:
+	var best:=p
+	var distance:float=10000.0
+	for y in range(maxi(1,int(p.y)-4),mini(SIZE-1,int(p.y)+5)):
+		for x in range(maxi(1,int(p.x)-4),mini(WIDTH-1,int(p.x)+5)):
+			if str(tiles[y][x]) in ["water","mountain"]: continue
+			var q:=Vector2(x,y)
+			var d:float=p.distance_squared_to(q)
+			if d<distance:
+				distance=d
+				best=q
+	return best
