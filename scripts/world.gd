@@ -785,6 +785,7 @@ func _update_wildlife(dt:float) -> void:
 				continue
 		elif float(animal["hunger"])<30.0:
 			animal["health"]=minf(float(animal["max_health"]),float(animal["health"])+dt*0.16)
+		if _bird_flight(animal,dt): continue
 		if predators and _hostile_animal_step(animal,dt): continue
 		animal["timer"]=float(animal["timer"])-dt
 		animal["breed_timer"]=maxf(0,float(animal.get("breed_timer",rng.randf_range(90,200)))-dt)
@@ -801,13 +802,14 @@ func _update_wildlife(dt:float) -> void:
 		if state in ["Saltando","Pulando"] and fposmod(float(animal["timer"])*3.0,1.0)>0.55: pace=0.0
 		if state in ["Descansando","Aquecendo","Emboscando","Pescando","Pastando","Bicando","Fuçando","Comendo"]: pace=0.0
 		var n:=p.move_toward(goal,dt*pace)
+		n=_animal_avoid_buildings(n,p)
 		animal["x"]=n.x
 		animal["y"]=n.y
 		if state in ["Pescando","Pastando","Bicando","Fuçando","Comendo"]:
 			animal["hunger"]=maxf(0,float(animal["hunger"])-dt*3.0)
 		if state=="Cacando" and float(animal["attack_cd"])<=0:
 			for prey in wildlife:
-				if int(prey["id"])!=int(animal.get("prey",-1)) or float(prey.get("health",1))<=0: continue
+				if int(prey["id"])!=int(animal.get("prey",-1)) or float(prey.get("health",1))<=0 or float(prey.get("flight_height",0))>0.25: continue
 				if p.distance_to(Vector2(float(prey["x"]),float(prey["y"])))<0.45:
 					animal["attack_cd"]=2.0
 					if damage_animal(prey,animal_damage(animal)):
@@ -834,6 +836,8 @@ func _update_wildlife(dt:float) -> void:
 				child["health"]=child["max_health"]
 				child["attack_cd"]=0.0
 				child["state"]="Descansando"
+				child["flight_height"]=0.0
+				child["flight_time"]=0.0
 				births.append(child)
 	for index in range(wildlife.size()-1,-1,-1):
 		if float(wildlife[index].get("health",1))<=0: wildlife.remove_at(index)
@@ -1171,7 +1175,7 @@ func housing_capacity(town:Dictionary) -> int:
 
 func upgrade_index(town:Dictionary) -> int:
 	var levels:Array=house_levels(town)
-	var cap:int=mini(4,int(town["level"]))
+	var cap:int=mini(4,maxi(int(town["level"]),2 if int(town.get("houses",0))>=3 and active_population(int(town["id"]))>=8 else 1))
 	for i in range(levels.size()):
 		if int(levels[i])<cap: return i
 	return -1
@@ -1506,7 +1510,7 @@ const SPAWN_NAMES:Dictionary={
 	"frog":"Sapo","capybara":"Capivara","heron":"Garca","camel":"Camelo",
 	"lizard":"Lagarto","snow_hare":"Lebre da neve","crocodile":"Crocodilo",
 	"turtle":"Tartaruga","duck":"Pato","boar":"Javali","fox":"Raposa",
-	"wolf":"Lobo","bear":"Urso"
+	"wolf":"Lobo","bear":"Urso","witch":"Bruxa do brejo"
 }
 
 func spawn_creature(species:String,point:Vector2) -> bool:
@@ -1516,6 +1520,18 @@ func spawn_creature(species:String,point:Vector2) -> bool:
 		return false
 	var p:=point
 	var terrain:String=str(tiles[int(p.y)][int(p.x)])
+	if species=="witch":
+		if bool(swamp_witch.get("alive",false)):
+			news="Ja existe uma bruxa viva neste mundo."
+			return false
+		if terrain in ["water","mountain"]:
+			news="Crie a bruxa em terra firme."
+			return false
+		var awarded:bool=bool(swamp_witch.get("staff_awarded",swamp_witch.has("killer")))
+		swamp_witch={"name":"Bruxa do brejo","x":p.x,"y":p.y,"tx":p.x,"ty":p.y,"health":500.0,"max_health":500.0,"alive":true,"cast":3.0,"summon":2.0,"wander":3.0,"state":"Vigiando","manual_spawn":true,"staff_awarded":awarded}
+		sound_event("summon",p)
+		news="Bruxa do brejo criada no mapa."
+		return true
 	if species=="human":
 		if terrain in ["water","mountain"]:
 			news="Humanos precisam de terra firme."
@@ -1614,7 +1630,7 @@ func _swamp_target(p:Vector2,radius:float) -> Vector2:
 		var q:=p+Vector2(rng.randf_range(-radius,radius),rng.randf_range(-radius,radius))
 		q.x=clampf(q.x,1,WIDTH-2)
 		q.y=clampf(q.y,1,SIZE-2)
-		if swamp_at(q): return q
+		if _witch_ground(q): return q
 	return p
 
 func _swamp_human(p:Vector2,radius:float) -> Dictionary:
@@ -1623,7 +1639,7 @@ func _swamp_human(p:Vector2,radius:float) -> Dictionary:
 	for person in people:
 		if not bool(person["alive"]): continue
 		var q:=Vector2(float(person["x"]),float(person["y"]))
-		if not swamp_at(q): continue
+		if not _witch_ground(q): continue
 		var d:float=p.distance_to(q)
 		if d<best:
 			best=d
@@ -1639,7 +1655,7 @@ func strike_witch(person:Dictionary) -> bool:
 	if person.is_empty() or not bool(person.get("alive",false)) or not person.has("town") or not bool(swamp_witch.get("alive",false)): return false
 	var p:=Vector2(float(person["x"]),float(person["y"]))
 	var q:=Vector2(float(swamp_witch["x"]),float(swamp_witch["y"]))
-	if p.distance_to(q)>0.9 or not swamp_at(p) or float(person.get("witch_attack_cd",0))>0: return false
+	if p.distance_to(q)>0.9 or not _witch_ground(p) or float(person.get("witch_attack_cd",0))>0: return false
 	person["witch_attack_cd"]=0.9 if bool(person.get("combat_training",false)) else 1.6
 	swamp_witch["health"]=maxf(0.0,float(swamp_witch["health"])-attack_damage(person))
 	gain_xp(person,3.0,"combate")
@@ -1647,10 +1663,13 @@ func strike_witch(person:Dictionary) -> bool:
 		swamp_witch["alive"]=false
 		swamp_witch["killer"]=int(person["id"])
 		sound_at("complete",person)
-		person["witch_staff"]=true
-		person["staff_cd"]=0.0
+		if not bool(swamp_witch.get("staff_awarded",false)):
+			person["witch_staff"]=true
+			person["staff_cd"]=0.0
+			swamp_witch["staff_awarded"]=true
+			news=str(person["name"])+" derrotou a bruxa e conquistou o cajado unico!"
+		else: news=str(person["name"])+" derrotou a bruxa novamente!"
 		gain_xp(person,150.0,"combate")
-		news=str(person["name"])+" derrotou a bruxa e conquistou o cajado unico!"
 		var town:Dictionary=get_town(int(person["town"]))
 		if not town.is_empty():
 			var history:Array=town.get("historical_events",[])
@@ -1721,7 +1740,7 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 				witch["ty"]=q.y
 				witch["wander"]=rng.randf_range(4,8)
 			var n:=p.move_toward(Vector2(float(witch["tx"]),float(witch["ty"])),dt*0.32)
-			if swamp_at(n):
+			if _witch_ground(n):
 				witch["x"]=n.x
 				witch["y"]=n.y
 		if float(witch["summon"])<=0 and float(witch.get("summon_anim",0))<=0 and swamp_spiders.size()<=6:
@@ -1741,7 +1760,7 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 			spider["emerge"]=maxf(0,float(spider["emerge"])-dt)
 			var exit:=Vector2(float(spider["tx"]),float(spider["ty"]))
 			var crawled:=p.move_toward(exit,dt*1.3)
-			if swamp_at(crawled):
+			if _witch_ground(crawled):
 				spider["x"]=crawled.x
 				spider["y"]=crawled.y
 			continue
@@ -1767,7 +1786,7 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 			spider["timer"]=3.0
 		else: goal=Vector2(float(spider["tx"]),float(spider["ty"]))
 		var q:=p.move_toward(goal,dt*0.7)
-		if swamp_at(q):
+		if _witch_ground(q):
 			spider["x"]=q.x
 			spider["y"]=q.y
 	for i in range(magic_bolts.size()-1,-1,-1):
@@ -1835,7 +1854,7 @@ func swamp_combat_job(person:Dictionary) -> bool:
 	if not bool(swamp_witch.get("alive",false)): return false
 	var p:=Vector2(float(person["x"]),float(person["y"]))
 	var witch:=Vector2(float(swamp_witch["x"]),float(swamp_witch["y"]))
-	if p.distance_to(witch)>3.8 or not swamp_at(p): return false
+	if p.distance_to(witch)>3.8 or not _witch_ground(p): return false
 	var trained:bool=is_military(person)
 	if str(person.get("military_role",""))=="royal": return false
 	var allies:int=0
@@ -1963,7 +1982,7 @@ func storage_position(town:Dictionary,key:String) -> Vector2:
 	if key=="castle": return workshop_position(town,"castle")+Vector2(0,0.4)
 	if key.begins_with("house_"):
 		var spots:Array[Vector2]=[Vector2(0,-0.35),Vector2(1.60,0.35),Vector2(-1.25,-0.75),Vector2(2.15,-0.85),Vector2(-2.4,0.15),Vector2(0.95,-1.65),Vector2(-1.35,1.45),Vector2(2.9,1.15)]
-		return origin+spots[clampi(int(key.trim_prefix("house_")),0,7)]
+		return origin+spots[clampi(int(key.trim_prefix("house_")),0,7)]+Vector2(0,0.42)
 	return origin
 
 func preferred_storage(town:Dictionary,kind:String,person:Dictionary={}) -> String:
@@ -2223,10 +2242,10 @@ func _spawn_spider_pair(witch:Dictionary) -> void:
 	var origin:=Vector2(float(witch["x"]),float(witch["y"]))
 	for side in [-1,1]:
 		var start:=origin+Vector2(float(side)*0.08,0.10)
-		if not swamp_at(start): start=origin
+		if not _witch_ground(start): start=origin
 		var goal:=origin+Vector2(float(side)*0.68,0.32)
-		if not swamp_at(goal): goal=origin+Vector2(float(side)*0.20,0.25)
-		if not swamp_at(goal): goal=origin
+		if not _witch_ground(goal): goal=origin+Vector2(float(side)*0.20,0.25)
+		if not _witch_ground(goal): goal=origin
 		swamp_spiders.append({"id":new_id(),"x":start.x,"y":start.y,"tx":goal.x,"ty":goal.y,"health":50.0,"max_health":50.0,"timer":0.0,"bite":0.0,"emerge":0.6})
 
 # Veneno nao acumula: uma dose completa causa 15 de dano em cinco segundos.
@@ -2326,3 +2345,57 @@ func _preferred_animal_destination(p:Vector2,species:String) -> Vector2:
 				score=d
 	if best==p: return Vector2(clampf(p.x+rng.randf_range(-2,2),1,WIDTH-2),clampf(p.y+rng.randf_range(-2,2),1,SIZE-2))
 	return best
+
+func _witch_ground(p:Vector2) -> bool:
+	if p.x<1 or p.y<1 or p.x>WIDTH-2 or p.y>SIZE-2: return false
+	if bool(swamp_witch.get("manual_spawn",false)): return str(tiles[int(p.y)][int(p.x)]) not in ["water","mountain"]
+	return swamp_at(p)
+
+func _animal_avoid_buildings(next:Vector2,previous:Vector2) -> Vector2:
+	var spots:Array[Vector2]=[Vector2(0,-0.35),Vector2(1.60,0.35),Vector2(-1.25,-0.75),Vector2(2.15,-0.85),Vector2(-2.4,0.15),Vector2(0.95,-1.65),Vector2(-1.35,1.45),Vector2(2.9,1.15)]
+	for town in towns:
+		var origin:=Vector2(float(town["x"]),float(town["y"]))
+		if next.distance_squared_to(origin)>20: continue
+		for i in range(mini(int(town.get("houses",0)),spots.size())):
+			var home:=origin+spots[i]
+			var offset:=next-home
+			if absf(offset.x)>0.48 or absf(offset.y)>0.34: continue
+			var direction:=previous-home
+			if direction.length_squared()<0.001: direction=Vector2(0,1)
+			return home+direction.normalized()*0.57
+	return next
+
+func _bird_flight(animal:Dictionary,dt:float) -> bool:
+	var species:String=str(animal["species"])
+	if species not in ["heron","duck"]: return false
+	var remaining:float=float(animal.get("flight_time",0))
+	var pos:=Vector2(float(animal["x"]),float(animal["y"]))
+	if remaining<=0:
+		animal["flight_height"]=0.0
+		animal["flight_wait"]=float(animal.get("flight_wait",8.0+float(int(animal["id"])%13)))-dt
+		if float(animal["flight_wait"])>0 and str(animal.get("state",""))!="Fugindo": return false
+		var goal:Vector2=_preferred_animal_destination(pos,species)
+		if goal.distance_to(pos)<2.0: goal=pos+Vector2(rng.randf_range(-4,4),rng.randf_range(-3,3))
+		goal=Vector2(clampf(goal.x,1,WIDTH-2),clampf(goal.y,1,SIZE-2))
+		animal["flight_x"]=goal.x
+		animal["flight_y"]=goal.y
+		animal["flight_duration"]=maxf(3.5,pos.distance_to(goal)/1.5+1.0)
+		remaining=float(animal["flight_duration"])
+		animal["flight_wait"]=rng.randf_range(12,25)
+		sound_at("bird",animal)
+	var duration:float=float(animal.get("flight_duration",4))
+	remaining=maxf(0,remaining-dt)
+	animal["flight_time"]=remaining
+	var height:float=clampf(minf((duration-remaining)/0.8,remaining/0.9),0,1)
+	animal["flight_height"]=height
+	animal["state"]="Decolando" if duration-remaining<0.8 else ("Pousando" if remaining<0.9 else "Voando")
+	var target:=Vector2(float(animal["flight_x"]),float(animal["flight_y"]))
+	var next:=pos.move_toward(target,dt*1.8)
+	animal["x"]=next.x
+	animal["y"]=next.y
+	if remaining<=0:
+		animal["tx"]=next.x
+		animal["ty"]=next.y
+		animal["timer"]=0.0
+		animal["state"]="Descansando"
+	return true

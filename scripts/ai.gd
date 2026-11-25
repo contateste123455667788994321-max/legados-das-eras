@@ -83,7 +83,7 @@ func _manage_town(sim, town: Dictionary, step: float) -> void:
 	if town.get("construction", {}).is_empty():
 		if not bool(town.get("campfire",false)) and float(town["wood"])>=10:
 			sim.start_construction(int(town["id"]),"campfire")
-		elif pop>=sim.housing_capacity(town)-1 and sim.upgrade_index(town)>=0 and float(town["wood"])>=18 and float(town.get("stone",0))>=12:
+		elif (pop>=sim.housing_capacity(town)-2 or int(town["houses"])>=4) and sim.upgrade_index(town)>=0 and float(town["wood"])>=18 and float(town.get("stone",0))>=12:
 			sim.start_construction(int(town["id"]),"upgrade")
 		elif pop >= sim.housing_capacity(town)-1 and float(town["wood"]) >= 14.0 and int(town["houses"]) < 8:
 			sim.start_construction(int(town["id"]), "house")

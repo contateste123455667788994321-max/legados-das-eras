@@ -5,7 +5,10 @@ const Updates = preload("res://scripts/update_manager.gd")
 const GameAudio = preload("res://scripts/game_audio.gd")
 const TILE_SIZE := 44.0
 const MAP_ORIGIN := Vector2(15.0, 79.0)
-const MAP_AREA := Rect2(12.0, 78.0, 1256.0, 626.0)
+var MAP_AREA := Rect2(12.0, 78.0, 1256.0, 626.0)
+var screen_width:float=1280.0
+var right_hud:Array[Control]=[]
+var scene_depth:Array=[]
 const AUTOSAVE_SECONDS := 20.0
 
 var world = World.new()
@@ -73,6 +76,9 @@ func _ready() -> void:
 	update_manager = Updates.new()
 	add_child(update_manager)
 	_build_ui()
+	get_window().content_scale_aspect=Window.CONTENT_SCALE_ASPECT_EXPAND
+	get_viewport().size_changed.connect(_resize_map)
+	_resize_map()
 	if not world.towns.is_empty():
 		var first_town: Dictionary = world.towns[0]
 		_focus_at(Vector2(float(first_town["x"]) + 0.5, float(first_town["y"]) + 0.5))
@@ -117,7 +123,7 @@ func _load_art() -> void:
 		if new_art is Texture2D: actor_textures[key] = new_art
 	landscape_objects["tree"] = load("res://assets/landscape/reference_tree.png")
 	landscape_objects["reference_characters"] = load("res://assets/landscape/reference_characters.png")
-	_prepare_people_variants()
+	landscape_objects["civilian_walk"]=load("res://assets/landscape/civilian_walk.svg")
 	if texture_missing:
 		push_warning("Alguns desenhos do mapa ainda nao foram carregados.")
 
@@ -131,8 +137,9 @@ func _build_ui() -> void:
 	pause_button = _button("Pausar", Vector2(813, 15), Vector2(82, 38), Callable(self, "_toggle_pause"))
 	spawn_button = _button("Criar", Vector2(899, 15), Vector2(112, 38), Callable(self, "_toggle_spawn"))
 	view_button = _button("Controlar", Vector2(1015, 15), Vector2(100, 38), Callable(self, "_toggle_view"))
-	_button("Mundo", Vector2(1119, 15), Vector2(73, 38), Callable(self, "_show_options"))
-	_button("Atualizar", Vector2(1196, 15), Vector2(80, 38), Callable(self, "_check_updates"))
+	var menu:Button=_button("Mundo", Vector2(1119, 15), Vector2(73, 38), Callable(self, "_show_options"))
+	var update:Button=_button("Atualizar", Vector2(1196, 15), Vector2(80, 38), Callable(self, "_check_updates"))
+	right_hud=[speed_button,pause_button,spawn_button,view_button,menu,update]
 	info_label = _label("", Vector2(32, 660), Vector2(1150, 26), 16, Color("#fff0bb"))
 	info_label.visible = false
 	action_button = _button("Coletar", Vector2(1104, 590), Vector2(143, 52), Callable(self, "_character_action"))
@@ -418,14 +425,15 @@ func _draw_landscape_object(key: String, p: Vector2, size: float) -> void:
 
 func _draw() -> void:
 	# Interface discreta: mapa em quase toda a area util do aparelho.
-	draw_rect(Rect2(0, 0, 1280, 720), Color("#141e1a"), true)
-	draw_rect(Rect2(0, 0, 1280, 75), Color("#211e19"), true)
-	draw_line(Vector2(0, 74), Vector2(1280, 74), Color("#ae8c54"), 2.0)
+	draw_rect(Rect2(0, 0, screen_width, 720), Color("#141e1a"), true)
+	draw_rect(Rect2(0, 0, screen_width, 75), Color("#211e19"), true)
+	draw_line(Vector2(0, 74), Vector2(screen_width, 74), Color("#ae8c54"), 2.0)
 	_draw_clock()
 	draw_rect(MAP_AREA, Color("#355943"), true)
 	_draw_landscape()
 	_draw_rivers()
 	_draw_world_sites()
+	scene_depth.clear()
 	# Quantidade real de casas e fazendas aparece no mapa, conforme o estoque da vila.
 	var house_spots: Array[Vector2] = [
 		Vector2(0.0, -0.35), Vector2(1.60, 0.35), Vector2(-1.25, -0.75),
@@ -448,12 +456,10 @@ func _draw() -> void:
 			_draw_sprite("farm", center + spot * unit, Vector2(1.45, 0.96) * unit, true)
 		for i in range(mini(int(town.get("houses", 2)), house_spots.size())):
 			var spot: Vector2 = house_spots[i]
-			var house_size: float = 1.62 if i == 0 else 1.35
+			var house_size: float = 1.75 if i == 0 else 1.48
 			var era: int = clampi(int(world.house_levels(town)[i]), 1, 4)
-			if era == 1:
-				_draw_sprite("hut", center + spot * unit, Vector2(house_size, house_size*0.82) * unit, true)
-			else:
-				_draw_landscape_object("house_" + str(era), center + spot * unit + Vector2(0, house_size * unit * 0.27), house_size * unit * (1.0 + float(era-1)*0.10))
+			var house_center:Vector2=center+spot*unit
+			scene_depth.append({"y":house_center.y+house_size*unit*0.30,"kind":"house","p":house_center,"size":house_size*unit,"era":era})
 		var site: Dictionary = town.get("construction", {})
 		if not site.is_empty() and MAP_AREA.grow(-35.0).has_point(center):
 			var kind: String = str(site.get("kind", "house"))
@@ -467,9 +473,8 @@ func _draw() -> void:
 	for animal in world.wildlife:
 		if float(animal.get("health",1))<=0: continue
 		var p: Vector2 = _world_to_screen(Vector2(float(animal["x"])+0.5,float(animal["y"])+0.5))
-		_draw_natural_animal(animal,p)
+		scene_depth.append({"y":p.y if float(animal.get("flight_height",0))<=0.1 else 100000.0,"kind":"animal","p":p,"actor":animal})
 	_draw_resource_drops()
-	_draw_swamp_creatures()
 	# Personagens separados visualmente por idade e aparencia.
 	for p in world.people:
 		if not bool(p["alive"]):
@@ -477,7 +482,7 @@ func _draw() -> void:
 		var center := _world_to_screen(Vector2(float(p["x"]) + 0.5, float(p["y"]) + 0.5))
 		if not MAP_AREA.has_point(center):
 			continue
-		_draw_person_variant(p,center)
+		scene_depth.append({"y":center.y,"kind":"person","p":center,"actor":p})
 		if float(p.get("poison_remaining",0))>0 and MAP_AREA.grow(-12).has_point(center):
 			var pulse:float=0.55+0.25*sin(world.swamp_clock*8.0)
 			draw_arc(center,10.0*zoom,0,TAU,18,Color(0.48,0.78,0.24,pulse),1.5)
@@ -499,11 +504,13 @@ func _draw() -> void:
 		if not MAP_AREA.has_point(center):
 			continue
 		var key := "bear" if str(b["species"]) == "Urso" else "wolf"
-		_draw_animated_beast(b,center,key)
+		scene_depth.append({"y":center.y,"kind":"beast","p":center,"actor":b,"key":key})
 		if int(b["id"]) == selected_beast_id:
 			draw_arc(center, 15.0 * zoom, 0, TAU, 20, Color("#ffe890"), 2.0)
 		if int(b["id"]) == controlled_id:
 			draw_arc(center, 19.0 * zoom, 0, TAU, 20, Color("#6cffda"), 3.0)
+	_draw_depth_entities()
+	_draw_swamp_creatures()
 	draw_rect(MAP_AREA, Color("#bc985d", 0.70), false, 2.0)
 	if info_label != null and info_label.visible:
 		draw_rect(Rect2(17, 650, 1207, 41), Color("#172219", 0.86), true)
@@ -587,10 +594,9 @@ func _draw_waterfall(p:Vector2,u:float) -> void:
 func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
 	var stage: int = world.life_stage(p)
 	var profession:String=str(p.get("profession",""))
-	var index:int=2 if stage<2 else (3 if profession=="Agricultor" and str(p.get("task",""))=="Cultivando" else int(p["gender"]))
-	var s:float=27.0*zoom*[0.48,0.78,1.0,0.93][stage]
-	var variant:int=posmod(int(p.get("appearance",p["id"]))*3+int(p.get("skin",0))+int(p.get("hair",0)),people_variants.size())
-	var atlas:Texture2D=people_variants[variant]
+	var index:int=posmod(int(p.get("appearance",p["id"])),10)+10*clampi(int(p["gender"]),0,1)
+	var s:float=27.0*zoom*[0.48,0.74,1.0,0.92][stage]
+	var atlas:Texture2D=landscape_objects["civilian_walk"]
 	var target:=Vector2(float(p.get("target_x",p["x"])),float(p.get("target_y",p["y"])))
 	var pos:=Vector2(float(p["x"]),float(p["y"]))
 	var movement:Dictionary=visual_motion.get(int(p["id"]),{})
@@ -606,7 +612,8 @@ func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
 		var frame:int=int(fposmod(phase,TAU)/TAU*4) if moving else 0
 		_draw_walk_sprite(landscape_objects["warriors"],Rect2(frame*48,row*48,48,48),center,s,face,phase,moving,bounce)
 	else:
-		_draw_walk_sprite(atlas,Rect2(index*48,0,48,48),center,s,face,phase,moving,bounce)
+		var frame:int=int(fposmod(phase,TAU)/TAU*4) if moving else 0
+		_draw_walk_sprite(atlas,Rect2(frame*48,index*48,48,48),center,s,face,phase,false,bounce)
 	if stage>=2 and MAP_AREA.grow(-s).has_point(center):
 		if profession=="Pescador":
 			var hat:Vector2=center+Vector2(-s*0.15,-s*0.76-bounce)
@@ -629,7 +636,7 @@ func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
 
 
 func _draw_clock() -> void:
-	var c := Vector2(705, 34)
+	var c := Vector2(705+screen_width-1280.0, 34)
 	draw_circle(c, 24.0, Color("#4a3829"))
 	draw_circle(c, 19.0, Color("#d9c38c"))
 	draw_circle(c, 16.5, Color("#423b2c"))
@@ -1616,7 +1623,7 @@ func _show_spawn_menu() -> void:
 	add_child(dialog)
 	dialog.confirmed.connect(dialog.queue_free)
 	dialog.canceled.connect(dialog.queue_free)
-	dialog.popup_centered(Vector2i(710,430))
+	dialog.popup_centered(Vector2i(710,475))
 
 func _draw_mosquitoes(p:Vector2,seed:int,u:float) -> void:
 	if u<24.0: return
@@ -1761,6 +1768,13 @@ func _draw_natural_animal(animal:Dictionary,p:Vector2) -> void:
 	var moving:bool=bool(movement.get("moving",false)) and world.speed>0
 	var face:float=float(movement.get("face",1.0))
 	if species=="deer": face=-face
+	if float(animal.get("flight_height",0))>0.01:
+		_contact_shadow(p,s*0.24,s*0.06)
+		var height:float=float(animal["flight_height"])
+		if not landscape_objects.has("bird_flight"): landscape_objects["bird_flight"]=load("res://assets/landscape/bird_flight.svg")
+		var wing:int=int(world.swamp_clock*5.0)%4
+		_draw_walk_sprite(landscape_objects["bird_flight"],Rect2(wing*64,0 if species=="heron" else 64,64,64),p-Vector2(0,height*36.0*zoom),s*1.28,face,0,false,0)
+		return
 	var bounce:float=absf(sin(phase))*s*(0.14 if species in ["frog","rabbit","snow_hare"] else 0.025) if moving else 0.0
 	_contact_shadow(p,s*0.30,s*0.08)
 	if indices.has(species):
@@ -1854,3 +1868,28 @@ func _draw_animal_frames(species:String,p:Vector2,s:float,face:float,phase:float
 	if texture==null: return
 	var frame:int=int(fposmod(phase,TAU)/TAU*4) if moving else 0
 	_draw_walk_sprite(texture,Rect2(frame*64,0,64,64),p,s,face,phase,false,0.0)
+
+func _resize_map() -> void:
+	var width:float=maxf(1280.0,get_viewport_rect().size.x)
+	var previous:float=screen_width
+	screen_width=width
+	MAP_AREA=Rect2(12,78,width-24,626)
+	for control in right_hud: control.position.x+=width-previous
+	if is_instance_valid(action_button): action_button.position.x+=width-previous
+	if is_instance_valid(inventory_button): inventory_button.position.x+=width-previous
+	_clamp_map()
+	queue_redraw()
+
+func _draw_depth_entities() -> void:
+	scene_depth.sort_custom(func(a,b): return float(a["y"])<float(b["y"]))
+	for entry in scene_depth:
+		var p:Vector2=entry["p"]
+		match str(entry["kind"]):
+			"house":
+				var size:float=float(entry["size"])
+				var era:int=int(entry["era"])
+				if era==1: _draw_sprite("hut",p,Vector2(size,size*0.82),true)
+				else: _draw_landscape_object("house_"+str(era),p+Vector2(0,size*0.27),size*(1.0+float(era-1)*0.10))
+			"person": _draw_person_variant(entry["actor"],p)
+			"animal": _draw_natural_animal(entry["actor"],p)
+			"beast": _draw_animated_beast(entry["actor"],p,str(entry["key"]))

@@ -87,7 +87,14 @@ func _run_tests() -> void:
 	_check(not bool(swamp.swamp_witch["alive"]) and bool(champion.get("witch_staff",false)),"Vencedor recebe cajado unico")
 	_check(not swamp.strike_witch(swamp.people[1]),"Cajado nao pode ser duplicado")
 	swamp._seed_swamp_witch(true)
-	_check(not bool(swamp.swamp_witch["alive"]),"Bruxa nao renasce")
+	_check(not bool(swamp.swamp_witch["alive"]),"Bruxa nao renasce automaticamente")
+	swamp.tiles[5][5]="grass"
+	_check(swamp.spawn_creature("witch",Vector2(5,5)) and bool(swamp.swamp_witch["alive"]),"Criador invoca bruxa em terra firme")
+	_check(not swamp.spawn_creature("witch",Vector2(5,5)),"Apenas uma bruxa viva por mundo")
+	_check(bool(swamp.swamp_witch["staff_awarded"]),"Invocacao manual preserva unicidade do cajado")
+	swamp.swamp_witch["alive"]=false
+	var bird:Dictionary={"species":"heron","id":991,"x":5.0,"y":5.0,"flight_wait":0.0}
+	_check(swamp._bird_flight(bird,0.1) and float(bird["flight_height"])>0,"Garca decola de verdade")
 	swamp.swamp_spiders.append({"id":99999,"x":champion["x"],"y":champion["y"],"health":35.0})
 	_check(swamp.cast_staff(champion) and not swamp.cast_staff(champion),"Cajado dispara com recarga")
 	var creator=World.new()
