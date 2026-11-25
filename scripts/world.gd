@@ -436,6 +436,7 @@ func harvest_factor(town:Dictionary) -> float:
 
 func food_priority(person:Dictionary,town:Dictionary) -> bool:
 	var ruler_id:int=int(town.get("leader",0))
+	if ruler_id<=0: return is_military(person)
 	var ruler:Dictionary=get_person(ruler_id)
 	return is_military(person) or int(person["id"])==ruler_id or int(person.get("partner",0))==ruler_id or int(ruler.get("partner",0))==int(person["id"]) or int(person.get("father",0))==ruler_id or int(person.get("mother",0))==ruler_id
 
