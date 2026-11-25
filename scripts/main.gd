@@ -473,7 +473,7 @@ func _draw() -> void:
 		_draw_village_paths(town, center, unit, house_spots, farm_spots)
 		for segment in town.get("palisades",[]):
 			var fence_pos:Vector2=_world_to_screen(Vector2(float(segment["x"])+0.5,float(segment["y"])+0.5))
-			_draw_palisade(fence_pos,unit,str(segment.get("axis","h")))
+			_draw_palisade(fence_pos,unit,str(segment.get("axis","h")),segment)
 		# A terra cultivada cresce quando uma fazenda fica pronta.
 		for i in range(mini(int(town.get("farms", 1)), farm_spots.size())):
 			var spot: Vector2 = farm_spots[i]
@@ -1592,11 +1592,27 @@ func _new_world() -> void:
 	dialog.popup_centered(Vector2i(490,190))
 
 
-func _draw_palisade(p:Vector2,u:float,axis:String) -> void:
+func _draw_palisade(p:Vector2,u:float,axis:String,segment:Dictionary) -> void:
 	if not MAP_AREA.grow(-u).has_point(p): return
 	var step_dir:=Vector2.RIGHT if axis=="h" else Vector2.DOWN
 	var a:Vector2=p-step_dir*u*0.5
 	var b:Vector2=p+step_dir*u*0.5
+	var gate:bool=bool(segment.get("gate",false))
+	var max_hp:float=float(segment.get("max_health",100.0 if gate else 150.0))
+	var hp:float=float(segment.get("health",max_hp))
+	var ratio:float=clampf(hp/maxf(1.0,max_hp),0,1)
+	if gate:
+		for side in [-1.0,1.0]:
+			var post:Vector2=p+step_dir*u*0.45*side
+			draw_rect(Rect2(post-Vector2(u*0.08,u*0.72),Vector2(u*0.16,u*0.72)),Color("#563925"))
+			draw_rect(Rect2(post-Vector2(u*0.04,u*0.70),Vector2(u*0.08,u*0.68)),Color("#b78b53"))
+		for i in range(6):
+			var q:Vector2=p+step_dir*u*(float(i)/6.0-0.42)
+			draw_rect(Rect2(q-Vector2(u*0.06,u*0.52),Vector2(u*0.13,u*0.52)),Color("#9a6838" if i%2==0 else "#79512d"))
+		draw_line(a-Vector2(0,u*0.18),b-Vector2(0,u*0.18),Color("#3b3833"),maxf(2,u*0.06))
+		draw_line(a-Vector2(0,u*0.43),b-Vector2(0,u*0.43),Color("#3b3833"),maxf(2,u*0.06))
+		_draw_wall_health(p,u,ratio,true)
+		return
 	draw_line(a-Vector2(0,u*0.18),b-Vector2(0,u*0.18),Color("#59412b"),maxf(2,u*0.09))
 	draw_line(a-Vector2(0,u*0.40),b-Vector2(0,u*0.40),Color("#87572e"),maxf(2,u*0.08))
 	for i in range(6):
@@ -1607,6 +1623,15 @@ func _draw_palisade(p:Vector2,u:float,axis:String) -> void:
 		draw_rect(Rect2(q-Vector2(w*0.36,h),Vector2(w*0.70,h*0.94)),Color("#a16e3a"))
 		draw_colored_polygon(PackedVector2Array([q-Vector2(w*0.5,h),q-Vector2(0,h+u*0.14),q+Vector2(w*0.5,-h)]),Color("#c6a06a"))
 		draw_line(q-Vector2(w*0.25,h*0.9),q-Vector2(w*0.25,u*0.05),Color("#d1a66e"),1.0)
+		if ratio<0.65 and i%2==0:
+			draw_line(q-Vector2(w*0.25,h*0.56),q+Vector2(w*0.2,-h*0.37),Color("#402820"),maxf(1,u*0.025))
+	_draw_wall_health(p,u,ratio,false)
+
+func _draw_wall_health(p:Vector2,u:float,ratio:float,gate:bool) -> void:
+	if ratio>=0.999: return
+	var bar:=Rect2(p-Vector2(u*0.35,u*(0.85 if gate else 0.90)),Vector2(u*0.70,maxf(2.0,u*0.06)))
+	draw_rect(bar,Color("#2c211c"))
+	draw_rect(Rect2(bar.position,Vector2(bar.size.x*ratio,bar.size.y)),Color("#83ae53") if ratio>0.5 else Color("#df8050"))
 
 func _draw_project_marker(site:Dictionary,p:Vector2,unit:float) -> void:
 	var kind:String=str(site["kind"])
