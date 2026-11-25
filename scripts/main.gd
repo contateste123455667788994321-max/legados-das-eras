@@ -140,6 +140,7 @@ func _load_art() -> void:
 			actor_textures[actor] = texture
 		else:
 			texture_missing = true
+	actor_textures["tribal_hut"]=actor_textures["hut"]
 	for key in ["hut","farm"]:
 		var new_art: Resource = load("res://assets/landscape/reference_"+key+".png")
 		if new_art is Texture2D: actor_textures[key] = new_art
@@ -470,6 +471,9 @@ func _draw() -> void:
 			continue
 		var unit := TILE_SIZE * zoom
 		_draw_village_paths(town, center, unit, house_spots, farm_spots)
+		for segment in town.get("palisades",[]):
+			var fence_pos:Vector2=_world_to_screen(Vector2(float(segment["x"])+0.5,float(segment["y"])+0.5))
+			_draw_palisade(fence_pos,unit,str(segment.get("axis","h")))
 		# A terra cultivada cresce quando uma fazenda fica pronta.
 		for i in range(mini(int(town.get("farms", 1)), farm_spots.size())):
 			var spot: Vector2 = farm_spots[i]
@@ -486,8 +490,8 @@ func _draw() -> void:
 			var build_spot: Vector2 = house_spots[mini(int(town.get("houses", 2)), house_spots.size()-1)] if kind == "house" else farm_spots[mini(int(town.get("farms", 1)), farm_spots.size()-1)]
 			var scaffold: Vector2 = _world_to_screen(Vector2(float(site["x"])+0.5,float(site["y"])+0.5)) if site.has("x") else center + build_spot * unit
 			if MAP_AREA.grow(-unit).has_point(scaffold):
-				_draw_project_marker(site,scaffold,unit)
 				_draw_landscape_object("construction_site",scaffold,unit*0.85)
+				_draw_project_marker(site,scaffold,unit)
 		if int(town["id"]) == selected_town_id and MAP_AREA.has_point(center):
 			draw_arc(center, 35.0 * zoom, 0.0, TAU, 32, Color("#fff0a0"), 3.0)
 	for animal in world.wildlife:
@@ -696,7 +700,12 @@ func _draw_person_variant(p:Dictionary,center:Vector2) -> void:
 		_draw_landscape_object("magic_staff",center+Vector2(face*s*0.27,0),s*0.78)
 	var cargo:Dictionary=p.get("cargo",{})
 	if not cargo.is_empty() and action.is_empty() and MAP_AREA.grow(-s).has_point(center):
-		_draw_landscape_object("cart" if str(p.get("transport","hands"))=="cart" else ("log_bundle" if str(cargo["kind"])=="wood" else "sack"),center+Vector2(-face*s*0.32,0),s*0.53)
+		var cargo_icon:String="cart" if str(p.get("transport","hands"))=="cart" else str({"wood":"log_bundle","stone":"rock","ore":"rock"}.get(str(cargo["kind"]),"sack"))
+		_draw_landscape_object(cargo_icon,center+Vector2(-face*s*0.32,0),s*0.53)
+	if action=="deposit" and MAP_AREA.grow(-s).has_point(center):
+		for i in range(3):
+			var q:Vector2=center+Vector2(float(i-1)*s*0.12,s*0.05)
+			draw_rect(Rect2(q,Vector2.ONE*maxf(1.0,s*0.06)),Color("#c6a371",0.75))
 
 
 func _draw_clock() -> void:
@@ -1583,6 +1592,22 @@ func _new_world() -> void:
 	dialog.popup_centered(Vector2i(490,190))
 
 
+func _draw_palisade(p:Vector2,u:float,axis:String) -> void:
+	if not MAP_AREA.grow(-u).has_point(p): return
+	var step_dir:=Vector2.RIGHT if axis=="h" else Vector2.DOWN
+	var a:Vector2=p-step_dir*u*0.5
+	var b:Vector2=p+step_dir*u*0.5
+	draw_line(a-Vector2(0,u*0.18),b-Vector2(0,u*0.18),Color("#59412b"),maxf(2,u*0.09))
+	draw_line(a-Vector2(0,u*0.40),b-Vector2(0,u*0.40),Color("#87572e"),maxf(2,u*0.08))
+	for i in range(6):
+		var q:Vector2=(p+step_dir*u*(float(i)/6.0-0.42)).round()
+		var w:float=u*0.13
+		var h:float=u*(0.58+float(i%2)*0.04)
+		draw_rect(Rect2(q-Vector2(w*0.5,h),Vector2(w,h)),Color("#4a3324"))
+		draw_rect(Rect2(q-Vector2(w*0.36,h),Vector2(w*0.70,h*0.94)),Color("#a16e3a"))
+		draw_colored_polygon(PackedVector2Array([q-Vector2(w*0.5,h),q-Vector2(0,h+u*0.14),q+Vector2(w*0.5,-h)]),Color("#c6a06a"))
+		draw_line(q-Vector2(w*0.25,h*0.9),q-Vector2(w*0.25,u*0.05),Color("#d1a66e"),1.0)
+
 func _draw_project_marker(site:Dictionary,p:Vector2,unit:float) -> void:
 	var kind:String=str(site["kind"])
 	var required:Dictionary=site.get("required",{})
@@ -1592,7 +1617,21 @@ func _draw_project_marker(site:Dictionary,p:Vector2,unit:float) -> void:
 	var portion:float=clampf(received/total,0,1)
 	var ratio:float=clampf(float(site.get("progress",0))/maxf(1,float(site["duration"])),0,1)
 	var icon:String={"castle":"castle","upgrade":"hut","house":"hut","farm":"farm","campfire":"fire","oven":"oven","forge":"forge","crossing":"bridge"}.get(kind,"hut")
-	var badge_pos:Vector2=p-Vector2(0,unit*0.58)
+	var badge_pos:Vector2=p-Vector2(0,unit*0.72)
+	var icon_size:float=clampf(unit*0.20,8.0,16.0)
+	var remaining_wood:int=maxi(0,ceili(float(required.get("wood",0))-float(delivered.get("wood",0))))
+	var remaining_stone:int=maxi(0,ceili(float(required.get("stone",0))-float(delivered.get("stone",0))))
+	if remaining_wood>0 or remaining_stone>0:
+		var panel:=Rect2(badge_pos-Vector2(43,15),Vector2(86,18))
+		draw_rect(panel,Color("#28241e",0.92))
+		var q:Vector2=panel.position+Vector2(9,8)
+		if remaining_wood>0:
+			_draw_landscape_object("log_bundle",q,icon_size)
+			draw_string(ThemeDB.fallback_font,q+Vector2(9,4),str(remaining_wood),HORIZONTAL_ALIGNMENT_LEFT,-1,11,Color("#ffe0aa"))
+		if remaining_stone>0:
+			q=panel.position+Vector2(50,8)
+			_draw_landscape_object("rock",q,icon_size)
+			draw_string(ThemeDB.fallback_font,q+Vector2(9,4),str(remaining_stone),HORIZONTAL_ALIGNMENT_LEFT,-1,11,Color("#dfe1d6"))
 	for n in range(int(ceil(portion*6))):
 		draw_rect(Rect2(p+Vector2((n%3-1)*unit*0.15,(n/3-0.3)*unit*0.12),Vector2(unit*0.13,unit*0.08)),Color("#ad8150"))
 	var bar:=Rect2(p-Vector2(unit*0.30,unit*0.38),Vector2(unit*0.60,3.0))
@@ -1963,7 +2002,7 @@ func _draw_depth_entities() -> void:
 				# A ampliacao aumenta discretamente o tamanho, sem trocar o estilo.
 				var grown:float=size*(1.0+float(era-1)*0.045)
 				var anchored:Vector2=p-Vector2(0,(grown-size)*0.41)
-				_draw_sprite("hut",anchored,Vector2(grown,grown*0.82),true)
+				_draw_sprite("tribal_hut" if era==1 else "hut",anchored,Vector2(grown,grown*0.82),true)
 			"person": _draw_person_variant(entry["actor"],p)
 			"animal": _draw_natural_animal(entry["actor"],p)
 			"beast": _draw_animated_beast(entry["actor"],p,str(entry["key"]))
