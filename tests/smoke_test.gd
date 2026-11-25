@@ -194,6 +194,30 @@ func _run_tests() -> void:
 	target_town["houses"]=0
 	target_town["house_levels"]=[]
 	_check(not building_world.start_construction(target_id,"castle"),"Castelo exige tecnologia")
+	_check(building_world.workshop_stone_cost("castle")==300.0 and building_world.construction_cost("castle")==150.0,"Castelo exige 300 pedras e 150 madeira")
+	var fence_world=World.new()
+	fence_world.generate_world()
+	var fence_town:Dictionary=fence_world.towns[0]
+	fence_town["x"]=12
+	fence_town["y"]=12
+	for yy in range(6,19):
+		for xx in range(6,19):
+			fence_world.tiles[yy][xx]="water" if xx==7 else "grass"
+	var fence_count:int=0
+	var fence_valid:bool=true
+	var fence_next:Dictionary=fence_world.next_palisade(fence_town)
+	while not fence_next.is_empty() and fence_count<50:
+		var fx:int=int(fence_next["x"])
+		var fy:int=int(fence_next["y"])
+		var gate:Dictionary=fence_town["palisade_gate"]
+		if str(fence_world.tiles[fy][fx])=="water" or (fx==int(gate["x"]) and fy==int(gate["y"])): fence_valid=false
+		var built:Array=fence_town.get("palisades",[])
+		built.append(fence_next)
+		fence_town["palisades"]=built
+		fence_count+=1
+		fence_next=fence_world.next_palisade(fence_town)
+	_check(fence_valid and fence_count>0 and fence_count<39 and fence_next.is_empty(),"Paliçada preserva rio e abertura")
+
 	var original_wood: float = float(target_town["wood"])
 	_check(not building_world.start_construction(target_id, "bridge"), "Nao aceita construcoes desconhecidas")
 	_check(not building_world.start_construction(target_id,"forge"),"Forja exige tecnologia e recursos")
