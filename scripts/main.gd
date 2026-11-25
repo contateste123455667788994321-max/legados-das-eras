@@ -126,7 +126,8 @@ func _load_art() -> void:
 		if new_art is Texture2D: actor_textures[key] = new_art
 	landscape_objects["tree"] = load("res://assets/landscape/reference_tree.png")
 	landscape_objects["reference_characters"] = load("res://assets/landscape/reference_characters.png")
-	landscape_objects["civilian_walk"]=load("res://assets/landscape/civilian_walk.svg")
+	landscape_objects["civilian_walk"]=load("res://assets/landscape/people_v2.svg")
+	landscape_objects["military_walk"]=load("res://assets/landscape/military_v2.svg")
 	if texture_missing:
 		push_warning("Alguns desenhos do mapa ainda nao foram carregados.")
 
@@ -595,48 +596,47 @@ func _draw_waterfall(p:Vector2,u:float) -> void:
 		var q:Vector2=p+Vector2((float(i%3)-1.0)*u*0.17,f*u*0.33)
 		draw_rect(Rect2(q,Vector2(u*0.10,u*0.035)),Color("#def9f4",1.0-f))
 
-func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
-	var stage: int = world.life_stage(p)
+func _draw_person_variant(p:Dictionary,center:Vector2) -> void:
+	var stage:int=world.life_stage(p)
 	var profession:String=str(p.get("profession",""))
-	var index:int=posmod(int(p.get("appearance",p["id"])),10)+10*clampi(int(p["gender"]),0,1)
-	var s:float=27.0*zoom*[0.48,0.74,1.0,0.92][stage]
+	var sex:int=clampi(int(p.get("gender",0)),0,1)
+	var appearance:int=posmod(int(p.get("appearance",p["id"])),10)
+	var variation:int=posmod(appearance+int(p.get("skin",0))+int(p.get("hair",0)),2)
+	var s:float=29.0*zoom*[0.51,0.77,1.0,0.93][stage]
 	var atlas:Texture2D=landscape_objects["civilian_walk"]
-	var target:=Vector2(float(p.get("target_x",p["x"])),float(p.get("target_y",p["y"])))
-	var pos:=Vector2(float(p["x"]),float(p["y"]))
+	var row:int=appearance+sex*10
 	var movement:Dictionary=visual_motion.get(int(p["id"]),{})
 	var moving:bool=bool(movement.get("moving",false)) and world.speed>0
 	var phase:float=float(movement.get("phase",0))
 	var face:float=float(movement.get("face",1.0))
+	var action:String=world.visible_action(p)
+	var working:bool=action in ["mining","chopping","farming","building","fishing","combat","cooking"]
+	var frame:int=int(fposmod(phase,TAU)/TAU*4) if moving else 0
+	if working and not moving: frame=4+int(world.swamp_clock*3.5)%2
+	if stage<2:
+		row=20+sex*4+posmod(appearance,4)
+	elif stage==3 and not world.is_military(p):
+		row=28+sex*4+posmod(appearance,4)
+	if stage>=2 and not world.is_military(p):
+		var job:int=int({"Agricultor":0,"Pescador":1,"Minerador":2,"Construtor":3,"Cozinheiro":4,"Explorador":5,"Lenhador":6,"Governante":7}.get(profession,-1))
+		if job>=0 and stage!=3: row=36+job*4+sex*2+variation
+	if world.is_military(p) and stage>=2:
+		atlas=landscape_objects["military_walk"]
+		var role:int=int({"soldier":0,"archer":1,"royal":2,"general":3}.get(str(p.get("military_role","soldier")),0))
+		var tier:int=0
+		var armor:int=int(p.get("armor",0))
+		if armor>0: tier=1 if armor<=2 else 2
+		if str(p.get("armor_material","")) in ["bone","shell","croc_hide"] and armor>0: tier=3
+		row=role*16+tier*4+sex*2+variation
 	var bounce:float=absf(sin(phase))*s*0.012 if moving else 0.0
 	_contact_shadow(center,s*0.24,s*0.09)
-	if world.is_military(p) and stage>=2:
-		if not landscape_objects.has("warriors"): landscape_objects["warriors"]=load("res://assets/landscape/warriors.svg")
-		var role:String=str(p.get("military_role","soldier"))
-		var row:int=int({"soldier":0,"archer":1,"royal":2,"general":3}.get(role,0))
-		var frame:int=int(fposmod(phase,TAU)/TAU*4) if moving else 0
-		_draw_walk_sprite(landscape_objects["warriors"],Rect2(frame*48,row*48,48,48),center,s,face,phase,moving,bounce)
-	else:
-		var frame:int=int(fposmod(phase,TAU)/TAU*4) if moving else 0
-		_draw_walk_sprite(atlas,Rect2(frame*48,index*48,48,48),center,s,face,phase,false,bounce)
-	if stage>=2 and MAP_AREA.grow(-s).has_point(center):
-		if profession=="Pescador":
-			var hat:Vector2=center+Vector2(-s*0.15,-s*0.76-bounce)
-			draw_rect(Rect2(hat,Vector2(s*0.30,s*0.07)),Color("#bd9551"))
-			draw_rect(Rect2(hat+Vector2(s*0.08,-s*0.07),Vector2(s*0.15,s*0.08)),Color("#dbb66b"))
-		elif profession=="Minerador":
-			draw_rect(Rect2(center+Vector2(-s*0.13,-s*0.77-bounce),Vector2(s*0.26,s*0.06)),Color("#716f60"))
-		elif stage==3:
-			draw_line(center+Vector2(-s*0.09,-s*0.62-bounce),center+Vector2(s*0.09,-s*0.62-bounce),Color("#dbd7c4"),maxf(1,s*0.045))
-	_draw_equipment(p,center,s*0.78,bounce)
-	if bool(p.get("witch_staff",false)) and world.visible_action(p)=="combat":
-		_draw_landscape_object("magic_staff",center+Vector2(s*0.30,0),s*0.8)
+	_draw_walk_sprite(atlas,Rect2(frame*32,row*32,32,32),center,s,face,phase,false,bounce)
+	_draw_equipment(p,center,s,bounce,face)
+	if bool(p.get("witch_staff",false)) and action=="combat":
+		_draw_landscape_object("magic_staff",center+Vector2(face*s*0.27,0),s*0.78)
 	var cargo:Dictionary=p.get("cargo",{})
-	if not cargo.is_empty() and MAP_AREA.grow(-s).has_point(center):
-		_draw_landscape_object("cart" if str(p.get("transport","hands"))=="cart" else ("log_bundle" if str(cargo["kind"])=="wood" else "sack"),center+Vector2(s*0.30,0),s*0.53)
-	if profession=="Pescador" and stage>=2 and world.visible_action(p)=="fishing" and str(p.get("tool_kind",""))=="rod":
-		draw_line(center+Vector2(s*0.17,-s*0.30),center+Vector2(s*0.70,-s*0.52),Color("#78532d"),maxf(1.0,zoom))
-		if str(p.get("task",""))=="Pescando":
-			draw_line(center+Vector2(s*0.70,-s*0.52),center+Vector2(s*0.70,s*0.25),Color("#b9d6d2"),1.0)
+	if not cargo.is_empty() and action.is_empty() and MAP_AREA.grow(-s).has_point(center):
+		_draw_landscape_object("cart" if str(p.get("transport","hands"))=="cart" else ("log_bundle" if str(cargo["kind"])=="wood" else "sack"),center+Vector2(-face*s*0.32,0),s*0.53)
 
 
 func _draw_clock() -> void:
@@ -1537,51 +1537,58 @@ func _draw_project_marker(site:Dictionary,p:Vector2,unit:float) -> void:
 	draw_rect(Rect2(bar.position,Vector2(bar.size.x*ratio,bar.size.y)),Color("#e8bd65"))
 	draw_string(ThemeDB.fallback_font,p+Vector2(-unit*0.48,unit*0.36),"%d/%d"%[int(received),int(total)],HORIZONTAL_ALIGNMENT_CENTER,unit,12,Color("#ffedb8"))
 
-func _draw_equipment(p:Dictionary,c:Vector2,s:float,bounce:float) -> void:
+func _draw_equipment(p:Dictionary,c:Vector2,s:float,bounce:float,face:float=1.0) -> void:
 	if float(p["age"])<16 or not MAP_AREA.grow(-s).has_point(c): return
 	var action:String=world.visible_action(p)
-	var armor:int=clampi(int(p.get("armor",0)),0,4)
-	if not world.is_military(p) and action!="combat": armor=0
-	var weapon:int=clampi(int(p.get("weapon",0)),0,4)
-	var tool:int=clampi(int(p.get("tool",0)),0,4)
-	var colors:Array[Color]=[Color("#705338"),Color("#956139"),Color("#ad8c56"),Color("#9ba6ad"),Color("#c7cdd0")]
-	if str(p.get("armor_material",""))=="croc_hide": colors[armor]=Color("#627b40")
-	elif str(p.get("armor_material",""))=="bone": colors[armor]=Color("#d5c5a0")
-	elif str(p.get("armor_material",""))=="shell": colors[armor]=Color("#867f55")
-	if armor>0:
-		var shoulder:Vector2=c+Vector2(-s*0.22,-s*0.45-bounce)
-		draw_line(shoulder,shoulder+Vector2(s*0.20,s*0.06),colors[armor],maxf(1.0,s*0.08))
-		draw_line(shoulder+Vector2(s*0.07,s*0.11),shoulder+Vector2(s*0.19,s*0.16),colors[armor],maxf(1.0,s*0.07))
-	if str(p.get("military_role",""))=="royal":
-		draw_rect(Rect2(c+Vector2(-s*0.20,-s*0.57-bounce),Vector2(s*0.08,s*0.50)),Color("#bba05a"))
-	elif str(p.get("military_role",""))=="general":
-		draw_rect(Rect2(c+Vector2(-s*0.20,-s*0.35-bounce),Vector2(s*0.08,s*0.55)),Color("#9c443b"))
-	var shield:String=str(p.get("shield_kind",""))
-	if not shield.is_empty() and action=="combat":
-		var shield_pos:Vector2=c+Vector2(-s*0.26,-s*0.20-bounce)
-		var shield_color:Color=Color("#aeb7be") if shield=="iron_shield" else Color("#9e7445")
-		draw_circle(shield_pos,s*0.19,Color("#4f4235"))
-		draw_circle(shield_pos,s*0.15,shield_color)
-		draw_circle(shield_pos,s*0.05,Color("#dfc797"))
-	if action=="combat" and str(p.get("weapon_kind",""))=="bow":
-		var grip:Vector2=c+Vector2(s*0.29,-s*0.20-bounce)
-		draw_arc(grip,s*0.25,-PI*0.5,PI*0.5,8,Color("#b18b52"),maxf(1.0,s*0.045))
-		draw_line(grip-Vector2(0,s*0.25),grip+Vector2(0,s*0.25),Color("#d8cbb3"),1.0)
-	elif action=="combat" and str(p.get("weapon_kind",""))=="sword":
-		var grip:Vector2=c+Vector2(s*0.26,s*0.03-bounce)
-		draw_line(grip,grip+Vector2(s*0.09,-s*0.43),Color("#c9d4da"),maxf(2.0,s*0.11))
-		draw_line(grip+Vector2(-s*0.09,-s*0.07),grip+Vector2(s*0.12,-s*0.04),Color("#c39a57"),maxf(1.0,s*0.05))
-	elif action=="combat" and weapon>0:
-		draw_line(c+Vector2(s*0.23,s*0.15),c+Vector2(s*0.31,-s*0.55),Color("#674b2b"),maxf(1.0,s*0.045))
-		draw_line(c+Vector2(s*0.31,-s*0.55),c+Vector2(s*0.34,-s*0.70),colors[weapon],maxf(1.0,s*0.09))
-	elif tool>0 and action in ["mining","chopping","farming","building"]:
-		draw_line(c+Vector2(s*0.22,s*0.14),c+Vector2(s*0.32,-s*0.38),Color("#886039"),maxf(1.0,s*0.05))
-		draw_line(c+Vector2(s*0.24,-s*0.38),c+Vector2(s*0.43,-s*0.38),colors[tool],maxf(1.0,s*0.09))
-	if str(p.get("role","")) in ["Rei","Rainha","Lider tribal"]:
-		var crown:Vector2=c+Vector2(-s*0.15,-s*0.77-bounce)
-		draw_rect(Rect2(crown,Vector2(s*0.30,s*0.07)),Color("#d9af54"))
-		for i in range(3):
-			draw_rect(Rect2(crown+Vector2(s*(0.02+i*0.11),-s*0.045),Vector2(s*0.045,s*0.06)),Color("#f1d489"))
+	var tool:String=str(p.get("tool_kind",""))
+	var weapon:String=str(p.get("weapon_kind",""))
+	var grip:Vector2=c+Vector2(face*s*0.22,-s*0.28-bounce)
+	var lift:float=sin(world.swamp_clock*11.0)*s*0.08
+	var wood:Color=Color("#7b5735")
+	var iron:Color=Color("#bfc4bf")
+	var stone:Color=Color("#9b9b86")
+	var thickness:float=maxf(1,s*0.045)
+	if action=="combat":
+		var shield:String=str(p.get("shield_kind",""))
+		if not shield.is_empty():
+			var sp:Vector2=c+Vector2(-face*s*0.19,-s*0.27-bounce)
+			var metal:bool=shield=="iron_shield"
+			draw_circle(sp,s*0.17,Color("#473d30"))
+			draw_circle(sp,s*0.135,Color("#a6afae") if metal else Color("#a27c4b"))
+			draw_circle(sp,s*0.045,Color("#e0cf9d"))
+		if weapon=="bow":
+			var bow_center:Vector2=grip+Vector2(face*s*0.05,0)
+			var angle:float=0.0 if face>0 else PI
+			draw_arc(bow_center,s*0.23,angle-PI*0.5,angle+PI*0.5,10,Color("#c79b54"),thickness)
+			draw_line(bow_center-Vector2(0,s*0.23),bow_center+Vector2(0,s*0.23),Color("#e0d5ba"),1.0)
+			draw_line(bow_center,bow_center+Vector2(face*s*0.23,0),Color("#c8b18a"),1.0)
+		elif weapon=="sword":
+			var tip:Vector2=grip+Vector2(face*s*0.16,-s*0.42+lift)
+			draw_line(grip,tip,Color("#465251"),maxf(2,s*0.11))
+			draw_line(grip,tip,iron,maxf(1,s*0.065))
+			draw_line(grip+Vector2(-s*0.08,-s*0.045),grip+Vector2(s*0.08,s*0.035),Color("#c9a35b"),thickness)
+		elif weapon in ["spear","club"]:
+			var tip:Vector2=grip+Vector2(face*s*0.22,-s*0.43+lift)
+			draw_line(grip-Vector2(face*s*0.12,s*0.08),tip,wood,maxf(1,s*0.055))
+			draw_line(tip,tip+Vector2(face*s*0.065,-s*0.12),stone if weapon=="spear" else Color("#725137"),maxf(2,s*0.105))
+		return
+	if action=="fishing" and tool=="rod":
+		var tip:Vector2=grip+Vector2(face*s*0.46,-s*0.31+lift*0.25)
+		draw_line(grip,tip,wood,thickness)
+		draw_line(tip,tip+Vector2(face*s*0.06,s*0.48),Color("#c6d6cf"),1.0)
+		return
+	if action in ["mining","chopping","farming","building"]:
+		var matches:bool=(action=="mining" and tool in ["pickaxe","iron_pickaxe"]) or (action=="chopping" and tool=="axe") or (action=="farming" and tool=="hoe") or (action=="building" and tool=="axe")
+		if not matches: return
+		var tip:Vector2=grip+Vector2(face*s*0.12,-s*0.31+lift)
+		draw_line(grip,tip,wood,thickness)
+		if tool in ["pickaxe","iron_pickaxe"]:
+			draw_line(tip+Vector2(-face*s*0.12,-s*0.025),tip+Vector2(face*s*0.12,s*0.04),iron if tool=="iron_pickaxe" else stone,maxf(1,s*0.075))
+		elif tool=="axe":
+			draw_rect(Rect2(tip+Vector2(-s*0.055,-s*0.045),Vector2(s*0.13,s*0.15)),stone)
+		elif tool=="hoe":
+			draw_line(tip,tip+Vector2(face*s*0.15,s*0.06),stone,maxf(1,s*0.075))
+
 
 func _toggle_spawn() -> void:
 	if not spawn_species.is_empty():

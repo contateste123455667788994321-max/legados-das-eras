@@ -179,7 +179,11 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 	match str(p["profession"]):
 		"Pescador":
 			if _site_work(sim,p,home,"fish","Pescando"):
-				sim.collect_cargo(p,"fish",3.0)
+				var has_rod:bool=str(p.get("tool_kind",""))=="rod"
+				p["fishing_work"]=float(p.get("fishing_work",0))+step
+				if float(p["fishing_work"])>=(2.5 if has_rod else 4.0):
+					if sim.collect_cargo(p,"fish",3.0 if has_rod else 1.0): p["fishing_work"]=0.0
+			else: p["fishing_work"]=0.0
 		"Minerador":
 			if _site_work(sim,p,home,"mine","Minerando"):
 				var deposit:Dictionary=sim.local_site("mine",int(home["id"]))

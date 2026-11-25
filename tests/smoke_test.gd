@@ -300,6 +300,12 @@ func _run_tests() -> void:
 	var game: Node2D = Main.new()
 	root.add_child(game)
 	_check(not game.texture_missing, "Todos os desenhos de pixel art foram importados")
+	_check(game.landscape_objects["civilian_walk"] is Texture2D and game.landscape_objects["civilian_walk"].get_size()==Vector2(192,2176),"Atlas de 68 modelos civis com seis poses")
+	_check(game.landscape_objects["military_walk"] is Texture2D and game.landscape_objects["military_walk"].get_size()==Vector2(192,2048),"Atlas de 64 aparencias militares por funcao e armadura")
+	var visual_worker:Dictionary={"x":5.0,"y":5.0,"target_x":8.0,"target_y":5.0,"task":"Pescando"}
+	_check(game.world.visible_action(visual_worker).is_empty(),"Pescador guarda vara durante deslocamento")
+	visual_worker["target_x"]=5.0
+	_check(game.world.visible_action(visual_worker)=="fishing","Pescador mostra ferramenta ao chegar")
 	_check(game.tile_textures.size() == 9, "Nove imagens de terrenos e estacoes carregadas")
 	_check(game.actor_textures.size() == 8, "Oito sprites de pessoas, aldeias e animais carregados")
 	_check(int(ProjectSettings.get_setting("display/window/size/viewport_width")) == 1280, "Tela horizontal configurada")

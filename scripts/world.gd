@@ -1710,6 +1710,7 @@ func cast_staff(person:Dictionary) -> bool:
 	if target_id<0: return false
 	magic_bolts.append({"x":p.x+0.22,"y":p.y-0.15,"target":target_id,"kind":target_kind,"life":4.0,"damage":24.0,"caster":int(person["id"])})
 	person["staff_cd"]=4.5
+	_mark_action(person,"combat",0.9)
 	sound_at("magic",person)
 	return true
 
@@ -1787,7 +1788,10 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 				sound_at("hit",spider)
 				spider["bite"]=2.5
 				if bool(target.get("alive",false)) and float(target["age"])>=16.0:
-					spider["health"]=float(spider["health"])-attack_damage(target)
+					var before:float=float(spider["health"])
+					spider["health"]=maxf(0,before-attack_damage(target))
+					_mark_hit(spider,before-float(spider["health"]))
+					_mark_action(target,"combat",0.8)
 					gain_xp(target,2.0,"combate")
 					if float(spider["health"])<=0: gain_xp(target,12.0,"combate")
 		elif float(spider["timer"])<=0:
@@ -1817,7 +1821,10 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 		bolt["x"]=q.x
 		bolt["y"]=q.y
 		if q.distance_to(goal)<0.18:
-			if str(bolt["kind"])=="spider": target["health"]=maxf(0,float(target["health"])-float(bolt["damage"]))
+			if str(bolt["kind"])=="spider":
+				var before:float=float(target["health"])
+				target["health"]=maxf(0,before-float(bolt["damage"]))
+				_mark_hit(target,before-float(target["health"]))
 			elif bool(bolt.get("arrow",false)):
 				var hit:float=arrow_damage(target,float(bolt["damage"]))
 				sound_at("shield" if hit<float(bolt["damage"]) else "hit",target)
@@ -2435,6 +2442,7 @@ func visible_action(actor:Dictionary) -> String:
 		"Minerando": return "mining"
 		"Cultivando": return "farming"
 		"Construindo": return "building"
+		"Cozinhando": return "cooking"
 		"Coletando madeira": return "chopping"
 		"Combatendo inimigo","Combatendo bruxa","Defendendo contra animal","Cacando": return "combat"
 	return ""
