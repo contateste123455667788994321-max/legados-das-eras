@@ -1690,7 +1690,7 @@ func _draw_swamp_creatures() -> void:
 		var summon:float=float(witch.get("summon_anim",0))
 		var lift:float=clampf(minf((1.2-summon)/0.30,summon/0.30),0,1) if summon>0 else 0.0
 		var pose:String="witch_summon" if lift>=0.65 else ("witch_lift" if lift>0.15 else "witch")
-		_draw_landscape_object(pose,p,43.0*zoom)
+		_draw_landscape_object(pose,p,39.0*zoom)
 		if MAP_AREA.grow(-30*zoom).has_point(p):
 			var bar:=Rect2(p+Vector2(-16,-37)*zoom,Vector2(32,4)*zoom)
 			draw_rect(bar,Color("#2a202d"))
@@ -1698,9 +1698,10 @@ func _draw_swamp_creatures() -> void:
 	for spider in world.swamp_spiders:
 		var p:Vector2=_world_to_screen(Vector2(float(spider["x"])+0.5,float(spider["y"])+0.5))
 		var emerge:float=float(spider.get("emerge",0))
-		var s:float=21.0*zoom*(1.0-0.35*clampf(emerge/0.6,0,1))
-		var frame:int=int(world.swamp_clock*10+float(spider["id"]))%2
-		_draw_landscape_object("swamp_spider_walk" if frame==1 else "swamp_spider",p,s)
+		var s:float=15.5*zoom*(1.0-0.35*clampf(emerge/0.6,0,1))
+		var frame:int=int(world.swamp_clock*6+float(spider["id"]))%4
+		if emerge>0: frame=0
+		_draw_landscape_object(["swamp_spider","swamp_spider_walk","swamp_spider_stride","swamp_spider_return"][frame],p,s)
 	for bolt in world.magic_bolts:
 		var p:Vector2=_world_to_screen(Vector2(float(bolt["x"])+0.5,float(bolt["y"])+0.5))
 		if MAP_AREA.grow(-12).has_point(p):
