@@ -8,6 +8,8 @@ const PENDING_PACK := UPDATES_DIR + "/pending.pck"
 const PENDING_DOWNLOAD := UPDATES_DIR + "/download.bin"
 const BACKUP_PACK := UPDATES_DIR + "/previous.pck"
 const ACTIVE_META := UPDATES_DIR + "/active.json"
+const PENDING_META := UPDATES_DIR + "/pending.json"
+const BACKUP_META := UPDATES_DIR + "/previous.json"
 const PACK_LIMIT_BYTES := 157286400
 var _base_version_code := 0
 var _installed_version_code := 0
@@ -18,6 +20,7 @@ var _pack_request: HTTPRequest
 var _check_silent := false
 var _busy := false
 var _next_patch := {}
+var _restart_requested := false
 
 func _ready() -> void:
 	var conf := _load_config()
@@ -38,6 +41,9 @@ func _is_https(url: String) -> bool:
 	return url.begins_with("https://") and not url.contains("@") and url.length() < 2048
 
 func check_now(silent: bool = false) -> void:
+	if _restart_requested:
+		if not silent: _notice("Atualizacao instalada","Reabra o jogo para carregar a versao nova.")
+		return
 	if _busy:
 		if not silent:
 			_notice("Atualizacoes", "Uma verificacao ja esta em andamento.")
@@ -197,32 +203,80 @@ func _on_patch_received(result: int, code: int, _headers: PackedStringArray, _bo
 		DirAccess.remove_absolute(pending_path)
 		_notice("Arquivo invalido", "O conteudo extraido falhou na verificacao de integridade.")
 		return
-	var active_path: String = ProjectSettings.globalize_path(ACTIVE_PACK)
-	var backup_path: String = ProjectSettings.globalize_path(BACKUP_PACK)
-	if FileAccess.file_exists(BACKUP_PACK):
-		DirAccess.remove_absolute(backup_path)
-	var had_previous: bool = FileAccess.file_exists(ACTIVE_PACK)
-	if had_previous and DirAccess.rename_absolute(active_path, backup_path) != OK:
-		_notice("Falha", "Nao foi possivel fazer a copia de seguranca.")
+
+	# Salvar antes de trocar o pacote ativo. Sem save valido, nao reiniciar.
+	var scene:Node=get_tree().current_scene
+	if scene==null: scene=get_parent()
+	if scene!=null and scene.has_method("prepare_update_restart") and not bool(scene.call("prepare_update_restart")):
+		_notice("Mundo nao salvo","Nao foi possivel salvar o progresso. A atualizacao nao foi ativada.")
 		return
-	if DirAccess.rename_absolute(pending_path, active_path) != OK:
-		if had_previous:
-			DirAccess.rename_absolute(backup_path, active_path)
-		_notice("Falha", "Nao foi possivel instalar o pacote.")
+	var meta:Dictionary={"version_code":int(_next_patch["version_code"]),"version_name":str(_next_patch.get("version_name","nova")),"min_apk_code":int(_next_patch.get("min_apk_code",0)),"sha256":installed_sha256}
+	if not _activate_verified_pack(meta):
+		if scene!=null and scene.has_method("cancel_update_restart"): scene.call("cancel_update_restart")
+		_notice("Falha","Nao foi possivel ativar a atualizacao. O pacote anterior foi preservado quando disponivel.")
 		return
-	var meta := {
-		"version_code": int(_next_patch["version_code"]),
-		"version_name": str(_next_patch.get("version_name", "nova")),
-		"min_apk_code": int(_next_patch.get("min_apk_code", 0)),
-		"sha256": installed_sha256
-	}
-	var output := FileAccess.open(ACTIVE_META, FileAccess.WRITE)
-	if output == null:
-		_notice("Falha", "Nao foi possivel registrar a atualizacao.")
-		return
+	_restart_requested=true
+	# O teste headless verifica a instalacao sem encerrar o processo de testes.
+	if DisplayServer.get_name()=="headless": return
+	_restart_after_patch(str(meta["version_name"]))
+
+func _activate_verified_pack(meta:Dictionary) -> bool:
+	var output:FileAccess=FileAccess.open(PENDING_META,FileAccess.WRITE)
+	if output==null: return false
 	output.store_string(JSON.stringify(meta))
+	output.flush()
 	output.close()
-	_notice("Atualizacao baixada", "O pacote %s foi salvo.\nFeche e abra o jogo para carregar os novos graficos e mecanicas.\nNao precisa desinstalar o aplicativo." % str(meta["version_name"]))
+	var active_path:String=ProjectSettings.globalize_path(ACTIVE_PACK)
+	var pending_path:String=ProjectSettings.globalize_path(PENDING_PACK)
+	var backup_path:String=ProjectSettings.globalize_path(BACKUP_PACK)
+	var active_meta:String=ProjectSettings.globalize_path(ACTIVE_META)
+	var pending_meta:String=ProjectSettings.globalize_path(PENDING_META)
+	var backup_meta:String=ProjectSettings.globalize_path(BACKUP_META)
+	if FileAccess.file_exists(BACKUP_PACK): DirAccess.remove_absolute(backup_path)
+	if FileAccess.file_exists(BACKUP_META): DirAccess.remove_absolute(backup_meta)
+	var had_previous:bool=FileAccess.file_exists(ACTIVE_PACK)
+	var had_meta:bool=FileAccess.file_exists(ACTIVE_META)
+	if had_previous and DirAccess.rename_absolute(active_path,backup_path)!=OK: return false
+	if had_meta and DirAccess.rename_absolute(active_meta,backup_meta)!=OK:
+		if had_previous: DirAccess.rename_absolute(backup_path,active_path)
+		return false
+	if DirAccess.rename_absolute(pending_path,active_path)!=OK:
+		if had_previous: DirAccess.rename_absolute(backup_path,active_path)
+		if had_meta: DirAccess.rename_absolute(backup_meta,active_meta)
+		return false
+	if DirAccess.rename_absolute(pending_meta,active_meta)!=OK:
+		DirAccess.remove_absolute(active_path)
+		if had_previous: DirAccess.rename_absolute(backup_path,active_path)
+		if had_meta: DirAccess.rename_absolute(backup_meta,active_meta)
+		return false
+	return true
+
+func _restart_after_patch(version_name:String) -> void:
+	_busy=true
+	var dialog:=AcceptDialog.new()
+	dialog.title="Atualizacao instalada"
+	dialog.dialog_text="Mundo salvo. Reiniciando na versao "+version_name+"..."
+	dialog.ok_button_text="Reabrir jogo"
+	add_child(dialog)
+	dialog.popup_centered()
+	await get_tree().create_timer(0.35,true).timeout
+	if OS.get_name()=="Android":
+		# Godot 4.4 permite recriar a instancia Android; nao usar set_restart_on_exit no mobile.
+		var result:int=OS.create_instance(PackedStringArray())
+		if result>=0:
+			dialog.dialog_text="Versao "+version_name+" instalada. Se o Android nao reabrir, toque em Reabrir jogo."
+			dialog.confirmed.connect(func(): OS.create_instance(PackedStringArray()))
+			return
+		dialog.dialog_text="Versao "+version_name+" instalada. O Android nao conseguiu reabrir automaticamente. Abra o jogo novamente."
+		dialog.ok_button_text="Fechar jogo"
+		dialog.confirmed.connect(func(): get_tree().quit())
+	elif OS.get_name() in ["Windows","Linux","macOS"] and not OS.has_feature("editor"):
+		OS.set_restart_on_exit(true,OS.get_cmdline_args())
+		get_tree().quit()
+	else:
+		dialog.dialog_text="Versao "+version_name+" instalada. Reabra o jogo para carregar o pacote."
+		dialog.confirmed.connect(dialog.queue_free)
+	_busy=false
 
 func _offer_apk(version_name: String, download_url: String) -> void:
 	var dialog := ConfirmationDialog.new()

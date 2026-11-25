@@ -20,6 +20,8 @@ var controlled_id := 0
 var map_offset := Vector2.ZERO
 var zoom := 1.05
 var visual_motion:Dictionary={}
+var update_restarting:bool=false
+var update_previous_speed:float=1.0
 var people_variants:Array[Texture2D]=[]
 var landscape_texture: ImageTexture
 var landscape_signature := 0
@@ -86,6 +88,7 @@ func _ready() -> void:
 	queue_redraw()
 
 func _process(delta: float) -> void:
+	if update_restarting: return
 	_move_controlled(delta)
 	world.update_world(delta, controlled_id)
 	_track_visual_motion(delta)
@@ -511,6 +514,7 @@ func _draw() -> void:
 			draw_arc(center, 19.0 * zoom, 0, TAU, 20, Color("#6cffda"), 3.0)
 	_draw_depth_entities()
 	_draw_swamp_creatures()
+	_draw_combat_feedback()
 	draw_rect(MAP_AREA, Color("#bc985d", 0.70), false, 2.0)
 	if info_label != null and info_label.visible:
 		draw_rect(Rect2(17, 650, 1207, 41), Color("#172219", 0.86), true)
@@ -624,12 +628,12 @@ func _draw_person_variant(p: Dictionary, center: Vector2) -> void:
 		elif stage==3:
 			draw_line(center+Vector2(-s*0.09,-s*0.62-bounce),center+Vector2(s*0.09,-s*0.62-bounce),Color("#dbd7c4"),maxf(1,s*0.045))
 	_draw_equipment(p,center,s*0.78,bounce)
-	if bool(p.get("witch_staff",false)):
+	if bool(p.get("witch_staff",false)) and world.visible_action(p)=="combat":
 		_draw_landscape_object("magic_staff",center+Vector2(s*0.30,0),s*0.8)
 	var cargo:Dictionary=p.get("cargo",{})
 	if not cargo.is_empty() and MAP_AREA.grow(-s).has_point(center):
 		_draw_landscape_object("cart" if str(p.get("transport","hands"))=="cart" else ("log_bundle" if str(cargo["kind"])=="wood" else "sack"),center+Vector2(s*0.30,0),s*0.53)
-	if profession=="Pescador" and stage>=2:
+	if profession=="Pescador" and stage>=2 and world.visible_action(p)=="fishing" and str(p.get("tool_kind",""))=="rod":
 		draw_line(center+Vector2(s*0.17,-s*0.30),center+Vector2(s*0.70,-s*0.52),Color("#78532d"),maxf(1.0,zoom))
 		if str(p.get("task",""))=="Pescando":
 			draw_line(center+Vector2(s*0.70,-s*0.52),center+Vector2(s*0.70,s*0.25),Color("#b9d6d2"),1.0)
@@ -1535,7 +1539,9 @@ func _draw_project_marker(site:Dictionary,p:Vector2,unit:float) -> void:
 
 func _draw_equipment(p:Dictionary,c:Vector2,s:float,bounce:float) -> void:
 	if float(p["age"])<16 or not MAP_AREA.grow(-s).has_point(c): return
+	var action:String=world.visible_action(p)
 	var armor:int=clampi(int(p.get("armor",0)),0,4)
+	if not world.is_military(p) and action!="combat": armor=0
 	var weapon:int=clampi(int(p.get("weapon",0)),0,4)
 	var tool:int=clampi(int(p.get("tool",0)),0,4)
 	var colors:Array[Color]=[Color("#705338"),Color("#956139"),Color("#ad8c56"),Color("#9ba6ad"),Color("#c7cdd0")]
@@ -1551,24 +1557,24 @@ func _draw_equipment(p:Dictionary,c:Vector2,s:float,bounce:float) -> void:
 	elif str(p.get("military_role",""))=="general":
 		draw_rect(Rect2(c+Vector2(-s*0.20,-s*0.35-bounce),Vector2(s*0.08,s*0.55)),Color("#9c443b"))
 	var shield:String=str(p.get("shield_kind",""))
-	if not shield.is_empty():
+	if not shield.is_empty() and action=="combat":
 		var shield_pos:Vector2=c+Vector2(-s*0.26,-s*0.20-bounce)
 		var shield_color:Color=Color("#aeb7be") if shield=="iron_shield" else Color("#9e7445")
 		draw_circle(shield_pos,s*0.19,Color("#4f4235"))
 		draw_circle(shield_pos,s*0.15,shield_color)
 		draw_circle(shield_pos,s*0.05,Color("#dfc797"))
-	if str(p.get("weapon_kind",""))=="bow":
+	if action=="combat" and str(p.get("weapon_kind",""))=="bow":
 		var grip:Vector2=c+Vector2(s*0.29,-s*0.20-bounce)
 		draw_arc(grip,s*0.25,-PI*0.5,PI*0.5,8,Color("#b18b52"),maxf(1.0,s*0.045))
 		draw_line(grip-Vector2(0,s*0.25),grip+Vector2(0,s*0.25),Color("#d8cbb3"),1.0)
-	elif str(p.get("weapon_kind",""))=="sword":
+	elif action=="combat" and str(p.get("weapon_kind",""))=="sword":
 		var grip:Vector2=c+Vector2(s*0.26,s*0.03-bounce)
 		draw_line(grip,grip+Vector2(s*0.09,-s*0.43),Color("#c9d4da"),maxf(2.0,s*0.11))
 		draw_line(grip+Vector2(-s*0.09,-s*0.07),grip+Vector2(s*0.12,-s*0.04),Color("#c39a57"),maxf(1.0,s*0.05))
-	elif weapon>0:
+	elif action=="combat" and weapon>0:
 		draw_line(c+Vector2(s*0.23,s*0.15),c+Vector2(s*0.31,-s*0.55),Color("#674b2b"),maxf(1.0,s*0.045))
 		draw_line(c+Vector2(s*0.31,-s*0.55),c+Vector2(s*0.34,-s*0.70),colors[weapon],maxf(1.0,s*0.09))
-	elif tool>0:
+	elif tool>0 and action in ["mining","chopping","farming","building"]:
 		draw_line(c+Vector2(s*0.22,s*0.14),c+Vector2(s*0.32,-s*0.38),Color("#886039"),maxf(1.0,s*0.05))
 		draw_line(c+Vector2(s*0.24,-s*0.38),c+Vector2(s*0.43,-s*0.38),colors[tool],maxf(1.0,s*0.09))
 	if str(p.get("role","")) in ["Rei","Rainha","Lider tribal"]:
@@ -1893,3 +1899,29 @@ func _draw_depth_entities() -> void:
 			"person": _draw_person_variant(entry["actor"],p)
 			"animal": _draw_natural_animal(entry["actor"],p)
 			"beast": _draw_animated_beast(entry["actor"],p,str(entry["key"]))
+
+func prepare_update_restart() -> bool:
+	if not world.save_world(): return false
+	update_previous_speed=world.speed
+	world.speed=0
+	update_restarting=true
+	return true
+
+func cancel_update_restart() -> void:
+	update_restarting=false
+	world.speed=update_previous_speed
+
+func _draw_combat_feedback() -> void:
+	for event in world.combat_feedback:
+		var remaining:float=float(event["expires"])-world.swamp_clock
+		if remaining<=0: continue
+		var p:Vector2=_world_to_screen(Vector2(float(event["x"])+0.5,float(event["y"])+0.5))
+		if not MAP_AREA.grow(-35).has_point(p): continue
+		if remaining>0.88:
+			draw_arc(p,10*zoom,0,TAU,20,Color(1.0,0.30,0.22,0.85),2.0)
+			draw_circle(p-Vector2(0,12*zoom),7*zoom,Color(1.0,0.12,0.08,0.30))
+		var text:String="-%d"%maxi(1,roundi(float(event["amount"])))
+		var label_pos:Vector2=p+Vector2(-12,-20-(1.1-remaining)*22)*zoom
+		var font_size:int=maxi(12,int(14*zoom))
+		draw_string(ThemeDB.fallback_font,label_pos+Vector2(1,1),text,HORIZONTAL_ALIGNMENT_LEFT,-1,font_size,Color(0.1,0.06,0.05,clampf(remaining*3,0,1)))
+		draw_string(ThemeDB.fallback_font,label_pos,text,HORIZONTAL_ALIGNMENT_LEFT,-1,font_size,Color(1.0,0.46,0.37,clampf(remaining*3,0,1)))

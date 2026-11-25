@@ -664,6 +664,7 @@ func cut_tree(actor: Dictionary, x: int,y: int) -> bool:
 	if free_load(actor)<3.0*resource_weight("wood"):
 		news="Carga cheia. Leve os materiais para a aldeia."
 		return false
+	_mark_action(actor,"chopping",1.2)
 	tree["state"]="falling"
 	tree["fall"]=0.0
 	tree["regrow"]=day+rng.randf_range(50.0,100.0)
@@ -1131,6 +1132,8 @@ func collect_cargo(p:Dictionary,kind:String,amount:float) -> bool:
 	var limit:float=minf(amount,floorf(free_load(p)/resource_weight(kind)))
 	if limit<=0: return false
 	p["cargo"]={"kind":kind,"amount":limit}
+	var action:String=str({"stone":"mining","ore":"mining","fish":"fishing","food":"farming","wood":"chopping"}.get(kind,""))
+	if not action.is_empty(): _mark_action(p,action,1.2)
 	var effect:String=str({"stone":"mine","ore":"mine","fish":"fish","food":"harvest","meat":"pickup","wood":"pickup"}.get(kind,"pickup"))
 	sound_at(effect,p)
 	return true
@@ -1344,6 +1347,7 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 		var ranged:bool=role=="archer" and str(person.get("weapon_kind",""))=="bow" and int(person.get("ammo",0))>0
 		if d<(2.2 if ranged else 0.9):
 			person["military_cd"]=(1.8 if ranged else 1.1)*maxf(0.75,1.0-float(person.get("war_xp",0))*0.001)
+			_mark_action(person,"combat",1.0)
 			if ranged:
 				person["ammo"]=int(person["ammo"])-1
 				sound_at("bow",person)
@@ -1648,7 +1652,9 @@ func _swamp_human(p:Vector2,radius:float) -> Dictionary:
 
 func _swamp_damage(person:Dictionary,damage:float) -> void:
 	if person.is_empty() or not bool(person["alive"]): return
-	person["health"]=maxf(0.0,float(person["health"])-maxf(1.0,damage-defense(person)))
+	var previous:float=float(person["health"])
+	person["health"]=maxf(0.0,previous-maxf(1.0,damage-defense(person)))
+	_mark_hit(person,previous-float(person["health"]))
 	if float(person["health"])<=0: kill_person(person)
 
 func strike_witch(person:Dictionary) -> bool:
@@ -1657,7 +1663,10 @@ func strike_witch(person:Dictionary) -> bool:
 	var q:=Vector2(float(swamp_witch["x"]),float(swamp_witch["y"]))
 	if p.distance_to(q)>0.9 or not _witch_ground(p) or float(person.get("witch_attack_cd",0))>0: return false
 	person["witch_attack_cd"]=0.9 if bool(person.get("combat_training",false)) else 1.6
-	swamp_witch["health"]=maxf(0.0,float(swamp_witch["health"])-attack_damage(person))
+	var previous:float=float(swamp_witch["health"])
+	swamp_witch["health"]=maxf(0.0,previous-attack_damage(person))
+	_mark_hit(swamp_witch,previous-float(swamp_witch["health"]))
+	_mark_action(person,"combat",0.85)
 	gain_xp(person,3.0,"combate")
 	if float(swamp_witch["health"])<=0:
 		swamp_witch["alive"]=false
@@ -1706,6 +1715,8 @@ func cast_staff(person:Dictionary) -> bool:
 
 func _update_swamp(dt:float,controlled_id:int=0) -> void:
 	swamp_clock+=dt
+	for index in range(combat_feedback.size()-1,-1,-1):
+		if float(combat_feedback[index]["expires"])<=swamp_clock: combat_feedback.remove_at(index)
 	for person in people:
 		if not bool(person["alive"]): continue
 		_update_spider_poison(person,dt)
@@ -1888,7 +1899,9 @@ func animal_damage(animal:Dictionary) -> float:
 func damage_animal(animal:Dictionary,amount:float) -> bool:
 	init_animal_health(animal)
 	if float(animal["health"])<=0.0: return false
-	animal["health"]=maxf(0.0,float(animal["health"])-maxf(0.0,amount))
+	var previous:float=float(animal["health"])
+	animal["health"]=maxf(0.0,previous-maxf(0.0,amount))
+	_mark_hit(animal,previous-float(animal["health"]))
 	if float(animal["health"])<=0:
 		if animal.has("alive"): animal["alive"]=false
 		_drop_animal_resources(animal)
@@ -1903,6 +1916,7 @@ func hunt_animal(person:Dictionary,animal:Dictionary) -> bool:
 	if not bool(person.get("alive",false)) or float(person.get("hunt_cd",0))>0 or float(animal.get("health",1))<=0: return false
 	if Vector2(float(person["x"]),float(person["y"])).distance_to(Vector2(float(animal["x"]),float(animal["y"])))>0.65: return false
 	person["hunt_cd"]=1.6
+	_mark_action(person,"combat",0.85)
 	var killed:bool=damage_animal(animal,attack_damage(person))
 	gain_xp(person,2.0,"combate")
 	if killed:
@@ -2399,3 +2413,28 @@ func _bird_flight(animal:Dictionary,dt:float) -> bool:
 		animal["timer"]=0.0
 		animal["state"]="Descansando"
 	return true
+
+# Eventos de impacto sao temporarios, nao fazem parte do arquivo de mundo.
+var combat_feedback:Array=[]
+func _mark_hit(actor:Dictionary,amount:float) -> void:
+	if amount<=0 or not actor.has("x") or not actor.has("y"): return
+	actor["hit_until"]=swamp_clock+0.22
+	if combat_feedback.size()>=100: combat_feedback.pop_front()
+	combat_feedback.append({"x":float(actor["x"]),"y":float(actor["y"]),"amount":amount,"expires":swamp_clock+1.1})
+func _mark_action(actor:Dictionary,kind:String,duration:float) -> void:
+	actor["visual_action"]=kind
+	actor["action_until"]=swamp_clock+duration
+func visible_action(actor:Dictionary) -> String:
+	var task:String=str(actor.get("task",""))
+	if float(actor.get("action_until",0))>swamp_clock: return str(actor.get("visual_action",""))
+	var pos:=Vector2(float(actor.get("x",0)),float(actor.get("y",0)))
+	var goal:=Vector2(float(actor.get("target_x",pos.x)),float(actor.get("target_y",pos.y)))
+	if pos.distance_to(goal)>0.65: return ""
+	match task:
+		"Pescando": return "fishing"
+		"Minerando": return "mining"
+		"Cultivando": return "farming"
+		"Construindo": return "building"
+		"Coletando madeira": return "chopping"
+		"Combatendo inimigo","Combatendo bruxa","Defendendo contra animal","Cacando": return "combat"
+	return ""

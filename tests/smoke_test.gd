@@ -381,6 +381,9 @@ func _run_tests() -> void:
 		game.update_manager._on_patch_received(HTTPRequest.RESULT_SUCCESS, 200, PackedStringArray(), PackedByteArray())
 		var local_pack := "user://updates/active.pck"
 		_check(FileAccess.file_exists(local_pack), "ZIP extraido e ativado dentro do jogo")
+		_check(game.update_manager._restart_requested,"Atualizacao solicita reinicio automatico apos ativacao")
+		_check(game.update_restarting,"Mundo salvo e simulacao parada antes do reinicio")
+		game.cancel_update_restart()
 		var installed_meta := FileAccess.get_file_as_string("user://updates/active.json")
 		var parsed = JSON.parse_string(installed_meta)
 		_check(typeof(parsed) == TYPE_DICTIONARY and int(parsed.get("version_code", 0)) == 5, "Atualizacao interna registra versao instalada")
