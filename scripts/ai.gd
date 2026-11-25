@@ -103,6 +103,8 @@ func _manage_town(sim, town: Dictionary, step: float) -> void:
 		elif int(town["level"])>=4 and bool(town.get("forge",false)) and not bool(town.get("castle",false)) and float(town["wood"])>=150 and float(town.get("stone",0))>=300:
 			sim.start_construction(int(town["id"]),"castle")
 	var harvest: float = step * float(town["farms"]) * 0.15
+	if sim.blockade_active(town) and float(town.get("food",0))<float(pop):
+		town["morale"]=maxf(0.0,float(town.get("morale",60))-step*0.6)
 	town["food"] = maxf(0.0, float(town["food"]) + harvest)
 	town["morale"] = clampf(float(town["morale"]) + (0.07 if float(town["food"]) > pop else -0.18) * step, 0.0, 100.0)
 	if sim.wars and sim.rivals:
