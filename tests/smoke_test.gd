@@ -409,7 +409,7 @@ func _run_tests() -> void:
 	visual_worker["target_x"]=5.0
 	_check(game.world.visible_action(visual_worker)=="fishing","Pescador mostra ferramenta ao chegar")
 	_check(game.tile_textures.size() == 9, "Nove imagens de terrenos e estacoes carregadas")
-	_check(game.actor_textures.size() == 8, "Oito sprites de pessoas, aldeias e animais carregados")
+	_check(game.actor_textures.size() == 9 and game.actor_textures.get("tribal_hut") is Texture2D and game.actor_textures.get("hut") is Texture2D, "Nove sprites incluindo cabana tribal e casa evoluida carregados")
 	_check(int(ProjectSettings.get_setting("display/window/size/viewport_width")) == 1280, "Tela horizontal configurada")
 	_check(game.MAP_AREA.size.x > 1200.0 and game.MAP_AREA.size.y > 600.0, "Mapa quase preenche a tela horizontal")
 	_check(not is_instance_valid(game.viewport_3d), "Jogo exclusivamente 2D")
