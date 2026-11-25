@@ -1253,6 +1253,8 @@ func _show_diplomacy() -> void:
 	action_picker.add_item("Propor paz", 0)
 	action_picker.add_item("Formar alianca", 1)
 	action_picker.add_item("Declarar guerra", 2)
+	action_picker.add_item("Manter cerco", 3)
+	action_picker.add_item("Atacar diretamente", 4)
 	for label_text in ["Aldeia de origem", "Aldeia de destino", "Acao diplomatica"]:
 		var label := Label.new()
 		label.text = label_text
@@ -1268,14 +1270,25 @@ func _show_diplomacy() -> void:
 			world.news = "Escolha duas aldeias diferentes para negociar."
 		else:
 			var action := "peace"
-			match action_picker.get_selected_id():
+			var choice:int=action_picker.get_selected_id()
+			match choice:
 				1: action = "alliance"
-				2: action = "war"
+				2,3,4: action = "war"
 			if action == "war":
 				world.wars = true
 				if not world.rivals:
 					world.toggle_rivals()
-			world.politics.set_treaty(world, from_id, to_id, action)
+			var accepted:bool=world.politics.set_treaty(world, from_id, to_id, action)
+			if accepted and choice in [3,4]:
+				var attacker:Dictionary=world.get_town(from_id)
+				var defender:Dictionary=world.get_town(to_id)
+				var mode:String="blockade" if choice==3 else "assault"
+				if int(attacker.get("raid_target",0))==to_id:
+					attacker["campaign_mode"]=mode
+					world.news="Estratégia militar alterada."
+				elif not world.begin_campaign(attacker,defender,mode):
+					world.news="Não foi possível iniciar a campanha. Verifique o exército e as guerras ativas."
+			elif not accepted: world.news="A guerra só termina por rendição ou derrota."
 			world.save_world()
 		_refresh_ui()
 		dialog.queue_free()
