@@ -2516,22 +2516,34 @@ func visible_action(actor:Dictionary) -> String:
 		"Combatendo inimigo","Combatendo bruxa","Defendendo contra animal","Cacando": return "combat"
 	return ""
 
-# Profundidade calculada pela distancia a margem, sem alterar mundos salvos.
+# A margem fisica usa os mesmos pixels, ruido e interpolacao do desenho.
+const SHORE_DETAIL:int=24
+var shore_noise:FastNoiseLite
+
+func water_surface_weight(p:Vector2) -> float:
+	if tiles.size()!=SIZE: return 0.0
+	var px:int=floori((p.x+0.5)*SHORE_DETAIL)
+	var py:int=floori((p.y+0.5)*SHORE_DETAIL)
+	if px<0 or py<0 or px>=WIDTH*SHORE_DETAIL or py>=SIZE*SHORE_DETAIL: return 0.0
+	if shore_noise==null:
+		shore_noise=FastNoiseLite.new()
+		shore_noise.seed=527
+		shore_noise.frequency=0.039
+	var fx:float=float(px)/SHORE_DETAIL-0.5+shore_noise.get_noise_2d(px,py)*0.65
+	var fy:float=float(py)/SHORE_DETAIL-0.5+shore_noise.get_noise_2d(px+431,py+217)*0.65
+	var x0:int=clampi(floori(fx),0,WIDTH-1)
+	var y0:int=clampi(floori(fy),0,SIZE-1)
+	var x1:int=clampi(floori(fx)+1,0,WIDTH-1)
+	var y1:int=clampi(floori(fy)+1,0,SIZE-1)
+	var tx:float=smoothstep(0.12,0.88,fposmod(fx,1.0))
+	var ty:float=smoothstep(0.12,0.88,fposmod(fy,1.0))
+	return lerpf(lerpf(float(str(tiles[y0][x0])=="water"),float(str(tiles[y0][x1])=="water"),tx),lerpf(float(str(tiles[y1][x0])=="water"),float(str(tiles[y1][x1])=="water"),tx),ty)
+
 func water_depth(p:Vector2) -> float:
-	if tiles.size()!=SIZE or p.x<0 or p.y<0 or p.x>=WIDTH or p.y>=SIZE: return 0.0
-	var x:int=int(p.x)
-	var y:int=int(p.y)
-	if str(tiles[y][x])!="water" or is_bridge(x,y): return 0.0
-	# As coordenadas dos seres se referem ao centro visual do quadrado.
-	var local:=Vector2(fposmod(p.x+0.5,1.0),fposmod(p.y+0.5,1.0))
-	var distance:float=1.0
-	for offset in [Vector2i(-1,0),Vector2i(1,0),Vector2i(0,-1),Vector2i(0,1)]:
-		var nx:int=x+offset.x
-		var ny:int=y+offset.y
-		if nx>=0 and nx<WIDTH and ny>=0 and ny<SIZE and str(tiles[ny][nx])=="water": continue
-		var edge:float=local.x if offset.x<0 else (1.0-local.x if offset.x>0 else (local.y if offset.y<0 else 1.0-local.y))
-		distance=minf(distance,edge)
-	return lerpf(0.28,1.0,smoothstep(0.06,0.44,distance))
+	var water:float=water_surface_weight(p)
+	# Abaixo de 0.46 a arte mostra solo seco ou areia de margem.
+	if water<=0.46 or is_bridge(floori(p.x+0.5),floori(p.y+0.5)): return 0.0
+	return lerpf(0.28,1.0,smoothstep(0.60,0.98,water))
 
 func swim_speed(actor:Dictionary,depth:float) -> float:
 	var species:String=str(actor.get("species","human"))
