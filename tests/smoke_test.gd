@@ -25,6 +25,11 @@ func _run_tests() -> void:
 	_check(not world.sites.is_empty(), "Locais de producao gerados")
 	_check(not world.wildlife.is_empty(), "Fauna pacifica gerada")
 	_check(world.habitats_v59 and world.wildlife.size()>24,"Fauna dos novos biomas")
+	_check(world.fauna_v3,"Novas especies disponiveis no mundo")
+	for species in ["cow","sheep","goat","horse","pig","dog","cat","eagle","owl","crow","bat","penguin"]:
+		_check(World.SPAWN_NAMES.has(species) and world.spawn_creature(species,Vector2(5,5)),"Criacao manual de "+species)
+		_check(float(world.wildlife.back()["health"])>0,"Vida de "+species)
+	_check(World.FLYING_SPECIES.has("eagle") and not World.FLYING_SPECIES.has("penguin"),"Voo apenas para especies capazes")
 	_check(world.ecology_v60,"Ecologia diferenciada ativa")
 	var swim_world=World.new()
 	swim_world.generate_world()

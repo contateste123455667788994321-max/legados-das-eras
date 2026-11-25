@@ -26,6 +26,7 @@ var home_open:bool=false
 var home_panel:Control
 var home_buttons:Array[Button]=[]
 var title_font:SystemFont
+const ANIMAL_ROWS:Array[String]=["chicken","deer","rabbit","frog","capybara","heron","camel","lizard","snow_hare","crocodile","turtle","duck","boar","fox","wolf","bear","cow","sheep","goat","horse","pig","dog","cat","eagle","owl","crow","bat","penguin"]
 var game_hud:Array[Control]=[]
 var startup_speed:float=1.0
 const WORLDS_DIR:String="user://worlds"
@@ -1649,7 +1650,12 @@ func _show_spawn_menu() -> void:
 	grid.columns=3
 	grid.add_theme_constant_override("h_separation",10)
 	grid.add_theme_constant_override("v_separation",8)
-	body.add_child(grid)
+	var scroll:=ScrollContainer.new()
+	scroll.custom_minimum_size=Vector2(655,420)
+	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL
+	grid.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	scroll.add_child(grid)
+	body.add_child(scroll)
 	for species in World.SPAWN_NAMES.keys():
 		var key:String=str(species)
 		var button:=Button.new()
@@ -1673,7 +1679,7 @@ func _show_spawn_menu() -> void:
 	add_child(dialog)
 	dialog.confirmed.connect(dialog.queue_free)
 	dialog.canceled.connect(dialog.queue_free)
-	dialog.popup_centered(Vector2i(710,475))
+	dialog.popup_centered(Vector2i(710,530))
 
 func _draw_mosquitoes(p:Vector2,seed:int,u:float) -> void:
 	if u<24.0: return
@@ -1812,36 +1818,8 @@ func _natural_tree_key(tree:Dictionary) -> String:
 
 func _draw_natural_animal(animal:Dictionary,p:Vector2) -> void:
 	var species:String=str(animal["species"])
-	var indices:Dictionary={"deer":4,"rabbit":5,"snow_hare":5,"chicken":6,"capybara":7,"duck":8,"crocodile":9,"frog":10}
-	var s:float=zoom*float({"deer":31,"rabbit":18,"snow_hare":18,"chicken":17,"capybara":27,"duck":20,"crocodile":34,"frog":15,"camel":29,"heron":24,"boar":28,"fox":24,"turtle":18,"lizard":16}.get(species,18))
-	var movement:Dictionary=visual_motion.get(int(animal["id"]),{})
-	var phase:float=float(movement.get("phase",0))
-	var moving:bool=bool(movement.get("moving",false)) and world.speed>0
-	var face:float=float(movement.get("face",1.0))
-	if species=="deer": face=-face
-	if float(animal.get("flight_height",0))>0.01:
-		_contact_shadow(p,s*0.24,s*0.06)
-		var height:float=float(animal["flight_height"])
-		if not landscape_objects.has("bird_flight"): landscape_objects["bird_flight"]=load("res://assets/landscape/bird_flight.svg")
-		var wing:int=int(world.swamp_clock*5.0)%4
-		_draw_walk_sprite(landscape_objects["bird_flight"],Rect2(wing*64,0 if species=="heron" else 64,64,64),p-Vector2(0,height*36.0*zoom),s*1.28,face,0,false,0)
-		return
-	var depth:float=world.water_depth(Vector2(float(animal["x"]),float(animal["y"])))
-	if depth>0:
-		_draw_swimming_animal(species,indices,p,s,face,depth,moving)
-		return
-	var bounce:float=absf(sin(phase))*s*(0.14 if species in ["frog","rabbit","snow_hare"] else 0.025) if moving else 0.0
-	_contact_shadow(p,s*0.30,s*0.08)
-	if indices.has(species):
-		var atlas:Texture2D=landscape_objects["reference_characters"]
-		var walking:bool=moving and species not in ["frog","crocodile","duck"]
-		_draw_walk_sprite(atlas,Rect2(int(indices[species])*48,0,48,48),p,s,face,phase,walking,bounce)
-	elif species in ["boar","fox","turtle","heron","camel","lizard"]:
-		_draw_animal_frames(species,p,s,face,phase,moving)
-	else:
-		if not landscape_objects.has(species): landscape_objects[species]=load("res://assets/landscape/"+species+".svg")
-		var texture:Texture2D=landscape_objects[species]
-		if texture!=null: _draw_walk_sprite(texture,Rect2(Vector2.ZERO,texture.get_size()),p,s,face,phase,moving,bounce)
+	var s:float=zoom*float({"deer":27,"rabbit":17,"snow_hare":17,"chicken":16,"capybara":23,"duck":18,"crocodile":29,"frog":14,"camel":30,"heron":22,"boar":24,"fox":21,"turtle":17,"lizard":16,"cow":28,"sheep":23,"goat":24,"horse":30,"pig":22,"dog":21,"cat":17,"eagle":23,"owl":19,"crow":19,"bat":15,"penguin":19,"wolf":26,"bear":33}.get(species,19))
+	_draw_fauna(animal,p,s,species)
 
 
 func _track_visual_motion(delta:float) -> void:
@@ -1855,7 +1833,7 @@ func _track_visual_motion(delta:float) -> void:
 			var moved:Vector2=pos-previous
 			state["moving"]=moved.length()>0.0001 and delta>0
 			if absf(moved.x)>0.0001: state["face"]=-1.0 if moved.x<0 else 1.0
-			var gait:float=7.0 if actor.has("town") else (5.0 if str(actor.get("species","")) in ["boar","capybara","Urso","crocodile","camel"] else 7.5)
+			var gait:float=7.0 if actor.has("town") else (6.4 if str(actor.get("species","")) in ["boar","capybara","Urso","crocodile","camel","cow","horse"] else 11.0)
 			state["phase"]=fposmod(float(state["phase"])+minf(moved.length()*gait,delta*7.0),TAU)
 			state["pos"]=pos
 			visual_motion[id]=state
@@ -1879,18 +1857,9 @@ func _draw_walk_sprite(texture:Texture2D,source:Rect2,p:Vector2,s:float,face:flo
 
 
 func _draw_animated_beast(b:Dictionary,p:Vector2,key:String) -> void:
-	var s:float=zoom*(34.0 if key=="bear" else 29.0)
-	var movement:Dictionary=visual_motion.get(int(b["id"]),{})
-	var moving:bool=bool(movement.get("moving",false)) and world.speed>0
-	var phase:float=float(movement.get("phase",0))
-	var depth:float=world.water_depth(Vector2(float(b["x"]),float(b["y"])))
-	if depth>0:
-		_draw_swimming_animal(key,{},p,s,float(movement.get("face",1.0)),depth,moving)
-		return
-	_contact_shadow(p,s*0.29,s*0.09)
-	_draw_animal_frames(key,p,s,float(movement.get("face",1.0)),phase,moving)
+	_draw_fauna(b,p,zoom*(33.0 if key=="bear" else 26.0),key)
 
-# Variacoes de roupas e cabelo preservam o rosto e os contornos dos sprites.
+
 func _prepare_people_variants() -> void:
 	people_variants.clear()
 	var base:Texture2D=landscape_objects["reference_characters"]
@@ -2383,3 +2352,30 @@ func _delete_saved_world(path:String) -> void:
 		if not home_open: _open_home(false)
 		_remember_world()
 	if home_open: _show_saved_worlds.call_deferred()
+
+func _draw_fauna(animal:Dictionary,p:Vector2,s:float,species:String) -> void:
+	var row:int=ANIMAL_ROWS.find(species)
+	if row<0: return
+	if not landscape_objects.has("fauna_pixel"): landscape_objects["fauna_pixel"]=load("res://assets/landscape/fauna_pixel.svg")
+	var atlas:Texture2D=landscape_objects["fauna_pixel"]
+	if atlas==null: return
+	var motion:Dictionary=visual_motion.get(int(animal["id"]),{})
+	var phase:float=float(motion.get("phase",0))
+	var moving:bool=bool(motion.get("moving",false)) and world.speed>0
+	var face:float=float(motion.get("face",1.0))
+	var frame:int=int(fposmod(phase,TAU)/TAU*4) if moving else 0
+	var height:float=float(animal.get("flight_height",0))
+	if height>0.01:
+		_contact_shadow(p,s*0.28,s*0.07)
+		frame=5+int(world.swamp_clock*(8 if species=="bat" else 5.0))%4
+		_draw_walk_sprite(atlas,Rect2(frame*32,row*32,32,32),p-Vector2(0,height*36*zoom),s*1.25,face,0,false,0)
+		return
+	var depth:float=world.water_depth(Vector2(float(animal["x"]),float(animal["y"])))
+	if depth>0:
+		_draw_water_actor(atlas,Rect2(frame*32,row*32,32,32),p,s,face,depth,species,moving)
+		return
+	if not moving and str(animal.get("state","")) in ["Pastando","Fuçando","Bicando","Comendo","Pescando"]:
+		frame=4 if int(world.swamp_clock*2.0)%2==0 else 0
+	var bounce:float=absf(sin(phase))*s*0.10 if moving and species in ["frog","rabbit","snow_hare"] else 0.0
+	_contact_shadow(p,s*0.28,s*0.07)
+	_draw_walk_sprite(atlas,Rect2(frame*32,row*32,32,32),p,s,face,phase,false,bounce)

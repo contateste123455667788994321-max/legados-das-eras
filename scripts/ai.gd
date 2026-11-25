@@ -369,7 +369,7 @@ func _hunt(sim,p:Dictionary,home:Dictionary) -> void:
 	var best:Dictionary={}
 	var distance:float=6.0
 	for animal in sim.wildlife:
-		if str(animal["species"]) not in ["rabbit","deer","boar","chicken","capybara","duck","crocodile"] or float(animal.get("health",1))<=0: continue
+		if str(animal["species"]) not in ["rabbit","deer","boar","chicken","capybara","duck","crocodile","cow","sheep","goat","pig","penguin"] or float(animal.get("health",1))<=0: continue
 		if str(animal["species"])=="crocodile" and not bool(p.get("combat_training",false)): continue
 		var q:=Vector2(float(animal["x"]),float(animal["y"]))
 		if q.distance_to(Vector2(float(home["x"]),float(home["y"])))>5.0: continue
