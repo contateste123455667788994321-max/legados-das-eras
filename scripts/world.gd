@@ -428,6 +428,48 @@ func _wander(actor: Dictionary, dt: float, pace: float) -> void:
 		var step := toward.limit_length(pace*dt*burden)
 		move_actor(actor,step,dt)
 
+func harvest_factor(town:Dictionary) -> float:
+	var season:int=posmod(int(day/90.0),4)
+	var seasonal:float=[1.25,1.0,0.85,0.20][season]
+	var biome:float=float({"forest":0.95,"sand":0.43,"snow":0.34,"mountain":0.65}.get(str(town.get("home_biome","grass")),1.0))
+	return seasonal*biome
+
+func food_priority(person:Dictionary,town:Dictionary) -> bool:
+	var ruler_id:int=int(town.get("leader",0))
+	var ruler:Dictionary=get_person(ruler_id)
+	return is_military(person) or int(person["id"])==ruler_id or int(person.get("partner",0))==ruler_id or int(ruler.get("partner",0))==int(person["id"]) or int(person.get("father",0))==ruler_id or int(person.get("mother",0))==ruler_id
+
+func food_ration(person:Dictionary,town:Dictionary) -> float:
+	var available:float=maxf(0.0,float(town.get("food",0)))
+	var scarce:bool=available<float(active_population(int(town["id"])))*1.5
+	if not scarce: return minf(0.4,available)
+	if food_priority(person,town): return minf(0.4,available)
+	var reserve:float=0.0
+	for member in people:
+		if bool(member.get("alive",false)) and int(member["town"])==int(town["id"]) and food_priority(member,town):
+			reserve+=0.4
+	# Rações menores para moradores comuns durante escassez.
+	return minf(0.2,maxf(0.0,available-reserve))
+
+func fishing_position(town:Dictionary) -> Dictionary:
+	var site:Dictionary=local_site("fish",int(town["id"]))
+	if not blockade_active(town): return site
+	var origin:=Vector2(float(town["x"]),float(town["y"]))
+	var best:Dictionary={}
+	var distance:float=INF
+	for y in range(maxi(1,int(origin.y)-5),mini(SIZE-1,int(origin.y)+6)):
+		for x in range(maxi(1,int(origin.x)-5),mini(WIDTH-1,int(origin.x)+6)):
+			var q:=Vector2(x,y)
+			if q.distance_to(origin)>4.8 or water_depth(q)>0.0: continue
+			if str(tiles[y][x])=="mountain": continue
+			var near_water:bool=false
+			for offset in [Vector2i(1,0),Vector2i(-1,0),Vector2i(0,1),Vector2i(0,-1)]:
+				if str(tiles[y+offset.y][x+offset.x])=="water": near_water=true
+			if near_water and q.distance_squared_to(origin)<distance:
+				distance=q.distance_squared_to(origin)
+				best={"x":x,"y":y,"kind":"fish"}
+	return best
+
 func _grow_economies() -> void:
 	for town in towns:
 		var population: int = active_population(int(town["id"]))
@@ -447,7 +489,7 @@ func _grow_economies() -> void:
 			"mountain":
 				food_factor = 0.65
 				wood_factor = 0.55
-		if not blockade_active(town): town["food"] = float(town["food"]) + (float(population) * 0.8 + 2.0) * food_factor
+		if not blockade_active(town): town["food"] = float(town["food"]) + (float(population) * 0.8 + 2.0) * harvest_factor(town)
 		if float(town["food"]) < float(population) * 0.6:
 			news = str(town["name"]) + " enfrenta dificuldades com alimentos."
 
