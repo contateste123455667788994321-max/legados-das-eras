@@ -1,12 +1,12 @@
 {
-  "version_code": 18,
-  "version_name": "0.5.13",
+  "version_code": 19,
+  "version_name": "0.5.14",
   "min_apk_code": 4,
   "release_notes": "Aldeias mais vivas: casas e fazendas com progresso, aldeoes trabalhando, producao e selecao de construcoes.",
   "pack_format": "pck",
   "pack_url": "https://raw.githubusercontent.com/contateste123455667788994321-max/legados-das-eras/main/updates/Legado-das-Eras-conteudo.pck",
-  "pack_sha256": "a6b900117b73bd0bd063369a60dc5d5a65edb788711f0be8b5bc72e2bdaf0087",
-  "pack_pck_sha256": "a6b900117b73bd0bd063369a60dc5d5a65edb788711f0be8b5bc72e2bdaf0087",
-  "pack_bytes": 485824,
+  "pack_sha256": "d7784d013a120ff905ab007447af663d1278b5a936814ca4f9eac63815eeeb8d",
+  "pack_pck_sha256": "d7784d013a120ff905ab007447af663d1278b5a936814ca4f9eac63815eeeb8d",
+  "pack_bytes": 568592,
   "apk_url": ""
 }
