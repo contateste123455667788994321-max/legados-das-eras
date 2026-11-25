@@ -1549,6 +1549,9 @@ func _show_details() -> void:
 			for soldier in world.army_members(town): counts[soldier["military_role"]]+=1
 			lines.append("Escolta: %d | Guerreiros: %d | Arqueiros: %d | Generais: %d"%[counts["royal"],counts["soldier"],counts["archer"],counts["general"]])
 			lines.append("Alimentos %d  |  Madeira %d" % [int(float(town["food"])), int(float(town["wood"]))])
+			lines.append("Colheita: %.0f%% | Peixe: %.0f | Moral: %.0f%%"%[world.harvest_factor(town)*100.0,float(town.get("fish",0)),float(town.get("morale",60))])
+			if float(town["food"])<world.active_population(selected_town_id)*1.5: lines.append("Racionamento: prioridade à família real e ao exército")
+			if world.blockade_active(town): lines.append("Cerco ativo: abastecimento externo interrompido")
 			for event in town.get("historical_events", []):
 				lines.append("• " + str(event.get("event", "")))
 	else:
