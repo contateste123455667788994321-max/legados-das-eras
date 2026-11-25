@@ -447,7 +447,7 @@ func _grow_economies() -> void:
 			"mountain":
 				food_factor = 0.65
 				wood_factor = 0.55
-		town["food"] = float(town["food"]) + (float(population) * 0.8 + 2.0) * food_factor
+		if not blockade_active(town): town["food"] = float(town["food"]) + (float(population) * 0.8 + 2.0) * food_factor
 		if float(town["food"]) < float(population) * 0.6:
 			news = str(town["name"]) + " enfrenta dificuldades com alimentos."
 
@@ -1016,6 +1016,10 @@ func move_actor(actor:Dictionary,step:Vector2,dt:float) -> void:
 	q.x=clampf(q.x,1.0,WIDTH-2.0)
 	q.y=clampf(q.y,1.0,SIZE-2.0)
 	if actor.has("town"):
+		var home:Dictionary=get_town(int(actor["town"]))
+		if not home.is_empty() and not is_military(actor) and blockade_active(home):
+			var origin:=Vector2(float(home["x"]),float(home["y"]))
+			if p.distance_to(origin)<=5.2 and q.distance_to(origin)>5.2: return
 		var collision:Dictionary=wall_on_path(actor,p,q)
 		if not collision.is_empty():
 			var owner:Dictionary=collision["town"]
@@ -1547,7 +1551,19 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 			goal=origin+outward*3.9
 		_set_delivery_goal(person,goal,"Marchando para conquista" if invading else "Defendendo aldeia")
 		var ranged_ready:bool=role=="archer" and str(person.get("weapon_kind",""))=="bow" and int(person.get("ammo",0))>0
-		if invading and not ranged_ready:
+		var holding:bool=invading and str(town.get("campaign_mode","assault"))=="blockade"
+		if holding:
+			var target_origin:=Vector2(float(enemy_town["x"]),float(enemy_town["y"]))
+			var number:int=maxi(1,army_members(town,false).size())
+			var angle:float=float(slot)*TAU/float(number)
+			var position:=target_origin+Vector2(cos(angle),sin(angle))*6.3
+			position.x=clampf(position.x,1,WIDTH-2)
+			position.y=clampf(position.y,1,SIZE-2)
+			if not enemy.is_empty():
+				var enemy_pos:=Vector2(float(enemy["x"]),float(enemy["y"]))
+				if enemy_pos.distance_to(target_origin)>5.2 and pos.distance_to(enemy_pos)<2.0: position=enemy_pos
+			_set_delivery_goal(person,position,"Mantendo cerco")
+		if invading and not ranged_ready and not holding:
 			var siege_goal:Vector2=Vector2(float(enemy["x"]),float(enemy["y"])) if not enemy.is_empty() else goal
 			var obstruction:Dictionary=wall_on_path(person,pos,siege_goal,true)
 			if not obstruction.is_empty():
@@ -1595,12 +1611,29 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 			person["task"]="Defendendo governante" if role=="royal" else "Combatendo inimigo"
 	town["morale"]=minf(100,float(town.get("morale",60))+step*0.08)
 
-func begin_campaign(attacker:Dictionary,defender:Dictionary) -> bool:
+func blockade_active(town:Dictionary) -> bool:
+	var attacker:Dictionary=get_town(int(town.get("siege_by",0)))
+	if attacker.is_empty() or str(attacker.get("campaign_mode","assault"))!="blockade" or not wars: return false
+	if int(attacker.get("raid_target",0))!=int(town["id"]): return false
+	if politics.get_status(self,int(attacker["id"]),int(town["id"]))!="war": return false
+	var origin:=Vector2(float(town["x"]),float(town["y"]))
+	var troops:Array=army_members(attacker,false)
+	var nearby:int=0
+	for soldier in troops:
+		var distance:float=Vector2(float(soldier["x"]),float(soldier["y"])).distance_to(origin)
+		if distance>=4.5 and distance<=8.5: nearby+=1
+	return nearby>=maxi(2,ceili(float(troops.size())*0.6))
+
+func begin_campaign(attacker:Dictionary,defender:Dictionary,mode:String="auto") -> bool:
 	if kingdom_id(attacker)==kingdom_id(defender) or int(attacker.get("raid_target",0))>0 or int(attacker.get("siege_by",0))>0 or int(defender.get("siege_by",0))>0 or int(defender.get("raid_target",0))>0: return false
 	if army_members(attacker,false).is_empty(): return false
 	sound_at("war",attacker)
 	attacker["raid_target"]=defender["id"]
 	defender["siege_by"]=attacker["id"]
+	var chosen:String=mode
+	if mode=="auto":
+		chosen="blockade" if not defender.get("palisades",[]).is_empty() and army_members(attacker,false).size()>=3 and rng.randf()<0.45 else "assault"
+	attacker["campaign_mode"]="blockade" if chosen=="blockade" else "assault"
 	news=str(attacker["name"])+" enviou seu exercito contra "+str(defender["name"])+"."
 	return true
 
@@ -1614,8 +1647,11 @@ func _update_campaigns() -> void:
 			attacker["raid_target"]=0
 			if not defender.is_empty(): defender["siege_by"]=0
 			continue
-		if not army_members(defender).is_empty(): continue
 		var origin:=Vector2(float(defender["x"]),float(defender["y"]))
+		if blockade_active(defender) and accepts_province(defender) and float(defender.get("food",0))<1.0 and float(defender.get("morale",60))<=20.0:
+			annex_town(attacker,defender)
+			continue
+		if not army_members(defender).is_empty(): continue
 		if ruler_fallen(defender):
 			finish_defeat(attacker,defender)
 			continue
