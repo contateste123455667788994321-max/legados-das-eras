@@ -31,7 +31,7 @@ func get_relation(sim, first_id: int, second_id: int) -> Dictionary:
 func get_status(sim, first_id: int, second_id: int) -> String:
 	return str(get_relation(sim, first_id, second_id).get("status", "neutral"))
 
-func set_treaty(sim, first_id: int, second_id: int, status: String) -> bool:
+func set_treaty(sim, first_id: int, second_id: int, status: String, decisive:bool=false) -> bool:
 	if first_id == second_id or not status in ["peace", "alliance", "war"]:
 		return false
 	prepare(sim)
@@ -39,6 +39,10 @@ func set_treaty(sim, first_id: int, second_id: int, status: String) -> bool:
 	var b: Dictionary = sim.get_town(second_id)
 	if a.is_empty() or b.is_empty():
 		return false
+	if get_status(sim,first_id,second_id)=="war" and status!="war" and not decisive: return false
+	if status=="war" and get_status(sim,first_id,second_id)!="war":
+		for town in [a,b]:
+			town["wartime_ruler"]=int(town.get("leader",0))
 	var opinion := -95.0 if status == "war" else (85.0 if status == "alliance" else 35.0)
 	var truce_until: float = sim.day + TRUCE_DAYS if status == "peace" or status == "alliance" else 0.0
 	for town in [a, b]:
@@ -92,9 +96,7 @@ func advance(sim, delta: float) -> void:
 				elif opinion>65 and diplomacy>=65 and aggression<55 and sim.rng.randf()<0.03:
 					set_treaty(sim,int(a["id"]),int(b["id"]),"alliance")
 			elif status=="war":
-				if diplomacy>aggression and sim.rng.randf()<0.05:
-					set_treaty(sim,int(a["id"]),int(b["id"]),"peace")
-				elif sim.rng.randf()<0.08+aggression*0.0016:
+				if sim.rng.randf()<0.08+aggression*0.0016:
 					_raid(sim,a,b)
 
 func _change_status(sim, a: Dictionary, b: Dictionary, status: String) -> void:
