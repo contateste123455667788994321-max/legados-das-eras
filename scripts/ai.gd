@@ -79,12 +79,15 @@ func _init_town(t: Dictionary) -> void:
 func _manage_town(sim, town: Dictionary, step: float) -> void:
 	var pop: int = sim.active_population(int(town["id"]))
 	sim.update_roles(town)
+	sim.stop_wartime_construction(town)
 	# Moradores levantam UMA obra de cada vez. Madeira e tempo tem custos reais.
 	if town.get("construction", {}).is_empty():
 		if pop>0 and int(town["houses"])==0 and float(town["wood"])>=14:
 			sim.start_construction(int(town["id"]),"house")
 		elif int(town["houses"])>0 and not bool(town.get("campfire",false)) and float(town["wood"])>=10:
 			sim.start_construction(int(town["id"]),"campfire")
+		elif sim.village_at_war(town) and float(town["wood"])>=3 and not sim.next_palisade(town).is_empty():
+			sim.start_construction(int(town["id"]),"palisade")
 		elif (pop>=sim.housing_capacity(town)-2 or int(town["houses"])>=4) and sim.upgrade_index(town)>=0 and float(town["wood"])>=18 and float(town.get("stone",0))>=12:
 			sim.start_construction(int(town["id"]),"upgrade")
 		elif pop >= sim.housing_capacity(town)-1 and float(town["wood"]) >= 14.0 and int(town["houses"]) < 8:
@@ -97,9 +100,11 @@ func _manage_town(sim, town: Dictionary, step: float) -> void:
 			sim.start_construction(int(town["id"]),"crossing")
 		elif int(town["level"])>=3 and bool(town.get("oven",false)) and not bool(town.get("forge",false)) and float(town.get("stone",0))>=24 and float(town["wood"])>=20:
 			sim.start_construction(int(town["id"]),"forge")
-		elif int(town["level"])>=4 and bool(town.get("forge",false)) and not bool(town.get("castle",false)) and float(town["wood"])>=80 and float(town.get("stone",0))>=120:
+		elif int(town["level"])>=4 and bool(town.get("forge",false)) and not bool(town.get("castle",false)) and float(town["wood"])>=150 and float(town.get("stone",0))>=300:
 			sim.start_construction(int(town["id"]),"castle")
-	var harvest: float = step * float(town["farms"]) * 0.15
+	var harvest: float = step * float(town["farms"]) * 0.15 * sim.harvest_factor(town)
+	if sim.blockade_active(town) and float(town.get("food",0))<float(pop):
+		town["morale"]=maxf(0.0,float(town.get("morale",60))-step*0.6)
 	town["food"] = maxf(0.0, float(town["food"]) + harvest)
 	town["morale"] = clampf(float(town["morale"]) + (0.07 if float(town["food"]) > pop else -0.18) * step, 0.0, 100.0)
 	if sim.wars and sim.rivals:
@@ -119,17 +124,20 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 	if sim.react_to_hostile_animal(p): return
 	if sim.swamp_combat_job(p): return
 	if float(n["hunger"]) >= 55.0:
-		if sim.is_military(p): sim.military_duty(p,home,0.0)
-		else: _set_task(sim, p, home, "Comendo", 0.25)
-		if float(home["food"]) >= 0.4:
-			home["food"] = float(home["food"]) - 0.4
-			n["hunger"] = maxf(0.0, float(n["hunger"]) - 45.0)
-			p["health"] = minf(sim.max_hp(p), float(p["health"]) + 1.0)
-		else:
-			p["health"] = float(p["health"]) - step * 0.12
-			if float(p["health"]) <= 0.0:
+		var ration:float=sim.food_ration(p,home)
+		if ration>0.001:
+			if sim.is_military(p): sim.military_duty(p,home,0.0)
+			else: _set_task(sim,p,home,"Comendo",0.25)
+			home["food"]=maxf(0.0,float(home["food"])-ration)
+			n["hunger"]=maxf(0.0,float(n["hunger"])-45.0*ration/0.4)
+			p["health"]=minf(sim.max_hp(p),float(p["health"])+ration/0.4)
+			return
+		# Sem comida, moradores ainda podem produzir e buscar recursos acessíveis.
+		if float(n["hunger"])>=85.0:
+			p["health"]=float(p["health"])-step*0.12
+			if float(p["health"])<=0.0:
 				sim.kill_person(p)
-		return
+				return
 	if float(n["energy"]) < 28.0:
 		n["energy"] = minf(100.0, float(n["energy"]) + step * 5.0)
 		if float(n["hunger"])<55: p["health"]=minf(sim.max_hp(p),float(p["health"])+step*0.3)
@@ -142,6 +150,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 			sim.equip_worker(home,p)
 		sim.military_duty(p,home,step)
 		return
+	if p.get("cargo",{}).is_empty() and sim.dismantle_palisade_job(p,home,step): return
 	if sim.transport_job(p,home): return
 	if sim.gather_drop_job(p,home): return
 	if sim.equipment_job(p,home): return
@@ -172,6 +181,8 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 			2: p["profession"]="Cozinheiro"
 	# Garante que uma aldeia sem madeira tenha pelo menos um coletor.
 	var wood_goal:float=18.0 if int(home.get("farms",1))==0 and int(home.get("houses",2))>0 else 14.0
+	if int(home["level"])>=4 and not bool(home.get("castle",false)) and int(p["id"])%3==0: wood_goal=150.0
+	if sim.village_at_war(home): wood_goal=maxf(wood_goal,25.0)
 	if float(p["age"])>=16 and float(home["wood"])<wood_goal and (int(home.get("houses",2))==0 or (int(p["id"])!=int(home["leader"]) and int(p["id"])%2==0)):
 		_gather_wood(sim,p,home)
 		return
@@ -198,7 +209,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 						deposit["developed"]=true
 						sim.news=str(home["name"])+" abriu uma mina."
 				elif int(home["level"])>=3 and str(p.get("tool_kind","")) in ["pickaxe","iron_pickaxe"]:
-					sim.collect_cargo(p,"stone",3.0) if float(home.get("stone",0))<12 or (int(home["level"])>=4 and float(home.get("stone",0))<120 and int(p["id"])%2==0) else sim.collect_cargo(p,"ore",3.0 if str(p["tool_kind"])=="iron_pickaxe" else 2.0)
+					sim.collect_cargo(p,"stone",3.0) if float(home.get("stone",0))<12 or (int(home["level"])>=4 and float(home.get("stone",0))<300 and not bool(home.get("castle",false))) else sim.collect_cargo(p,"ore",3.0 if str(p["tool_kind"])=="iron_pickaxe" else 2.0)
 				else:
 					sim.collect_cargo(p,"stone",2.0)
 		"Cozinheiro":
@@ -237,7 +248,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 				var field:Vector2=Vector2(float(home["x"]),float(home["y"]))+sim.farm_layout(home)[0]
 				sim._set_delivery_goal(p,field,"Cultivando" if int(home.get("farms",1))>0 else "Coletando alimento")
 				if Vector2(float(p["x"]),float(p["y"])).distance_to(field)<0.65:
-					sim.collect_cargo(p,"food",3.0)
+					sim.collect_cargo(p,"food",maxf(0.5,3.0*sim.harvest_factor(home)))
 	# Laços familiares e rivalidades alteram a lealdade entre pessoas.
 	if float(m["ambition"]) > 0.88 and str(p["role"]) == "Aldeao":
 		var ruler: Dictionary = sim.get_person(int(home["leader"]))
@@ -337,7 +348,7 @@ func on_death(sim, person: Dictionary) -> void:
 			n["company"] = minf(100.0, float(n["company"]) + 38.0)
 
 func _site_work(sim,p:Dictionary,home:Dictionary,kind:String,task:String) -> bool:
-	var site: Dictionary=sim.local_site(kind,int(home["id"]))
+	var site: Dictionary=sim.fishing_position(home) if kind=="fish" else sim.local_site(kind,int(home["id"]))
 	if site.is_empty():
 		_set_task(sim,p,home,"Procurando recursos",1.0)
 		return false

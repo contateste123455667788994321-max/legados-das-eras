@@ -140,6 +140,7 @@ func _load_art() -> void:
 			actor_textures[actor] = texture
 		else:
 			texture_missing = true
+	actor_textures["tribal_hut"]=actor_textures["hut"]
 	for key in ["hut","farm"]:
 		var new_art: Resource = load("res://assets/landscape/reference_"+key+".png")
 		if new_art is Texture2D: actor_textures[key] = new_art
@@ -470,6 +471,9 @@ func _draw() -> void:
 			continue
 		var unit := TILE_SIZE * zoom
 		_draw_village_paths(town, center, unit, house_spots, farm_spots)
+		for segment in town.get("palisades",[]):
+			var fence_pos:Vector2=_world_to_screen(Vector2(float(segment["x"])+0.5,float(segment["y"])+0.5))
+			_draw_palisade(fence_pos,unit,str(segment.get("axis","h")),segment)
 		# A terra cultivada cresce quando uma fazenda fica pronta.
 		for i in range(mini(int(town.get("farms", 1)), farm_spots.size())):
 			var spot: Vector2 = farm_spots[i]
@@ -486,8 +490,8 @@ func _draw() -> void:
 			var build_spot: Vector2 = house_spots[mini(int(town.get("houses", 2)), house_spots.size()-1)] if kind == "house" else farm_spots[mini(int(town.get("farms", 1)), farm_spots.size()-1)]
 			var scaffold: Vector2 = _world_to_screen(Vector2(float(site["x"])+0.5,float(site["y"])+0.5)) if site.has("x") else center + build_spot * unit
 			if MAP_AREA.grow(-unit).has_point(scaffold):
-				_draw_project_marker(site,scaffold,unit)
 				_draw_landscape_object("construction_site",scaffold,unit*0.85)
+				_draw_project_marker(site,scaffold,unit)
 		if int(town["id"]) == selected_town_id and MAP_AREA.has_point(center):
 			draw_arc(center, 35.0 * zoom, 0.0, TAU, 32, Color("#fff0a0"), 3.0)
 	for animal in world.wildlife:
@@ -579,7 +583,7 @@ func _draw_world_sites() -> void:
 		if kind=="castle":
 			_draw_landscape_object("castle",p,unit*3.1)
 		elif kind=="campfire":
-			_draw_sprite("fire",p,Vector2.ONE*unit*0.70,true)
+			_draw_live_campfire(p,unit)
 		elif kind=="waterfall":
 			_draw_waterfall(p,unit)
 		elif kind=="crossing":
@@ -594,6 +598,27 @@ func _draw_world_sites() -> void:
 					draw_circle(p+Vector2(unit*(0.13+age*0.10),-unit*(0.59+age*0.55)),unit*(0.035+age*0.055),Color(0.72,0.72,0.68,(1-age)*0.18))
 		else:
 			_draw_landscape_object(kind,p,unit*(1.45 if kind=="mine" else 0.95))
+
+func _draw_live_campfire(p:Vector2,u:float) -> void:
+	if not MAP_AREA.grow(-u*0.6).has_point(p): return
+	var z:float=maxf(1.0,u/32.0)
+	var t:float=world.swamp_clock
+	for i in range(10):
+		var angle:float=float(i)*TAU/10.0
+		var q:Vector2=(p+Vector2(cos(angle)*7,sin(angle)*3)*z).round()
+		draw_rect(Rect2(q-Vector2(2,2)*z,Vector2(4,4)*z),Color("#514846"))
+		draw_rect(Rect2(q-Vector2(2,2)*z,Vector2(3,2)*z),Color("#9b9181"))
+	for i in range(5):
+		var x:float=float(i-2)*2*z
+		var h:float=(5.0+float(2-abs(i-2))*2.0+sin(t*9.0+float(i)*2.1)*2.0)*z
+		var q:Vector2=(p+Vector2(x,-h)).round()
+		draw_rect(Rect2(q,Vector2(2*z,h)),Color("#bd4321"))
+		draw_rect(Rect2(q+Vector2(0,h*0.32),Vector2(z,h*0.68)),Color("#ff9e2c"))
+		draw_rect(Rect2(q+Vector2(z,h*0.63),Vector2(z,h*0.37)),Color("#ffe397"))
+	for i in range(5):
+		var a:float=fposmod(t*0.85+float(i)*0.2,1.0)
+		var q:Vector2=(p+Vector2(sin(a*3.0+float(i))*4,-8-a*12)*z).round()
+		draw_rect(Rect2(q,Vector2.ONE*z),Color(1.0,0.65,0.18,1.0-a))
 
 func _draw_rivers() -> void:
 	var unit:float=TILE_SIZE*zoom
@@ -636,7 +661,7 @@ func _draw_person_variant(p:Dictionary,center:Vector2) -> void:
 	var sex:int=clampi(int(p.get("gender",0)),0,1)
 	var appearance:int=posmod(int(p.get("appearance",p["id"])),10)
 	var variation:int=posmod(appearance+int(p.get("skin",0))+int(p.get("hair",0)),2)
-	var s:float=29.0*zoom*[0.51,0.77,1.0,0.93][stage]
+	var s:float=24.0*zoom*[0.51,0.77,1.0,0.93][stage]
 	var atlas:Texture2D=landscape_objects["civilian_walk"]
 	var row:int=appearance+sex*10
 	var movement:Dictionary=visual_motion.get(int(p["id"]),{})
@@ -675,7 +700,12 @@ func _draw_person_variant(p:Dictionary,center:Vector2) -> void:
 		_draw_landscape_object("magic_staff",center+Vector2(face*s*0.27,0),s*0.78)
 	var cargo:Dictionary=p.get("cargo",{})
 	if not cargo.is_empty() and action.is_empty() and MAP_AREA.grow(-s).has_point(center):
-		_draw_landscape_object("cart" if str(p.get("transport","hands"))=="cart" else ("log_bundle" if str(cargo["kind"])=="wood" else "sack"),center+Vector2(-face*s*0.32,0),s*0.53)
+		var cargo_icon:String="cart" if str(p.get("transport","hands"))=="cart" else str({"wood":"log_bundle","stone":"rock","ore":"rock"}.get(str(cargo["kind"]),"sack"))
+		_draw_landscape_object(cargo_icon,center+Vector2(-face*s*0.32,0),s*0.53)
+	if action=="deposit" and MAP_AREA.grow(-s).has_point(center):
+		for i in range(3):
+			var q:Vector2=center+Vector2(float(i-1)*s*0.12,s*0.05)
+			draw_rect(Rect2(q,Vector2.ONE*maxf(1.0,s*0.06)),Color("#c6a371",0.75))
 
 
 func _draw_clock() -> void:
@@ -927,6 +957,9 @@ func _touch_map(position: Vector2) -> void:
 		selected_beast_id = nearest_beast_id
 		selected_person_id = 0
 		selected_town_id = 0
+		if controlled_id==0:
+			var animal:Dictionary=world.get_beast(nearest_beast_id)
+			if not animal.is_empty(): _show_animal_card(animal)
 	else:
 		if controlled_id==0 and _inspect_building(point-Vector2(0.5,0.5)): return
 		# Um toque na casa deve abrir sua ficha, mesmo quando um personagem ja esta sob controle.
@@ -1220,6 +1253,8 @@ func _show_diplomacy() -> void:
 	action_picker.add_item("Propor paz", 0)
 	action_picker.add_item("Formar alianca", 1)
 	action_picker.add_item("Declarar guerra", 2)
+	action_picker.add_item("Manter cerco", 3)
+	action_picker.add_item("Atacar diretamente", 4)
 	for label_text in ["Aldeia de origem", "Aldeia de destino", "Acao diplomatica"]:
 		var label := Label.new()
 		label.text = label_text
@@ -1235,14 +1270,25 @@ func _show_diplomacy() -> void:
 			world.news = "Escolha duas aldeias diferentes para negociar."
 		else:
 			var action := "peace"
-			match action_picker.get_selected_id():
+			var choice:int=action_picker.get_selected_id()
+			match choice:
 				1: action = "alliance"
-				2: action = "war"
+				2,3,4: action = "war"
 			if action == "war":
 				world.wars = true
 				if not world.rivals:
 					world.toggle_rivals()
-			world.politics.set_treaty(world, from_id, to_id, action)
+			var accepted:bool=world.politics.set_treaty(world, from_id, to_id, action)
+			if accepted and choice in [3,4]:
+				var attacker:Dictionary=world.get_town(from_id)
+				var defender:Dictionary=world.get_town(to_id)
+				var mode:String="blockade" if choice==3 else "assault"
+				if int(attacker.get("raid_target",0))==to_id:
+					attacker["campaign_mode"]=mode
+					world.news="Estratégia militar alterada."
+				elif not world.begin_campaign(attacker,defender,mode):
+					world.news="Não foi possível iniciar a campanha. Verifique o exército e as guerras ativas."
+			elif not accepted: world.news="A guerra só termina por rendição ou derrota."
 			world.save_world()
 		_refresh_ui()
 		dialog.queue_free()
@@ -1503,6 +1549,9 @@ func _show_details() -> void:
 			for soldier in world.army_members(town): counts[soldier["military_role"]]+=1
 			lines.append("Escolta: %d | Guerreiros: %d | Arqueiros: %d | Generais: %d"%[counts["royal"],counts["soldier"],counts["archer"],counts["general"]])
 			lines.append("Alimentos %d  |  Madeira %d" % [int(float(town["food"])), int(float(town["wood"]))])
+			lines.append("Colheita: %.0f%% | Peixe: %.0f | Moral: %.0f%%"%[world.harvest_factor(town)*100.0,float(town.get("fish",0)),float(town.get("morale",60))])
+			if float(town["food"])<world.active_population(selected_town_id)*1.5: lines.append("Racionamento: prioridade à família real e ao exército")
+			if world.blockade_active(town): lines.append("Cerco ativo: abastecimento externo interrompido")
 			for event in town.get("historical_events", []):
 				lines.append("• " + str(event.get("event", "")))
 	else:
@@ -1559,6 +1608,47 @@ func _new_world() -> void:
 	dialog.popup_centered(Vector2i(490,190))
 
 
+func _draw_palisade(p:Vector2,u:float,axis:String,segment:Dictionary) -> void:
+	if not MAP_AREA.grow(-u).has_point(p): return
+	var step_dir:=Vector2.RIGHT if axis=="h" else Vector2.DOWN
+	var a:Vector2=p-step_dir*u*0.5
+	var b:Vector2=p+step_dir*u*0.5
+	var gate:bool=bool(segment.get("gate",false))
+	var max_hp:float=float(segment.get("max_health",100.0 if gate else 150.0))
+	var hp:float=float(segment.get("health",max_hp))
+	var ratio:float=clampf(hp/maxf(1.0,max_hp),0,1)
+	if gate:
+		for side in [-1.0,1.0]:
+			var post:Vector2=p+step_dir*u*0.45*side
+			draw_rect(Rect2(post-Vector2(u*0.08,u*0.72),Vector2(u*0.16,u*0.72)),Color("#563925"))
+			draw_rect(Rect2(post-Vector2(u*0.04,u*0.70),Vector2(u*0.08,u*0.68)),Color("#b78b53"))
+		for i in range(6):
+			var q:Vector2=p+step_dir*u*(float(i)/6.0-0.42)
+			draw_rect(Rect2(q-Vector2(u*0.06,u*0.52),Vector2(u*0.13,u*0.52)),Color("#9a6838" if i%2==0 else "#79512d"))
+		draw_line(a-Vector2(0,u*0.18),b-Vector2(0,u*0.18),Color("#3b3833"),maxf(2,u*0.06))
+		draw_line(a-Vector2(0,u*0.43),b-Vector2(0,u*0.43),Color("#3b3833"),maxf(2,u*0.06))
+		_draw_wall_health(p,u,ratio,true)
+		return
+	draw_line(a-Vector2(0,u*0.18),b-Vector2(0,u*0.18),Color("#59412b"),maxf(2,u*0.09))
+	draw_line(a-Vector2(0,u*0.40),b-Vector2(0,u*0.40),Color("#87572e"),maxf(2,u*0.08))
+	for i in range(6):
+		var q:Vector2=(p+step_dir*u*(float(i)/6.0-0.42)).round()
+		var w:float=u*0.13
+		var h:float=u*(0.58+float(i%2)*0.04)
+		draw_rect(Rect2(q-Vector2(w*0.5,h),Vector2(w,h)),Color("#4a3324"))
+		draw_rect(Rect2(q-Vector2(w*0.36,h),Vector2(w*0.70,h*0.94)),Color("#a16e3a"))
+		draw_colored_polygon(PackedVector2Array([q-Vector2(w*0.5,h),q-Vector2(0,h+u*0.14),q+Vector2(w*0.5,-h)]),Color("#c6a06a"))
+		draw_line(q-Vector2(w*0.25,h*0.9),q-Vector2(w*0.25,u*0.05),Color("#d1a66e"),1.0)
+		if ratio<0.65 and i%2==0:
+			draw_line(q-Vector2(w*0.25,h*0.56),q+Vector2(w*0.2,-h*0.37),Color("#402820"),maxf(1,u*0.025))
+	_draw_wall_health(p,u,ratio,false)
+
+func _draw_wall_health(p:Vector2,u:float,ratio:float,gate:bool) -> void:
+	if ratio>=0.999: return
+	var bar:=Rect2(p-Vector2(u*0.35,u*(0.85 if gate else 0.90)),Vector2(u*0.70,maxf(2.0,u*0.06)))
+	draw_rect(bar,Color("#2c211c"))
+	draw_rect(Rect2(bar.position,Vector2(bar.size.x*ratio,bar.size.y)),Color("#83ae53") if ratio>0.5 else Color("#df8050"))
+
 func _draw_project_marker(site:Dictionary,p:Vector2,unit:float) -> void:
 	var kind:String=str(site["kind"])
 	var required:Dictionary=site.get("required",{})
@@ -1568,7 +1658,21 @@ func _draw_project_marker(site:Dictionary,p:Vector2,unit:float) -> void:
 	var portion:float=clampf(received/total,0,1)
 	var ratio:float=clampf(float(site.get("progress",0))/maxf(1,float(site["duration"])),0,1)
 	var icon:String={"castle":"castle","upgrade":"hut","house":"hut","farm":"farm","campfire":"fire","oven":"oven","forge":"forge","crossing":"bridge"}.get(kind,"hut")
-	var badge_pos:Vector2=p-Vector2(0,unit*0.58)
+	var badge_pos:Vector2=p-Vector2(0,unit*0.72)
+	var icon_size:float=clampf(unit*0.20,8.0,16.0)
+	var remaining_wood:int=maxi(0,ceili(float(required.get("wood",0))-float(delivered.get("wood",0))))
+	var remaining_stone:int=maxi(0,ceili(float(required.get("stone",0))-float(delivered.get("stone",0))))
+	if remaining_wood>0 or remaining_stone>0:
+		var panel:=Rect2(badge_pos-Vector2(43,15),Vector2(86,18))
+		draw_rect(panel,Color("#28241e",0.92))
+		var q:Vector2=panel.position+Vector2(9,8)
+		if remaining_wood>0:
+			_draw_landscape_object("log_bundle",q,icon_size)
+			draw_string(ThemeDB.fallback_font,q+Vector2(9,4),str(remaining_wood),HORIZONTAL_ALIGNMENT_LEFT,-1,11,Color("#ffe0aa"))
+		if remaining_stone>0:
+			q=panel.position+Vector2(50,8)
+			_draw_landscape_object("rock",q,icon_size)
+			draw_string(ThemeDB.fallback_font,q+Vector2(9,4),str(remaining_stone),HORIZONTAL_ALIGNMENT_LEFT,-1,11,Color("#dfe1d6"))
 	for n in range(int(ceil(portion*6))):
 		draw_rect(Rect2(p+Vector2((n%3-1)*unit*0.15,(n/3-0.3)*unit*0.12),Vector2(unit*0.13,unit*0.08)),Color("#ad8150"))
 	var bar:=Rect2(p-Vector2(unit*0.30,unit*0.38),Vector2(unit*0.60,3.0))
@@ -1601,15 +1705,22 @@ func _draw_equipment(p:Dictionary,c:Vector2,s:float,bounce:float,face:float=1.0)
 			draw_arc(bow_center,s*0.23,angle-PI*0.5,angle+PI*0.5,10,Color("#c79b54"),thickness)
 			draw_line(bow_center-Vector2(0,s*0.23),bow_center+Vector2(0,s*0.23),Color("#e0d5ba"),1.0)
 			draw_line(bow_center,bow_center+Vector2(face*s*0.23,0),Color("#c8b18a"),1.0)
-		elif weapon=="sword":
+		elif weapon in ["sword","steel_sword"]:
+			if weapon=="steel_sword": iron=Color("#c3ecff")
 			var tip:Vector2=grip+Vector2(face*s*0.16,-s*0.42+lift)
 			draw_line(grip,tip,Color("#465251"),maxf(2,s*0.11))
 			draw_line(grip,tip,iron,maxf(1,s*0.065))
 			draw_line(grip+Vector2(-s*0.08,-s*0.045),grip+Vector2(s*0.08,s*0.035),Color("#c9a35b"),thickness)
-		elif weapon in ["spear","club"]:
+		elif weapon in ["spear","iron_spear","club"]:
 			var tip:Vector2=grip+Vector2(face*s*0.22,-s*0.43+lift)
 			draw_line(grip-Vector2(face*s*0.12,s*0.08),tip,wood,maxf(1,s*0.055))
-			draw_line(tip,tip+Vector2(face*s*0.065,-s*0.12),stone if weapon=="spear" else Color("#725137"),maxf(2,s*0.105))
+			if weapon=="club":
+				draw_line(tip,tip+Vector2(face*s*0.065,-s*0.12),Color("#725137"),maxf(2,s*0.105))
+			else:
+				var end:Vector2=tip+Vector2(face*s*0.08,-s*0.17)
+				var side:Vector2=Vector2(-0.065,-face*0.03)*s
+				draw_colored_polygon(PackedVector2Array([tip-side,end,tip+side,tip+Vector2(0,s*0.05)]),Color("#c3cbd0") if weapon=="iron_spear" else stone)
+				draw_line(tip,end,Color("#ebd9b4"),1.0)
 		return
 	if action=="fishing" and tool=="rod":
 		var tip:Vector2=grip+Vector2(face*s*0.46,-s*0.31+lift*0.25)
@@ -1705,7 +1816,7 @@ func _draw_swamp_creatures() -> void:
 	for spider in world.swamp_spiders:
 		var p:Vector2=_world_to_screen(Vector2(float(spider["x"])+0.5,float(spider["y"])+0.5))
 		var emerge:float=float(spider.get("emerge",0))
-		var s:float=15.5*zoom*(1.0-0.35*clampf(emerge/0.6,0,1))
+		var s:float=12.5*zoom*(1.0-0.35*clampf(emerge/0.6,0,1))
 		var frame:int=int(world.swamp_clock*6+float(spider["id"]))%4
 		if emerge>0: frame=0
 		_draw_landscape_object(["swamp_spider","swamp_spider_walk","swamp_spider_stride","swamp_spider_return"][frame],p,s)
@@ -1718,8 +1829,18 @@ func _draw_swamp_creatures() -> void:
 					var direction:Vector2=(_world_to_screen(Vector2(float(target["x"])+0.5,float(target["y"])+0.5))-p).normalized()
 					draw_line(p-direction*7*zoom,p+direction*3*zoom,Color("#c7a16b"),1.5)
 			else:
-				draw_rect(Rect2(p-Vector2.ONE*5*zoom,Vector2.ONE*10*zoom),Color("#a26edd",0.3))
-				draw_rect(Rect2(p-Vector2.ONE*2*zoom,Vector2.ONE*4*zoom),Color("#ebd1ff"))
+				var direction:=Vector2.RIGHT
+				var target:Dictionary=world.get_person(int(bolt.get("target",0))) if str(bolt.get("kind",""))=="human" else {}
+				if not target.is_empty(): direction=(_world_to_screen(Vector2(float(target["x"])+0.5,float(target["y"])+0.5))-p).normalized()
+				var normal:=Vector2(-direction.y,direction.x)
+				for i in range(8):
+					var f:float=float(i)/8.0
+					var q:Vector2=(p-direction*f*18*zoom+normal*sin(world.swamp_clock*15.0+float(i))*2.0*zoom*f).round()
+					var side:float=maxf(1.0,(3.0-f*2.0)*zoom)
+					draw_rect(Rect2(q-Vector2.ONE*side*0.5,Vector2.ONE*side),Color(0.66,0.28,0.94,1.0-f))
+				draw_circle(p,5*zoom,Color(0.49,0.16,0.8,0.28))
+				draw_circle(p,3.3*zoom,Color("#a95df3"))
+				draw_rect(Rect2(p-Vector2.ONE*1.5*zoom,Vector2.ONE*3*zoom),Color("#fff0ff"))
 
 func _draw_selected_life(person:Dictionary,center:Vector2) -> void:
 	var bar:=Rect2(center+Vector2(-15,-29)*zoom,Vector2(30,4)*zoom)
@@ -1758,7 +1879,7 @@ func _show_animal_card(animal:Dictionary) -> void:
 	_add_stat_bar(body,"Vida",float(animal["health"]),float(animal["max_health"]),Color("#b95850"))
 	_add_stat_bar(body,"Saciedade",100-float(animal.get("hunger",0)),100.0,Color("#d5a455"))
 	var detail:=Label.new()
-	detail.text="Dano: %.0f\nEstado: %s"%[world.animal_damage(animal),str(animal.get("state","Explorando"))]
+	detail.text="Idade: %.1f anos   |   Nível: %d\nDano: %.0f\nEstado: %s"%[world.animal_age(animal),world.animal_level(animal),world.animal_damage(animal),str(animal.get("state","Explorando"))]
 	body.add_child(detail)
 	dialog.add_child(body)
 	add_child(dialog)
@@ -1922,7 +2043,7 @@ func _draw_depth_entities() -> void:
 				# A ampliacao aumenta discretamente o tamanho, sem trocar o estilo.
 				var grown:float=size*(1.0+float(era-1)*0.045)
 				var anchored:Vector2=p-Vector2(0,(grown-size)*0.41)
-				_draw_sprite("hut",anchored,Vector2(grown,grown*0.82),true)
+				_draw_sprite("tribal_hut" if era==1 else "hut",anchored,Vector2(grown,grown*0.82),true)
 			"person": _draw_person_variant(entry["actor"],p)
 			"animal": _draw_natural_animal(entry["actor"],p)
 			"beast": _draw_animated_beast(entry["actor"],p,str(entry["key"]))

@@ -265,6 +265,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 		init_traits(p)
 		p["hunt_cd"]=maxf(0.0,float(p.get("hunt_cd",0))-dt)
 		p["military_cd"]=maxf(0.0,float(p.get("military_cd",0))-dt)
+		p["spike_cd"]=maxf(0.0,float(p.get("spike_cd",0))-dt)
 		p["age"] = float(p["age"]) + elapsed_days / 365.0
 		if float(p["age"]) > 79 and rng.randf() < elapsed_days * 0.0008:
 			kill_person(p)
@@ -299,7 +300,8 @@ func construction_cost(kind: String) -> float:
 		"campfire": return 10.0
 		"house": return 14.0
 		"upgrade": return 18.0
-		"castle": return 80.0
+		"castle": return 150.0
+		"palisade": return 3.0
 		"farm": return 18.0
 		"oven": return 8.0
 		"forge": return 20.0
@@ -325,6 +327,7 @@ func start_construction(town_id: int, kind: String) -> bool:
 		news = "Esta aldeia atingiu o limite de fazendas."
 		return false
 	if kind=="upgrade" and upgrade_index(town)<0: return false
+	if kind=="palisade" and next_palisade(town).is_empty(): return false
 	if kind=="castle" and (int(town["level"])<4 or bool(town.get("castle",false)) or not bool(town.get("forge",false))):
 		news="Castelo exige era 4 e forja."
 		return false
@@ -343,8 +346,8 @@ func start_construction(town_id: int, kind: String) -> bool:
 		news = "Madeira insuficiente: precisa de %d, tem %d." % [int(cost), int(float(town["wood"]))]
 		return false
 	town["wood"] = float(town["wood"]) - cost
-	var label:String={"castle":"castelo","upgrade":"melhoria de casa","campfire":"fogueira","house":"casa","farm":"fazenda","oven":"forno","forge":"forja","crossing":"ponte"}[kind]
-	town["construction"]={"kind":kind,"progress":0.0,"duration":float({"castle":85,"upgrade":24,"campfire":8,"house":12,"farm":15,"oven":20,"forge":32,"crossing":26}[kind])}
+	var label:String={"castle":"castelo","upgrade":"melhoria de casa","campfire":"fogueira","house":"casa","farm":"fazenda","oven":"forno","forge":"forja","crossing":"ponte","palisade":"paliçada"}[kind]
+	town["construction"]={"kind":kind,"progress":0.0,"duration":float({"castle":150,"palisade":7,"upgrade":24,"campfire":8,"house":12,"farm":15,"oven":20,"forge":32,"crossing":26}[kind])}
 	var stone_cost:float=workshop_stone_cost(kind)
 	town["stone"]=float(town.get("stone",0))-stone_cost
 	_prepare_project(town)
@@ -388,11 +391,17 @@ func progress_construction(town: Dictionary, dt: float) -> void:
 		if index>=0 and index<levels.size(): levels[index]=mini(4,int(levels[index])+1)
 	elif kind=="farm":
 		town["farms"]=int(town.get("farms",1))+1
+	elif kind=="palisade":
+		var completed:Array=town.get("palisades",[])
+		var gate:bool=bool(site.get("gate",false))
+		var hp:float=GATE_HP if gate else WALL_HP
+		completed.append({"x":site["x"],"y":site["y"],"axis":site.get("axis","h"),"gate":gate,"health":hp,"max_health":hp})
+		town["palisades"]=completed
 	else:
 		town[kind]=true
 		sites.append({"kind":kind,"x":site["x"],"y":site["y"],"town":town["id"]})
 	town["construction"]={}
-	var label:String={"castle":"Castelo construido","upgrade":"Casa ampliada","campfire":"Fogueira acesa","house":"Casa pronta","farm":"Fazenda pronta","oven":"Forno construido","forge":"Forja construida","crossing":"Ponte construida"}[kind]
+	var label:String={"castle":"Castelo construido","upgrade":"Casa ampliada","campfire":"Fogueira acesa","house":"Casa pronta","farm":"Fazenda pronta","oven":"Forno construido","forge":"Forja construida","crossing":"Ponte construida","palisade":"Trecho de paliçada pronto"}[kind]
 	var history: Array = town.get("historical_events", [])
 	history.append({"day": int(day), "event": label + "."})
 	if history.size() > 12:
@@ -409,11 +418,58 @@ func _wander(actor: Dictionary, dt: float, pace: float) -> void:
 			actor["target_x"] = clampf(float(actor["x"]) + rng.randf_range(-2.0, 2.0), 2.0, float(WIDTH - 3))
 			actor["target_y"] = clampf(float(actor["y"]) + rng.randf_range(-2.0, 2.0), 2.0, float(SIZE - 3))
 			actor["wander"] = rng.randf_range(1.5, 4.0)
-	var toward := Vector2(float(actor["target_x"]) - float(actor["x"]), float(actor["target_y"]) - float(actor["y"]))
+	var current:=Vector2(float(actor["x"]),float(actor["y"]))
+	var destination:=Vector2(float(actor["target_x"]),float(actor["target_y"]))
+	if actor.has("town"):
+		destination=allied_gate_waypoint(actor,current,destination)
+	var toward:=destination-current
 	if toward.length() > 0.06:
 		var burden:float=1.0-0.25*clampf(carried_weight(actor)/maxf(1.0,load_capacity(actor)),0.0,1.0)
 		var step := toward.limit_length(pace*dt*burden)
 		move_actor(actor,step,dt)
+
+func harvest_factor(town:Dictionary) -> float:
+	var season:int=posmod(int(day/90.0),4)
+	var seasonal:float=[1.25,1.0,0.85,0.20][season]
+	var biome:float=float({"forest":0.95,"sand":0.43,"snow":0.34,"mountain":0.65}.get(str(town.get("home_biome","grass")),1.0))
+	return seasonal*biome
+
+func food_priority(person:Dictionary,town:Dictionary) -> bool:
+	var ruler_id:int=int(town.get("leader",0))
+	if ruler_id<=0: return is_military(person)
+	var ruler:Dictionary=get_person(ruler_id)
+	return is_military(person) or int(person["id"])==ruler_id or int(person.get("partner",0))==ruler_id or int(ruler.get("partner",0))==int(person["id"]) or int(person.get("father",0))==ruler_id or int(person.get("mother",0))==ruler_id
+
+func food_ration(person:Dictionary,town:Dictionary) -> float:
+	var available:float=maxf(0.0,float(town.get("food",0)))
+	var scarce:bool=available<float(active_population(int(town["id"])))*1.5
+	if not scarce: return minf(0.4,available)
+	if food_priority(person,town): return minf(0.4,available)
+	var reserve:float=0.0
+	for member in people:
+		if bool(member.get("alive",false)) and int(member["town"])==int(town["id"]) and food_priority(member,town):
+			reserve+=0.4
+	# Rações menores para moradores comuns durante escassez.
+	return minf(0.2,maxf(0.0,available-reserve))
+
+func fishing_position(town:Dictionary) -> Dictionary:
+	var site:Dictionary=local_site("fish",int(town["id"]))
+	if not blockade_active(town): return site
+	var origin:=Vector2(float(town["x"]),float(town["y"]))
+	var best:Dictionary={}
+	var distance:float=INF
+	for y in range(maxi(1,int(origin.y)-5),mini(SIZE-1,int(origin.y)+6)):
+		for x in range(maxi(1,int(origin.x)-5),mini(WIDTH-1,int(origin.x)+6)):
+			var q:=Vector2(x,y)
+			if q.distance_to(origin)>4.8 or water_depth(q)>0.0: continue
+			if str(tiles[y][x])=="mountain": continue
+			var near_water:bool=false
+			for offset in [Vector2i(1,0),Vector2i(-1,0),Vector2i(0,1),Vector2i(0,-1)]:
+				if str(tiles[y+offset.y][x+offset.x])=="water": near_water=true
+			if near_water and q.distance_squared_to(origin)<distance:
+				distance=q.distance_squared_to(origin)
+				best={"x":x,"y":y,"kind":"fish"}
+	return best
 
 func _grow_economies() -> void:
 	for town in towns:
@@ -434,7 +490,7 @@ func _grow_economies() -> void:
 			"mountain":
 				food_factor = 0.65
 				wood_factor = 0.55
-		town["food"] = float(town["food"]) + (float(population) * 0.8 + 2.0) * food_factor
+		if not blockade_active(town): town["food"] = float(town["food"]) + (float(population) * 0.8 + 2.0) * harvest_factor(town)
 		if float(town["food"]) < float(population) * 0.6:
 			news = str(town["name"]) + " enfrenta dificuldades com alimentos."
 
@@ -859,6 +915,7 @@ func _update_wildlife(dt:float) -> void:
 					animal["attack_cd"]=2.0
 					if damage_animal(prey,animal_damage(animal)):
 						animal["hunger"]=maxf(0,float(animal["hunger"])-45.0)
+						animal["xp"]=float(animal.get("xp",0))+10.0
 						_consume_prey_meat(prey)
 						animal["state"]="Comendo"
 						animal["timer"]=3.0
@@ -876,6 +933,8 @@ func _update_wildlife(dt:float) -> void:
 			if count<8 and wildlife.size()+births.size()<130 and float(animal["hunger"])<30 and rng.randf()<0.35:
 				var child:Dictionary=animal.duplicate(true)
 				child["id"]=new_id()+10000
+				child["born_day"]=day
+				child["xp"]=0.0
 				child["breed_timer"]=180.0
 				child["hunger"]=15.0
 				child["health"]=child["max_health"]
@@ -999,12 +1058,159 @@ func move_actor(actor:Dictionary,step:Vector2,dt:float) -> void:
 	var q:=p+step
 	q.x=clampf(q.x,1.0,WIDTH-2.0)
 	q.y=clampf(q.y,1.0,SIZE-2.0)
+	if actor.has("town"):
+		var home:Dictionary=get_town(int(actor["town"]))
+		if not home.is_empty() and not is_military(actor) and blockade_active(home):
+			var origin:=Vector2(float(home["x"]),float(home["y"]))
+			if p.distance_to(origin)<=5.2 and q.distance_to(origin)>5.2: return
+		var collision:Dictionary=wall_on_path(actor,p,q)
+		if not collision.is_empty():
+			var owner:Dictionary=collision["town"]
+			var wall:Dictionary=collision["wall"]
+			if hostile_wall(actor,owner) and is_military(actor) and not bool(wall.get("gate",false)) and float(actor.get("spike_cd",0))<=0:
+				actor["spike_cd"]=1.2
+				_swamp_damage(actor,4.0)
+			return
 	actor["x"]=q.x
 	actor["y"]=q.y
 
 
+# Paliçada modular: o rio ocupa as interrupcoes naturais do perimetro.
+const WALL_HP:float=150.0
+const GATE_HP:float=100.0
+
+func hostile_wall(actor:Dictionary,town:Dictionary) -> bool:
+	var home:Dictionary=get_town(int(actor.get("town",0)))
+	return not home.is_empty() and kingdom_id(home)!=kingdom_id(town) and politics.get_status(self,int(home["id"]),int(town["id"]))=="war"
+
+func wall_on_path(actor:Dictionary,start:Vector2,finish:Vector2,only_enemy:bool=false) -> Dictionary:
+	if start.distance_squared_to(finish)<0.000001: return {}
+	var nearest:Dictionary={}
+	var distance:float=INF
+	for town in towns:
+		var hostile:bool=hostile_wall(actor,town)
+		if only_enemy and not hostile: continue
+		for segment in town.get("palisades",[]):
+			if float(segment.get("health",WALL_HP))<=0 or (bool(segment.get("gate",false)) and not hostile): continue
+			var center:=Vector2(float(segment["x"]),float(segment["y"]))
+			var point:Vector2=Geometry2D.get_closest_point_to_segment(center,start,finish)
+			if point.distance_to(center)>0.53: continue
+			# Permite sair de uma posição sobreposta, mas nunca atravessar a barreira.
+			if start.distance_to(center)<0.53 and finish.distance_to(center)>start.distance_to(center) and point.distance_to(center)>=start.distance_to(center)-0.001: continue
+			var d:float=start.distance_squared_to(center)
+			if d<distance:
+				distance=d
+				nearest={"town":town,"wall":segment}
+	return nearest
+
+func allied_gate_waypoint(actor:Dictionary,start:Vector2,destination:Vector2) -> Vector2:
+	# Evita recalcular rotas quando ainda não há uma defesa construída.
+	for town in towns:
+		if town.get("palisades",[]).is_empty() or hostile_wall(actor,town): continue
+		if int(actor.get("town",0))!=int(town["id"]): continue
+		var origin:=Vector2(float(town["x"]),float(town["y"]))
+		var inside:bool=maxf(absf(start.x-origin.x),absf(start.y-origin.y))<5.0
+		var goal_inside:bool=maxf(absf(destination.x-origin.x),absf(destination.y-origin.y))<5.0
+		if inside==goal_inside: continue
+		var gate:Dictionary=town.get("palisade_gate",{})
+		if gate.is_empty(): continue
+		var center:=Vector2(float(gate["x"]),float(gate["y"]))
+		var normal:Vector2=Vector2(0,signf(center.y-origin.y)) if str(gate.get("axis","h"))=="h" else Vector2(signf(center.x-origin.x),0)
+		if start.distance_to(center)<0.65: return center+normal*(0.9 if inside else -0.9)
+		return center
+	return destination
+
+func damage_palisade(town:Dictionary,wall:Dictionary,amount:float) -> bool:
+	var maximum:float=GATE_HP if bool(wall.get("gate",false)) else WALL_HP
+	wall["max_health"]=maximum
+	wall["health"]=maxf(0.0,float(wall.get("health",maximum))-maxf(0.0,amount))
+	wall["hit_until"]=swamp_clock+0.25
+	if float(wall["health"])>0: return false
+	var breaches:Array=town.get("palisade_breaches",[])
+	breaches.append(str(wall["x"])+":"+str(wall["y"]))
+	town["palisade_breaches"]=breaches
+	var walls:Array=town.get("palisades",[])
+	walls.erase(wall)
+	sound_at("build",wall)
+	news=str(town["name"])+": uma abertura foi criada nas defesas!"
+	return true
+
+func next_palisade(town:Dictionary) -> Dictionary:
+	var origin:=Vector2i(int(town["x"]),int(town["y"]))
+	var radius:int=5
+	var plan:Array=[]
+	for dy in range(-radius,radius+1):
+		for dx in range(-radius,radius+1):
+			if abs(dx)!=radius and abs(dy)!=radius: continue
+			var cell:=origin+Vector2i(dx,dy)
+			if cell.x<1 or cell.y<1 or cell.x>=WIDTH-1 or cell.y>=SIZE-1: continue
+			if str(tiles[cell.y][cell.x])=="water" or water_surface_weight(Vector2(cell))>0.46: continue
+			plan.append({"x":cell.x,"y":cell.y,"axis":"h" if abs(dy)==radius else "v"})
+	if plan.is_empty(): return {}
+	if not town.has("palisade_gate"):
+		var gate:Dictionary=plan[0]
+		var best:float=10000.0
+		for segment in plan:
+			var d:float=Vector2(float(segment["x"]),float(segment["y"])).distance_squared_to(Vector2(origin)+Vector2(0,radius))
+			if d<best:
+				best=d
+				gate=segment
+		town["palisade_gate"]=gate.duplicate()
+	var opening:Dictionary=town["palisade_gate"]
+	for segment in plan:
+		if int(segment["x"])==int(opening["x"]) and int(segment["y"])==int(opening["y"]): segment["gate"]=true
+		if str(segment["x"])+":"+str(segment["y"]) in town.get("palisade_breaches",[]): continue
+		var done:bool=false
+		for built in town.get("palisades",[]):
+			if int(built["x"])==int(segment["x"]) and int(built["y"])==int(segment["y"]):
+				done=true
+				break
+		if not done: return segment
+	return {}
+
+func village_at_war(town:Dictionary) -> bool:
+	if not wars: return false
+	for other in towns:
+		if int(other["id"])!=int(town["id"]) and kingdom_id(other)!=kingdom_id(town) and politics.get_status(self,int(town["id"]),int(other["id"]))=="war": return true
+	return false
+
+func dismantle_palisade_job(p:Dictionary,town:Dictionary,step:float) -> bool:
+	if village_at_war(town) or is_military(p) or float(p["age"])<16.0 or int(p["id"])==int(town["leader"]): return false
+	var segments:Array=town.get("palisades",[])
+	if segments.is_empty(): return false
+	var worker:Dictionary=get_person(int(town.get("dismantle_worker",0)))
+	if not worker.is_empty() and bool(worker.get("alive",false)) and not is_military(worker) and int(worker["id"])!=int(p["id"]): return false
+	town["dismantle_worker"]=p["id"]
+	var segment:Dictionary=segments.back()
+	var goal:=Vector2(float(segment["x"]),float(segment["y"]))
+	_set_delivery_goal(p,goal,"Desmontando paliçada")
+	if Vector2(float(p["x"]),float(p["y"])).distance_to(goal)<0.8:
+		_mark_action(p,"chopping",1.0)
+		town["dismantle_progress"]=float(town.get("dismantle_progress",0))+step
+		if float(town["dismantle_progress"])>=3.0:
+			segments.pop_back()
+			store_resource(town,preferred_storage(town,"wood",p),"wood",1.0)
+			town["dismantle_progress"]=0.0
+			town["dismantle_worker"]=0
+			sound_at("build",p)
+			if segments.is_empty(): town.erase("palisade_gate")
+	return true
+
+func stop_wartime_construction(town:Dictionary) -> void:
+	if village_at_war(town): return
+	town.erase("palisade_breaches")
+	var project:Dictionary=town.get("construction",{})
+	if str(project.get("kind",""))!="palisade": return
+	var refund:float=float(project.get("required",{}).get("wood",3.0))
+	for person in people:
+		var cargo:Dictionary=person.get("cargo",{})
+		if bool(cargo.get("project",false)) and int(cargo.get("project_id",-1))==int(project.get("project_id",-2)):
+			if bool(person.get("alive",false)): person["cargo"]={}
+	town["wood"]=float(town.get("wood",0))+refund
+	town["construction"]={}
+
 func workshop_stone_cost(kind:String) -> float:
-	return float({"oven":12,"forge":24,"crossing":4,"upgrade":12,"castle":120}.get(kind,0))
+	return float({"oven":12,"forge":24,"crossing":4,"upgrade":12,"castle":300}.get(kind,0))
 
 func workshop_position(town:Dictionary,kind:String) -> Vector2:
 	var origin:=Vector2(float(town["x"]),float(town["y"]))
@@ -1102,6 +1308,12 @@ func _prepare_project(town:Dictionary) -> void:
 	if project.is_empty() or project.has("required"): return
 	var kind:String=str(project["kind"])
 	var pos:Vector2=workshop_position(town,kind)
+	if kind=="palisade":
+		var segment:Dictionary=next_palisade(town)
+		if not segment.is_empty():
+			pos=Vector2(float(segment["x"]),float(segment["y"]))
+			project["axis"]=segment["axis"]
+			project["gate"]=bool(segment.get("gate",false))
 	project["x"]=pos.x
 	project["y"]=pos.y
 	if kind=="upgrade": project["house_index"]=upgrade_index(town)
@@ -1128,6 +1340,7 @@ func transport_job(p:Dictionary,town:Dictionary) -> bool:
 				sound_at("deposit",p)
 				gain_xp(p,2.0+float(cargo["amount"])*0.4,"trabalho")
 				p["cargo"]={}
+				_mark_action(p,"deposit",0.65)
 				p["task"]="Construindo"
 			return true
 		var storage_key:String=preferred_storage(town,str(cargo["kind"]),p)
@@ -1148,7 +1361,7 @@ func transport_job(p:Dictionary,town:Dictionary) -> bool:
 		if not bool(other["alive"]) or int(other["town"])!=int(town["id"]) or float(other["age"])<16.0 or is_military(other): continue
 		if int(other["id"])==int(p["id"]): break
 		rank+=1
-	if rank>=2: return false
+	if rank>=(4 if str(project["kind"])=="castle" and active_population(int(town["id"]))>=12 else 2): return false
 	var needed:Dictionary=project["required"]
 	var delivered:Dictionary=project["delivered"]
 	for key in ["wood","stone"]:
@@ -1243,7 +1456,7 @@ func defense(p:Dictionary) -> float:
 	return float([0,2,5,9,14][clampi(int(p.get("armor",0)),0,4)])+(2.0 if bool(p.get("combat_training",false)) else 0.0)+(2.0 if str(p.get("armor_material",""))=="croc_hide" else 0.0)
 
 func attack_damage(p:Dictionary) -> float:
-	return 2.0+strength(p)*0.05+float([0,2,5,9,14][clampi(int(p.get("weapon",0)),0,4)])+(4.0 if bool(p.get("combat_training",false)) else 0.0)+(2.0 if bool(p.get("feather_arrows",false)) else 0.0)
+	return 2.0+strength(p)*0.05+float([0,2,5,9,14][clampi(int(p.get("weapon",0)),0,4)])+(4.0 if bool(p.get("combat_training",false)) else 0.0)+(2.0 if bool(p.get("feather_arrows",false)) else 0.0)+(6.0 if str(p.get("weapon_kind",""))=="steel_sword" else (3.0 if str(p.get("weapon_kind",""))=="iron_spear" else 0.0))
 
 func is_military(person:Dictionary) -> bool:
 	return str(person.get("military_role","")) in ["royal","soldier","archer","general"]
@@ -1352,7 +1565,7 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 		var best:float=1000.0
 		var tactics:int=army_tactics(town)
 		for other in army_members(enemy_town):
-			if not invading and Vector2(float(other["x"]),float(other["y"])).distance_to(origin)>5.0: continue
+			if not invading and Vector2(float(other["x"]),float(other["y"])).distance_to(origin)>(8.5 if role=="archer" else 6.5): continue
 			var q:=Vector2(float(other["x"]),float(other["y"]))
 			var distance:float=pos.distance_to(q)
 			var priority:float=distance
@@ -1360,11 +1573,14 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 			if priority<best:
 				best=priority
 				enemy=other
+		if invading and enemy.is_empty() and army_members(enemy_town).is_empty():
+			var enemy_ruler:Dictionary=get_person(int(enemy_town.get("wartime_ruler",enemy_town["leader"])))
+			if not enemy_ruler.is_empty() and bool(enemy_ruler.get("alive",false)) and not accepts_province(enemy_town): enemy=enemy_ruler
 		goal=Vector2(float(enemy_town["x"]),float(enemy_town["y"])) if invading else origin
 		if not enemy.is_empty():
 			goal=Vector2(float(enemy["x"]),float(enemy["y"]))
 			var distance:float=pos.distance_to(goal)
-			if role=="archer" and str(person.get("weapon_kind",""))=="bow" and int(person.get("ammo",0))>0 and distance<2.0: goal=pos
+			if role=="archer" and str(person.get("weapon_kind",""))=="bow" and int(person.get("ammo",0))>0 and distance<3.8: goal=pos
 			elif tactics>=1 and role=="archer":
 				var escort:Dictionary=nearby_shield(person,town,3.0)
 				if not escort.is_empty():
@@ -1373,7 +1589,36 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 		if tactics>=2 and role=="soldier" and str(person.get("shield_kind","")).is_empty() and not enemy.is_empty() and pos.distance_to(goal)>1.1:
 			var heading:Vector2=(goal-origin).normalized()
 			goal+=Vector2(-heading.y,heading.x)*(0.55 if slot%2==0 else -0.55)
+		if role=="archer" and not invading and not town.get("palisades",[]).is_empty():
+			var outward:Vector2=(goal-origin).normalized()
+			goal=origin+outward*3.9
 		_set_delivery_goal(person,goal,"Marchando para conquista" if invading else "Defendendo aldeia")
+		var ranged_ready:bool=role=="archer" and str(person.get("weapon_kind",""))=="bow" and int(person.get("ammo",0))>0
+		var holding:bool=invading and str(town.get("campaign_mode","assault"))=="blockade"
+		if holding:
+			var target_origin:=Vector2(float(enemy_town["x"]),float(enemy_town["y"]))
+			var number:int=maxi(1,army_members(town,false).size())
+			var angle:float=float(slot)*TAU/float(number)
+			var position:=target_origin+Vector2(cos(angle),sin(angle))*6.3
+			position.x=clampf(position.x,1,WIDTH-2)
+			position.y=clampf(position.y,1,SIZE-2)
+			if not enemy.is_empty():
+				var enemy_pos:=Vector2(float(enemy["x"]),float(enemy["y"]))
+				if enemy_pos.distance_to(target_origin)>5.2 and pos.distance_to(enemy_pos)<2.0: position=enemy_pos
+			_set_delivery_goal(person,position,"Mantendo cerco")
+		if invading and not ranged_ready and not holding:
+			var siege_goal:Vector2=Vector2(float(enemy["x"]),float(enemy["y"])) if not enemy.is_empty() else goal
+			var obstruction:Dictionary=wall_on_path(person,pos,siege_goal,true)
+			if not obstruction.is_empty():
+				var wall:Dictionary=obstruction["wall"]
+				var wall_pos:=Vector2(float(wall["x"]),float(wall["y"]))
+				_set_delivery_goal(person,wall_pos,"Atacando portão" if bool(wall.get("gate",false)) else "Atacando paliçada")
+				if pos.distance_to(wall_pos)<0.90 and float(person.get("military_cd",0))<=0:
+					person["military_cd"]=1.1
+					_mark_action(person,"combat",0.85)
+					damage_palisade(obstruction["town"],wall,attack_damage(person))
+					sound_at("hit",wall)
+				return
 	else:
 		var angle:float=float(slot)*2.39996+day*0.035
 		goal=origin+Vector2(cos(angle),sin(angle))*(2.2 if role=="archer" else (1.0 if role=="general" else 3.0))
@@ -1394,7 +1639,7 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 	if not enemy.is_empty() and float(person.get("military_cd",0))<=0:
 		var d:float=pos.distance_to(Vector2(float(enemy["x"]),float(enemy["y"])))
 		var ranged:bool=role=="archer" and str(person.get("weapon_kind",""))=="bow" and int(person.get("ammo",0))>0
-		if d<(2.2 if ranged else 0.9):
+		if d<(4.0 if ranged else 0.9) and (ranged or wall_on_path(person,pos,Vector2(float(enemy["x"]),float(enemy["y"])),true).is_empty()):
 			person["military_cd"]=(1.8 if ranged else 1.1)*maxf(0.75,1.0-float(person.get("war_xp",0))*0.001)
 			_mark_action(person,"combat",1.0)
 			if ranged:
@@ -1402,19 +1647,36 @@ func military_duty(person:Dictionary,town:Dictionary,step:float) -> void:
 				sound_at("bow",person)
 				magic_bolts.append({"x":pos.x,"y":pos.y,"target":enemy["id"],"kind":"human","life":3.0,"damage":attack_damage(person),"caster":person["id"],"arrow":true})
 			else:
-				sound_at("sword" if str(person.get("weapon_kind",""))=="sword" else "hit",person)
+				sound_at("sword" if str(person.get("weapon_kind","")) in ["sword","steel_sword"] else "hit",person)
 				_swamp_damage(enemy,attack_damage(person))
 				gain_xp(person,2.0 if bool(enemy["alive"]) else 12.0,"combate")
 				gain_war_xp(person,town,2.0 if bool(enemy["alive"]) else 10.0)
 			person["task"]="Defendendo governante" if role=="royal" else "Combatendo inimigo"
 	town["morale"]=minf(100,float(town.get("morale",60))+step*0.08)
 
-func begin_campaign(attacker:Dictionary,defender:Dictionary) -> bool:
+func blockade_active(town:Dictionary) -> bool:
+	var attacker:Dictionary=get_town(int(town.get("siege_by",0)))
+	if attacker.is_empty() or str(attacker.get("campaign_mode","assault"))!="blockade" or not wars: return false
+	if int(attacker.get("raid_target",0))!=int(town["id"]): return false
+	if politics.get_status(self,int(attacker["id"]),int(town["id"]))!="war": return false
+	var origin:=Vector2(float(town["x"]),float(town["y"]))
+	var troops:Array=army_members(attacker,false)
+	var nearby:int=0
+	for soldier in troops:
+		var distance:float=Vector2(float(soldier["x"]),float(soldier["y"])).distance_to(origin)
+		if distance>=4.5 and distance<=8.5: nearby+=1
+	return nearby>=maxi(2,ceili(float(troops.size())*0.6))
+
+func begin_campaign(attacker:Dictionary,defender:Dictionary,mode:String="auto") -> bool:
 	if kingdom_id(attacker)==kingdom_id(defender) or int(attacker.get("raid_target",0))>0 or int(attacker.get("siege_by",0))>0 or int(defender.get("siege_by",0))>0 or int(defender.get("raid_target",0))>0: return false
 	if army_members(attacker,false).is_empty(): return false
 	sound_at("war",attacker)
 	attacker["raid_target"]=defender["id"]
 	defender["siege_by"]=attacker["id"]
+	var chosen:String=mode
+	if mode=="auto":
+		chosen="blockade" if not defender.get("palisades",[]).is_empty() and army_members(attacker,false).size()>=3 and rng.randf()<0.45 else "assault"
+	attacker["campaign_mode"]="blockade" if chosen=="blockade" else "assault"
 	news=str(attacker["name"])+" enviou seu exercito contra "+str(defender["name"])+"."
 	return true
 
@@ -1428,12 +1690,48 @@ func _update_campaigns() -> void:
 			attacker["raid_target"]=0
 			if not defender.is_empty(): defender["siege_by"]=0
 			continue
-		if not army_members(defender).is_empty(): continue
 		var origin:=Vector2(float(defender["x"]),float(defender["y"]))
-		for soldier in troops:
-			if Vector2(float(soldier["x"]),float(soldier["y"])).distance_to(origin)<1.1:
-				annex_town(attacker,defender)
-				break
+		if blockade_active(defender) and accepts_province(defender) and float(defender.get("food",0))<1.0 and float(defender.get("morale",60))<=20.0:
+			annex_town(attacker,defender)
+			continue
+		if not army_members(defender).is_empty(): continue
+		if ruler_fallen(defender):
+			finish_defeat(attacker,defender)
+			continue
+		if accepts_province(defender):
+			for soldier in troops:
+				if Vector2(float(soldier["x"]),float(soldier["y"])).distance_to(origin)<1.1:
+					annex_town(attacker,defender)
+					break
+	# Uma guerra também pode terminar sem campanha ativa, se a liderança e o exército caíram.
+	for i in range(towns.size()):
+		for j in range(i+1,towns.size()):
+			var a:Dictionary=towns[i]
+			var b:Dictionary=towns[j]
+			if politics.get_status(self,int(a["id"]),int(b["id"]))!="war" or kingdom_id(a)==kingdom_id(b): continue
+			if army_members(a).is_empty() and ruler_fallen(a): finish_defeat(b,a)
+			elif army_members(b).is_empty() and ruler_fallen(b): finish_defeat(a,b)
+
+func accepts_province(town:Dictionary) -> bool:
+	# Líderes mais diplomáticos podem aceitar a rendição em vez de resistir até o fim.
+	return leader_diplomacy(town)>=leader_aggression(town) or float(town.get("morale",60))<=20.0
+
+func ruler_fallen(town:Dictionary) -> bool:
+	var ruler:Dictionary=get_person(int(town.get("wartime_ruler",town.get("leader",0))))
+	return ruler.is_empty() or not bool(ruler.get("alive",false))
+
+func finish_defeat(winner:Dictionary,loser:Dictionary) -> void:
+	politics.set_treaty(self,int(winner["id"]),int(loser["id"]),"peace",true)
+	winner["raid_target"]=0
+	winner["siege_by"]=0
+	loser["raid_target"]=0
+	loser["siege_by"]=0
+	winner["victories"]=int(winner.get("victories",0))+1
+	news=str(loser["name"])+" perdeu seu exercito e governante. "+str(winner["name"])+" venceu a guerra."
+	for town in [winner,loser]:
+		var history:Array=town.get("historical_events",[])
+		history.append({"day":int(day),"event":news})
+		town["historical_events"]=history
 
 func annex_town(attacker:Dictionary,defender:Dictionary) -> void:
 	var old_kingdom:int=kingdom_id(defender)
@@ -1450,7 +1748,7 @@ func annex_town(attacker:Dictionary,defender:Dictionary) -> void:
 			town["siege_by"]=0
 	attacker["raid_target"]=0
 	defender["siege_by"]=0
-	politics.set_treaty(self,int(attacker["id"]),int(defender["id"]),"peace")
+	politics.set_treaty(self,int(attacker["id"]),int(defender["id"]),"peace",true)
 	news=str(attacker["name"])+" conquistou e anexou "+str(defender["name"])+"!"
 	for town in [attacker,defender]:
 		var history:Array=town.get("historical_events",[])
@@ -1499,14 +1797,14 @@ func equip_worker(town:Dictionary,p:Dictionary) -> void:
 				p["shield_kind"]=item
 				break
 		var kind:String=str(p.get("weapon_kind",""))
-		var desired:Array=["bow","spear","club"] if str(p.get("military_role",""))=="archer" else ["sword","spear","club"]
+		var desired:Array=["bow","spear","club"] if str(p.get("military_role",""))=="archer" else ["steel_sword","sword","iron_spear","spear","club"]
 		for item in desired:
 			if kind==item: break
 			if float(town.get(item,0))<1.0: continue
 			if not take_equipment(town,p,str(item)): continue
 			if not kind.is_empty() and RESOURCE_NAMES.has(kind): store_resource(town,preferred_storage(town,kind,p),kind,1)
 			p["weapon_kind"]=item
-			p["weapon"]=int({"club":1,"spear":2,"bow":2,"sword":4}[item])
+			p["weapon"]=int({"club":1,"spear":2,"iron_spear":3,"bow":2,"sword":4,"steel_sword":4}[item])
 			break
 		if str(p.get("weapon_kind",""))=="bow" and int(p.get("ammo",0))<3:
 			for n in range(6):
@@ -1949,6 +2247,14 @@ func init_animal_health(animal:Dictionary) -> void:
 		animal["max_health"]=hp
 		animal["health"]=minf(hp,previous) if animal.has("health") and species not in ["Lobo","Urso"] else (hp if bool(animal.get("alive",true)) else 0.0)
 	if not animal.has("hunger"): animal["hunger"]=15.0
+	if not animal.has("born_day"): animal["born_day"]=day
+	if not animal.has("xp"): animal["xp"]=0.0
+
+func animal_age(animal:Dictionary) -> float:
+	return maxf(0.0,(day-float(animal.get("born_day",day)))/365.0)
+
+func animal_level(animal:Dictionary) -> int:
+	return 1+int(animal_age(animal)/2.0)+int(float(animal.get("xp",0))/25.0)
 
 func animal_damage(animal:Dictionary) -> float:
 	return float({"crocodile":28,"fox":12,"boar":14,"deer":5,"Lobo":16,"Urso":32,"turtle":3,"capybara":4,"chicken":1,"rabbit":1,"frog":1,"heron":3,"camel":8,"lizard":1,"snow_hare":1,"duck":2,"cow":7,"sheep":2,"goat":5,"horse":9,"pig":5,"dog":8,"cat":3,"eagle":10,"owl":5,"crow":2,"bat":1,"penguin":2}.get(str(animal.get("species","")),2))
@@ -1981,7 +2287,7 @@ func hunt_animal(person:Dictionary,animal:Dictionary) -> bool:
 		collect_nearby_drop(person)
 	return true
 
-const RESOURCE_NAMES:Dictionary={"wood":"Madeira","stone":"Pedra","ore":"Minerio","metal":"Metal","food":"Comida","water":"Agua","fish":"Peixe","meat":"Carne","hide":"Couro","croc_hide":"Couro de crocodilo","feather":"Penas","bone":"Ossos","shell":"Casco","fiber":"Fibra vegetal","cord":"Corda","club":"Bastao","spear":"Lanca tribal","bow":"Arco","sword":"Espada de ferro","pickaxe":"Picareta de pedra","iron_pickaxe":"Picareta de ferro","arrows":"Flechas","hoe":"Enxada","axe":"Machado","rod":"Vara de pesca","wood_shield":"Escudo de madeira","iron_shield":"Escudo de ferro"}
+const RESOURCE_NAMES:Dictionary={"wood":"Madeira","stone":"Pedra","ore":"Minerio","metal":"Metal","food":"Comida","water":"Agua","fish":"Peixe","meat":"Carne","hide":"Couro","croc_hide":"Couro de crocodilo","feather":"Penas","bone":"Ossos","shell":"Casco","fiber":"Fibra vegetal","cord":"Corda","club":"Bastao","spear":"Lanca tribal","bow":"Arco","sword":"Espada de ferro","steel_sword":"Espada de aço","iron_spear":"Lança de ferro","pickaxe":"Picareta de pedra","iron_pickaxe":"Picareta de ferro","arrows":"Flechas","hoe":"Enxada","axe":"Machado","rod":"Vara de pesca","wood_shield":"Escudo de madeira","iron_shield":"Escudo de ferro"}
 
 func animal_loot(species:String) -> Dictionary:
 	match species:
@@ -2127,12 +2433,15 @@ const CRAFT_RECIPES:Dictionary={
 	"rod":{"wood":1,"cord":1},
 	"metal":{"ore":2,"wood":1},
 	"sword":{"metal":3,"wood":1},
+	"steel_sword":{"metal":5,"wood":2},
+	"iron_spear":{"metal":2,"wood":2},
 	"iron_pickaxe":{"metal":2,"wood":1}
 }
 
 func craft_allowed(town:Dictionary,item:String) -> bool:
 	if not CRAFT_RECIPES.has(item): return false
-	if item in ["metal","sword","iron_pickaxe","iron_shield"] and (not bool(town.get("forge",false)) or int(town["level"])<3): return false
+	if item=="steel_sword" and int(town["level"])<4: return false
+	if item in ["metal","sword","steel_sword","iron_spear","iron_pickaxe","iron_shield"] and (not bool(town.get("forge",false)) or int(town["level"])<3): return false
 	if item in ["cord","bow","arrows","rod"] and int(town["level"])<1: return false
 	for material in CRAFT_RECIPES[item].keys():
 		if float(town.get(material,0))<float(CRAFT_RECIPES[item][material]): return false
@@ -2160,7 +2469,7 @@ func equipment_job(person:Dictionary,town:Dictionary) -> bool:
 	if float(person["age"])<16: return false
 	var wanted:Array=[]
 	if is_military(person):
-		wanted=["bow","spear","club"] if str(person["military_role"])=="archer" else ["sword","spear","club"]
+		wanted=["bow","spear","club"] if str(person["military_role"])=="archer" else ["steel_sword","sword","iron_spear","spear","club"]
 		if int(town.get("raid_target",0))>0 or int(town.get("siege_by",0))>0: return false
 	else:
 		match str(person.get("profession","")):
@@ -2223,9 +2532,12 @@ func next_craft(town:Dictionary) -> String:
 					bow_needed=true
 					desired.append("bow")
 				else: desired.append("arrows")
-			elif weapon!="sword":
-				if bool(town.get("forge",false)): desired.append("sword")
-				if weapon not in ["spear","sword"]: desired.append("spear")
+			elif weapon!="steel_sword":
+				if bool(town.get("forge",false)):
+					if int(town["level"])>=4: desired.append("steel_sword")
+					if weapon!="sword": desired.append("sword")
+					if weapon not in ["sword","iron_spear"]: desired.append("iron_spear")
+				if weapon not in ["spear","iron_spear","sword"]: desired.append("spear")
 				if weapon.is_empty(): desired.append("club")
 		elif profession=="Agricultor" and tool!="hoe": desired.append("hoe")
 		elif profession=="Construtor" and tool!="axe": desired.append("axe")
@@ -2259,13 +2571,13 @@ func crafting_job(person:Dictionary,town:Dictionary,step:float) -> bool:
 	if not craft_allowed(town,item):
 		town["craft_job"]={}
 		return false
-	var pos:Vector2=workshop_position(town,"forge" if item in ["metal","sword","iron_pickaxe","iron_shield"] else "campfire")
+	var pos:Vector2=workshop_position(town,"forge" if item in ["metal","sword","steel_sword","iron_spear","iron_pickaxe","iron_shield"] else "campfire")
 	_set_delivery_goal(person,pos,"Fabricando "+str(RESOURCE_NAMES[item]))
 	if Vector2(float(person["x"]),float(person["y"])).distance_to(pos)<0.65:
 		job["progress"]=float(job["progress"])+step
-		if float(job["progress"])>=(12.0 if item in ["metal","sword","iron_pickaxe","iron_shield"] else 5.0):
+		if float(job["progress"])>=(12.0 if item in ["metal","sword","steel_sword","iron_spear","iron_pickaxe","iron_shield"] else 5.0):
 			if craft_item(town,item):
-				sound_at("forge" if item in ["metal","sword","iron_pickaxe","iron_shield"] else "build",person)
+				sound_at("forge" if item in ["metal","sword","steel_sword","iron_spear","iron_pickaxe","iron_shield"] else "build",person)
 				gain_xp(person,5.0,"trabalho")
 			town["craft_job"]={}
 	return true
@@ -2499,22 +2811,34 @@ func visible_action(actor:Dictionary) -> String:
 		"Combatendo inimigo","Combatendo bruxa","Defendendo contra animal","Cacando": return "combat"
 	return ""
 
-# Profundidade calculada pela distancia a margem, sem alterar mundos salvos.
+# A margem fisica usa os mesmos pixels, ruido e interpolacao do desenho.
+const SHORE_DETAIL:int=24
+var shore_noise:FastNoiseLite
+
+func water_surface_weight(p:Vector2) -> float:
+	if tiles.size()!=SIZE: return 0.0
+	var px:int=floori((p.x+0.5)*SHORE_DETAIL)
+	var py:int=floori((p.y+0.5)*SHORE_DETAIL)
+	if px<0 or py<0 or px>=WIDTH*SHORE_DETAIL or py>=SIZE*SHORE_DETAIL: return 0.0
+	if shore_noise==null:
+		shore_noise=FastNoiseLite.new()
+		shore_noise.seed=527
+		shore_noise.frequency=0.039
+	var fx:float=float(px)/SHORE_DETAIL-0.5+shore_noise.get_noise_2d(px,py)*0.65
+	var fy:float=float(py)/SHORE_DETAIL-0.5+shore_noise.get_noise_2d(px+431,py+217)*0.65
+	var x0:int=clampi(floori(fx),0,WIDTH-1)
+	var y0:int=clampi(floori(fy),0,SIZE-1)
+	var x1:int=clampi(floori(fx)+1,0,WIDTH-1)
+	var y1:int=clampi(floori(fy)+1,0,SIZE-1)
+	var tx:float=smoothstep(0.12,0.88,fposmod(fx,1.0))
+	var ty:float=smoothstep(0.12,0.88,fposmod(fy,1.0))
+	return lerpf(lerpf(float(str(tiles[y0][x0])=="water"),float(str(tiles[y0][x1])=="water"),tx),lerpf(float(str(tiles[y1][x0])=="water"),float(str(tiles[y1][x1])=="water"),tx),ty)
+
 func water_depth(p:Vector2) -> float:
-	if tiles.size()!=SIZE or p.x<0 or p.y<0 or p.x>=WIDTH or p.y>=SIZE: return 0.0
-	var x:int=int(p.x)
-	var y:int=int(p.y)
-	if str(tiles[y][x])!="water" or is_bridge(x,y): return 0.0
-	# As coordenadas dos seres se referem ao centro visual do quadrado.
-	var local:=Vector2(fposmod(p.x+0.5,1.0),fposmod(p.y+0.5,1.0))
-	var distance:float=1.0
-	for offset in [Vector2i(-1,0),Vector2i(1,0),Vector2i(0,-1),Vector2i(0,1)]:
-		var nx:int=x+offset.x
-		var ny:int=y+offset.y
-		if nx>=0 and nx<WIDTH and ny>=0 and ny<SIZE and str(tiles[ny][nx])=="water": continue
-		var edge:float=local.x if offset.x<0 else (1.0-local.x if offset.x>0 else (local.y if offset.y<0 else 1.0-local.y))
-		distance=minf(distance,edge)
-	return lerpf(0.28,1.0,smoothstep(0.06,0.44,distance))
+	var water:float=water_surface_weight(p)
+	# Abaixo de 0.46 a arte mostra solo seco ou areia de margem.
+	if water<=0.46 or is_bridge(floori(p.x+0.5),floori(p.y+0.5)): return 0.0
+	return lerpf(0.28,1.0,smoothstep(0.60,0.98,water))
 
 func swim_speed(actor:Dictionary,depth:float) -> float:
 	var species:String=str(actor.get("species","human"))

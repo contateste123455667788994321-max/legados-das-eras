@@ -2,7 +2,10 @@ name: Testar jogo e montar APK de teste
 
 on:
   push:
+    branches: [main, arte-e-progressao-v3]
+  pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 concurrency:
@@ -135,6 +138,7 @@ jobs:
           if-no-files-found: ignore
 
   publicar:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     name: Publicar atualizacao validada
     needs: apk_teste
     runs-on: ubuntu-24.04

@@ -40,6 +40,17 @@ func _run_tests() -> void:
 	_check(swim_world.water_depth(Vector2(8,8))>=0.60,"Agua central tem profundidade para nadar")
 	swim_world.tiles[8][7]="grass"
 	_check(swim_world.water_depth(Vector2(7,8))==0.0,"Terra firme nao tem profundidade")
+	var dry_shore:int=0
+	var wet_shore:int=0
+	var shore_matches:bool=true
+	for i in range(49):
+		var point:=Vector2(7.0+float(i)/48.0,8.0)
+		var visually_wet:bool=swim_world.water_surface_weight(point)>0.46
+		if visually_wet: wet_shore+=1
+		else: dry_shore+=1
+		if (swim_world.water_depth(point)>0.0)!=visually_wet: shore_matches=false
+	_check(dry_shore>0 and wet_shore>0 and shore_matches,"Margem irregular: nada apenas nos pixels de agua")
+
 	var swimmer:Dictionary={"x":8.0,"y":8.0,"task":"Pescando"}
 	_check(swim_world.visible_action(swimmer)=="swimming","Humano guarda itens ao nadar")
 	_check(swim_world.swim_speed({"species":"duck"},1.0)>swim_world.swim_speed(swimmer,1.0),"Pato nada mais rapido que humano")
@@ -183,6 +194,39 @@ func _run_tests() -> void:
 	target_town["houses"]=0
 	target_town["house_levels"]=[]
 	_check(not building_world.start_construction(target_id,"castle"),"Castelo exige tecnologia")
+	_check(building_world.workshop_stone_cost("castle")==300.0 and building_world.construction_cost("castle")==150.0,"Castelo exige 300 pedras e 150 madeira")
+	var fence_world=World.new()
+	fence_world.generate_world()
+	var fence_town:Dictionary=fence_world.towns[0]
+	fence_town["x"]=12
+	fence_town["y"]=12
+	for yy in range(6,19):
+		for xx in range(6,19):
+			fence_world.tiles[yy][xx]="water" if xx==7 else "grass"
+	var fence_count:int=0
+	var gate_count:int=0
+	var fence_valid:bool=true
+	var fence_next:Dictionary=fence_world.next_palisade(fence_town)
+	while not fence_next.is_empty() and fence_count<50:
+		var fx:int=int(fence_next["x"])
+		var fy:int=int(fence_next["y"])
+		var gate:Dictionary=fence_town["palisade_gate"]
+		if str(fence_world.tiles[fy][fx])=="water": fence_valid=false
+		if bool(fence_next.get("gate",false)):
+			gate_count+=1
+			if fx!=int(gate["x"]) or fy!=int(gate["y"]): fence_valid=false
+		var built:Array=fence_town.get("palisades",[])
+		built.append(fence_next)
+		fence_town["palisades"]=built
+		fence_count+=1
+		fence_next=fence_world.next_palisade(fence_town)
+	_check(fence_valid and fence_count>0 and fence_count<40 and gate_count==1 and fence_next.is_empty(),"Paliçada preserva rio e portão único")
+	var siege_wall:Dictionary={"x":12,"y":17,"axis":"h","gate":true,"health":100.0}
+	fence_town["palisades"]=[siege_wall]
+	_check(not fence_world.damage_palisade(fence_town,siege_wall,35.0) and float(siege_wall["health"])==65.0,"Portão perde vida a cada ataque")
+	_check(fence_world.damage_palisade(fence_town,siege_wall,65.0) and fence_town["palisades"].is_empty(),"Portão destruído abre passagem")
+	_check(fence_world.WALL_HP==150.0 and fence_world.GATE_HP==100.0,"Resistência individual das defesas")
+
 	var original_wood: float = float(target_town["wood"])
 	_check(not building_world.start_construction(target_id, "bridge"), "Nao aceita construcoes desconhecidas")
 	_check(not building_world.start_construction(target_id,"forge"),"Forja exige tecnologia e recursos")
@@ -291,7 +335,8 @@ func _run_tests() -> void:
 	_check(world.politics.get_status(world, second_town, first_town) == "alliance", "Acordo bilateral")
 	_check(world.politics.set_treaty(world, first_town, second_town, "war"), "Guerra declarada manualmente")
 	_check(world.politics.get_status(world, first_town, second_town) == "war", "Guerra registrada")
-	_check(world.politics.set_treaty(world, first_town, second_town, "peace"), "Paz negociada")
+	_check(not world.politics.set_treaty(world, first_town, second_town, "peace"), "Guerra nao termina por tratado prematuro")
+	_check(world.politics.set_treaty(world, first_town, second_town, "peace",true), "Paz apos desfecho militar")
 	_check(world.politics.get_status(world, second_town, first_town) == "peace", "Tratado reconhecido pelos dois lados")
 	_check(not world.politics.set_treaty(world, first_town, first_town, "war"), "Nao permite guerra contra si mesmo")
 
@@ -364,7 +409,7 @@ func _run_tests() -> void:
 	visual_worker["target_x"]=5.0
 	_check(game.world.visible_action(visual_worker)=="fishing","Pescador mostra ferramenta ao chegar")
 	_check(game.tile_textures.size() == 9, "Nove imagens de terrenos e estacoes carregadas")
-	_check(game.actor_textures.size() == 8, "Oito sprites de pessoas, aldeias e animais carregados")
+	_check(game.actor_textures.size() == 9 and game.actor_textures.get("tribal_hut") is Texture2D and game.actor_textures.get("hut") is Texture2D, "Nove sprites incluindo cabana tribal e casa evoluida carregados")
 	_check(int(ProjectSettings.get_setting("display/window/size/viewport_width")) == 1280, "Tela horizontal configurada")
 	_check(game.MAP_AREA.size.x > 1200.0 and game.MAP_AREA.size.y > 600.0, "Mapa quase preenche a tela horizontal")
 	_check(not is_instance_valid(game.viewport_3d), "Jogo exclusivamente 2D")
