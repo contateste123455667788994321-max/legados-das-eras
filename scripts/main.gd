@@ -1901,8 +1901,11 @@ func _draw_depth_entities() -> void:
 			"house":
 				var size:float=float(entry["size"])
 				var era:int=int(entry["era"])
-				if era==1: _draw_sprite("hut",p,Vector2(size,size*0.82),true)
-				else: _draw_landscape_object("house_"+str(era),p+Vector2(0,size*0.27),size*(1.0+float(era-1)*0.10))
+				# Preserva a arte original de madeira e palha em todos os niveis.
+				# A ampliacao aumenta discretamente o tamanho, sem trocar o estilo.
+				var grown:float=size*(1.0+float(era-1)*0.045)
+				var anchored:Vector2=p-Vector2(0,(grown-size)*0.41)
+				_draw_sprite("hut",anchored,Vector2(grown,grown*0.82),true)
 			"person": _draw_person_variant(entry["actor"],p)
 			"animal": _draw_natural_animal(entry["actor"],p)
 			"beast": _draw_animated_beast(entry["actor"],p,str(entry["key"]))
