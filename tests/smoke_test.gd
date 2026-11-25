@@ -40,6 +40,17 @@ func _run_tests() -> void:
 	_check(swim_world.water_depth(Vector2(8,8))>=0.60,"Agua central tem profundidade para nadar")
 	swim_world.tiles[8][7]="grass"
 	_check(swim_world.water_depth(Vector2(7,8))==0.0,"Terra firme nao tem profundidade")
+	var dry_shore:int=0
+	var wet_shore:int=0
+	var shore_matches:bool=true
+	for i in range(49):
+		var point:=Vector2(7.0+float(i)/48.0,8.0)
+		var visually_wet:bool=swim_world.water_surface_weight(point)>0.46
+		if visually_wet: wet_shore+=1
+		else: dry_shore+=1
+		if (swim_world.water_depth(point)>0.0)!=visually_wet: shore_matches=false
+	_check(dry_shore>0 and wet_shore>0 and shore_matches,"Margem irregular: nada apenas nos pixels de agua")
+
 	var swimmer:Dictionary={"x":8.0,"y":8.0,"task":"Pescando"}
 	_check(swim_world.visible_action(swimmer)=="swimming","Humano guarda itens ao nadar")
 	_check(swim_world.swim_speed({"species":"duck"},1.0)>swim_world.swim_speed(swimmer,1.0),"Pato nada mais rapido que humano")
