@@ -326,7 +326,8 @@ func _run_tests() -> void:
 	_check(world.politics.get_status(world, second_town, first_town) == "alliance", "Acordo bilateral")
 	_check(world.politics.set_treaty(world, first_town, second_town, "war"), "Guerra declarada manualmente")
 	_check(world.politics.get_status(world, first_town, second_town) == "war", "Guerra registrada")
-	_check(world.politics.set_treaty(world, first_town, second_town, "peace"), "Paz negociada")
+	_check(not world.politics.set_treaty(world, first_town, second_town, "peace"), "Guerra nao termina por tratado prematuro")
+	_check(world.politics.set_treaty(world, first_town, second_town, "peace",true), "Paz apos desfecho militar")
 	_check(world.politics.get_status(world, second_town, first_town) == "peace", "Tratado reconhecido pelos dois lados")
 	_check(not world.politics.set_treaty(world, first_town, first_town, "war"), "Nao permite guerra contra si mesmo")
 
