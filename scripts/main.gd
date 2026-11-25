@@ -22,6 +22,14 @@ var zoom := 1.05
 var visual_motion:Dictionary={}
 var update_restarting:bool=false
 var update_previous_speed:float=1.0
+var home_open:bool=false
+var home_panel:Control
+var home_buttons:Array[Button]=[]
+var game_hud:Array[Control]=[]
+var startup_speed:float=1.0
+const WORLDS_DIR:String="user://worlds"
+const MENU_CONFIG:String="user://menu.cfg"
+const LEGACY_WORLD:String="user://world.json"
 var people_variants:Array[Texture2D]=[]
 var landscape_texture: ImageTexture
 var landscape_signature := 0
@@ -68,9 +76,15 @@ var predator_button: Button
 
 func _ready() -> void:
 	get_viewport().set_input_as_handled()
+	var preferences:=ConfigFile.new()
+	preferences.load(MENU_CONFIG)
+	startup_speed=clampf(float(preferences.get_value("game","startup_speed",1.0)),0.5,4.0)
+	if DisplayServer.get_name()!="headless":
+		var path:String=str(preferences.get_value("game","last_world",LEGACY_WORLD))
+		if _valid_world_path(path): world.save_path=path
 	if not world.load_world():
 		world.generate_world()
-	world.speed = 1.0
+	world.speed = startup_speed
 	texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST
 	_load_art()
 	soundscape=GameAudio.new()
@@ -78,6 +92,8 @@ func _ready() -> void:
 	update_manager = Updates.new()
 	add_child(update_manager)
 	_build_ui()
+	for child in get_children():
+		if child is Control: game_hud.append(child)
 	get_window().content_scale_aspect=Window.CONTENT_SCALE_ASPECT_EXPAND
 	get_viewport().size_changed.connect(_resize_map)
 	_resize_map()
@@ -85,10 +101,11 @@ func _ready() -> void:
 		var first_town: Dictionary = world.towns[0]
 		_focus_at(Vector2(float(first_town["x"]) + 0.5, float(first_town["y"]) + 0.5))
 	_refresh_ui()
+	if DisplayServer.get_name()!="headless": _open_home(false)
 	queue_redraw()
 
 func _process(delta: float) -> void:
-	if update_restarting: return
+	if update_restarting or home_open: return
 	_move_controlled(delta)
 	world.update_world(delta, controlled_id)
 	_track_visual_motion(delta)
@@ -105,7 +122,7 @@ func _process(delta: float) -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST:
-		if world != null and not world.tiles.is_empty():
+		if world != null and not world.tiles.is_empty() and not home_open:
 			world.save_world()
 
 func _load_art() -> void:
@@ -429,6 +446,9 @@ func _draw_landscape_object(key: String, p: Vector2, size: float) -> void:
 
 
 func _draw() -> void:
+	if home_open:
+		_draw_home_art()
+		return
 	# Interface discreta: mapa em quase toda a area util do aparelho.
 	draw_rect(Rect2(0, 0, screen_width, 720), Color("#141e1a"), true)
 	draw_rect(Rect2(0, 0, screen_width, 75), Color("#211e19"), true)
@@ -711,6 +731,7 @@ func _screen_to_world(screen_pos: Vector2) -> Vector2:
 	return (screen_pos - MAP_ORIGIN - map_offset) / (TILE_SIZE * zoom)
 
 func _unhandled_input(event: InputEvent) -> void:
+	if home_open: return
 	# A base Android antiga pode duplicar toques como eventos de mouse.
 	# Ignorar esses clones preserva pinça e analógico nas atualizações PCK.
 	if OS.has_feature("mobile") and (event is InputEventMouseButton or event is InputEventMouseMotion):
@@ -1239,6 +1260,7 @@ func _show_options() -> void:
 	popup.add_item("Verificar atualizacoes", 0)
 	popup.add_item("Configurar som", 15)
 	popup.add_item("Criar novo mundo", 1)
+	popup.add_item("Salvar e voltar ao menu inicial", 16)
 	popup.id_pressed.connect(func(which: int) -> void:
 		match which:
 			0: _check_updates()
@@ -1262,6 +1284,7 @@ func _show_options() -> void:
 			13: _show_world_cycle()
 			14: _show_spawn_menu()
 			15: soundscape.show_settings()
+			16: _open_home(true)
 		popup.queue_free()
 	)
 	add_child(popup)
@@ -1499,29 +1522,27 @@ func _save_now() -> void:
 	_refresh_ui()
 
 func _new_world() -> void:
-	# Exige pressao longa por meio da confirmacao incorporada, evitando apagar por acidente.
-	var dialog := ConfirmationDialog.new()
-	dialog.title = "Criar novo mundo?"
-	dialog.dialog_text = "Isso substitui o mundo salvo. Seu mundo atual nao podera ser recuperado."
-	dialog.ok_button_text = "Criar novo"
-	dialog.cancel_button_text = "Cancelar"
+	var dialog:=ConfirmationDialog.new()
+	dialog.title="Criar novo mundo"
+	dialog.dialog_text="O mundo atual sera preservado. Escolha um nome para o novo mundo."
+	dialog.ok_button_text="Criar e jogar"
+	dialog.cancel_button_text="Cancelar"
+	var name_input:=LineEdit.new()
+	name_input.placeholder_text="Nome do mundo"
+	name_input.text="Novo mundo"
+	name_input.max_length=40
+	name_input.custom_minimum_size=Vector2(420,48)
+	dialog.add_child(name_input)
 	add_child(dialog)
-	dialog.confirmed.connect(func() -> void:
-		world.generate_world()
-		spawn_species=""
-		selected_person_id = 0
-		selected_beast_id = 0
-		selected_town_id = 0
-		controlled_id = 0
-		character_view = false
-		_sync_character_ui()
-		map_offset = Vector2.ZERO
-		zoom = 1.05
-		world.save_world()
-		_refresh_ui()
+	dialog.confirmed.connect(func():
+		var name:String=name_input.text.strip_edges()
+		if name.is_empty(): name="Novo mundo"
+		_create_saved_world(name)
+		dialog.queue_free()
 	)
-	dialog.popup_centered()
-	dialog.close_requested.connect(dialog.queue_free)
+	dialog.canceled.connect(dialog.queue_free)
+	dialog.popup_centered(Vector2i(490,190))
+
 
 func _draw_project_marker(site:Dictionary,p:Vector2,unit:float) -> void:
 	var kind:String=str(site["kind"])
@@ -1902,6 +1923,7 @@ func _resize_map() -> void:
 	if is_instance_valid(action_button): action_button.position.x+=width-previous
 	if is_instance_valid(inventory_button): inventory_button.position.x+=width-previous
 	_clamp_map()
+	if home_open: _layout_home()
 	queue_redraw()
 
 func _draw_depth_entities() -> void:
@@ -1922,7 +1944,7 @@ func _draw_depth_entities() -> void:
 			"beast": _draw_animated_beast(entry["actor"],p,str(entry["key"]))
 
 func prepare_update_restart() -> bool:
-	if not world.save_world(): return false
+	if not home_open and not world.save_world(): return false
 	update_previous_speed=world.speed
 	world.speed=0
 	update_restarting=true
@@ -1996,3 +2018,267 @@ func _draw_water_actor(texture:Texture2D,source:Rect2,p:Vector2,s:float,face:flo
 		var width:float=s*(0.18+f*spread)
 		var q:=p+Vector2(-face*f*s*0.16,f*s*0.13)
 		draw_line(q-Vector2(width,0),q+Vector2(width,0),Color(0.70,0.91,0.90,(1-f)*0.56),maxf(1,s*0.026))
+
+func _valid_world_path(path:String) -> bool:
+	if path==LEGACY_WORLD: return true
+	if not path.begins_with(WORLDS_DIR+"/") or not path.ends_with(".json"): return false
+	var name:String=path.get_file().trim_suffix(".json")
+	return name.is_valid_int() and path==WORLDS_DIR+"/"+name+".json"
+
+func _remember_world() -> void:
+	var config:=ConfigFile.new()
+	config.load(MENU_CONFIG)
+	config.set_value("game","last_world",world.save_path)
+	config.set_value("game","startup_speed",startup_speed)
+	config.save(MENU_CONFIG)
+
+func _world_slots() -> Array:
+	var result:Array=[]
+	var candidates:Array[String]=[LEGACY_WORLD]
+	var dir:=DirAccess.open(WORLDS_DIR)
+	if dir!=null:
+		for file in dir.get_files():
+			var path:String=WORLDS_DIR+"/"+file
+			if _valid_world_path(path): candidates.append(path)
+	for path in candidates:
+		var actual:String=path if FileAccess.file_exists(path) else path+".bak"
+		if not FileAccess.file_exists(actual): continue
+		var data=JSON.parse_string(FileAccess.get_file_as_string(actual))
+		if not data is Dictionary or not data.get("tiles",[]) is Array or data.get("tiles",[]).size()!=World.SIZE: continue
+		var population:int=0
+		for person in data.get("people",[]):
+			if person is Dictionary and bool(person.get("alive",false)): population+=1
+		result.append({"path":path,"name":str(data.get("world_name","Meu mundo")),"day":float(data.get("day",0)),"population":population,"modified":FileAccess.get_modified_time(actual)})
+	result.sort_custom(func(a,b): return int(a["modified"])>int(b["modified"]))
+	return result
+
+func _open_home(save_first:bool=true) -> void:
+	if save_first and not home_open:
+		if not world.save_world():
+			_menu_notice("Nao foi possivel salvar o mundo. Tente novamente.")
+			return
+		_remember_world()
+	if is_instance_valid(home_panel): return
+	home_open=true
+	world.speed=0.0
+	active_touches.clear()
+	dragging=false
+	pinch_active=false
+	for control in game_hud:
+		if is_instance_valid(control): control.hide()
+	home_panel=Control.new()
+	home_panel.mouse_filter=Control.MOUSE_FILTER_STOP
+	add_child(home_panel)
+	home_buttons.clear()
+	var slots:Array=_world_slots()
+	for item in [{"label":"Continuar mundo" if not slots.is_empty() else "Comecar aventura","action":Callable(self,"_continue_world")},{"label":"Mundos salvos","action":Callable(self,"_show_saved_worlds")},{"label":"Opcoes","action":Callable(self,"_show_home_options")}]:
+		var button:Button=_button(str(item["label"]),Vector2.ZERO,Vector2(360,62),item["action"])
+		button.reparent(home_panel,false)
+		button.add_theme_font_size_override("font_size",24)
+		home_buttons.append(button)
+	_layout_home()
+	queue_redraw()
+
+func _layout_home() -> void:
+	if not is_instance_valid(home_panel): return
+	home_panel.position=Vector2.ZERO
+	home_panel.size=Vector2(screen_width,720)
+	for i in range(home_buttons.size()):
+		home_buttons[i].position=Vector2(screen_width*0.5-184,320+i*77)
+		home_buttons[i].size=Vector2(368,62)
+
+func _continue_world() -> void:
+	var slots:Array=_world_slots()
+	if slots.is_empty():
+		_new_world()
+		return
+	for slot in slots:
+		if str(slot["path"])==world.save_path:
+			_open_saved_world(str(slot["path"]))
+			return
+	_open_saved_world(str(slots[0]["path"]))
+
+func _open_saved_world(path:String) -> void:
+	if not _valid_world_path(path): return
+	if not home_open and not world.save_world():
+		_menu_notice("Nao foi possivel salvar o mundo atual.")
+		return
+	var chosen=World.new()
+	chosen.save_path=path
+	if not chosen.load_world():
+		_menu_notice("Nao foi possivel abrir este mundo. O arquivo nao foi apagado.")
+		return
+	world=chosen
+	_enter_world()
+
+func _create_saved_world(name:String) -> void:
+	if not home_open and not world.save_world():
+		_menu_notice("Nao foi possivel salvar o mundo atual.")
+		return
+	if DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(WORLDS_DIR))!=OK:
+		_menu_notice("Nao foi possivel criar a pasta de mundos.")
+		return
+	var id:int=int(Time.get_unix_time_from_system())
+	var path:String=WORLDS_DIR+"/"+str(id)+".json"
+	while FileAccess.file_exists(path) or FileAccess.file_exists(path+".bak"):
+		id+=1
+		path=WORLDS_DIR+"/"+str(id)+".json"
+	var chosen=World.new()
+	chosen.save_path=path
+	chosen.world_name=name
+	chosen.generate_world()
+	if not chosen.save_world():
+		_menu_notice("Nao foi possivel salvar o novo mundo.")
+		return
+	world=chosen
+	_enter_world()
+
+func _enter_world() -> void:
+	home_open=false
+	if is_instance_valid(home_panel): home_panel.queue_free()
+	home_panel=null
+	home_buttons.clear()
+	world.speed=startup_speed
+	resume_speed=startup_speed
+	selected_person_id=0
+	selected_beast_id=0
+	selected_town_id=0
+	controlled_id=0
+	spawn_species=""
+	character_view=false
+	active_touches.clear()
+	visual_motion.clear()
+	landscape_texture=null
+	map_offset=Vector2.ZERO
+	zoom=1.05
+	autosave_timer=0
+	for control in game_hud:
+		if is_instance_valid(control): control.show()
+	_sync_character_ui()
+	if not world.towns.is_empty():
+		var town:Dictionary=world.towns[0]
+		_focus_at(Vector2(float(town["x"])+0.5,float(town["y"])+0.5))
+	_remember_world()
+	_refresh_ui()
+	queue_redraw()
+
+func _show_saved_worlds() -> void:
+	var dialog:=AcceptDialog.new()
+	dialog.title="Mundos salvos"
+	dialog.ok_button_text="Voltar"
+	var layout:=VBoxContainer.new()
+	layout.custom_minimum_size=Vector2(650,470)
+	layout.add_theme_constant_override("separation",12)
+	var create:=Button.new()
+	create.text="+ Criar novo mundo"
+	create.custom_minimum_size=Vector2(0,48)
+	create.pressed.connect(func():
+		dialog.hide()
+		dialog.queue_free()
+		_new_world.call_deferred()
+	)
+	layout.add_child(create)
+	var scroll:=ScrollContainer.new()
+	scroll.custom_minimum_size=Vector2(640,390)
+	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL
+	var list:=VBoxContainer.new()
+	list.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation",8)
+	scroll.add_child(list)
+	layout.add_child(scroll)
+	var slots:Array=_world_slots()
+	if slots.is_empty():
+		var empty:=Label.new()
+		empty.text="Nenhum mundo salvo. Crie sua primeira civilizacao."
+		list.add_child(empty)
+	for slot in slots:
+		var path:String=str(slot["path"])
+		var button:=Button.new()
+		var day:float=float(slot["day"])
+		button.text="%s   |   Ano %d, dia %d   |   %d moradores"%[str(slot["name"]),int(day/365)+1,int(day)%365+1,int(slot["population"])]
+		button.custom_minimum_size=Vector2(0,58)
+		button.alignment=HORIZONTAL_ALIGNMENT_LEFT
+		button.pressed.connect(func():
+			dialog.hide()
+			dialog.queue_free()
+			_open_saved_world.call_deferred(path)
+		)
+		list.add_child(button)
+	dialog.add_child(layout)
+	add_child(dialog)
+	dialog.confirmed.connect(dialog.queue_free)
+	dialog.canceled.connect(dialog.queue_free)
+	dialog.popup_centered(Vector2i(700,540))
+
+func _show_home_options() -> void:
+	var dialog:=AcceptDialog.new()
+	dialog.title="Opcoes"
+	dialog.ok_button_text="Voltar"
+	var layout:=VBoxContainer.new()
+	layout.custom_minimum_size=Vector2(480,275)
+	layout.add_theme_constant_override("separation",12)
+	var volume:=Button.new()
+	volume.text="Som e volume"
+	volume.custom_minimum_size=Vector2(0,52)
+	volume.pressed.connect(func():
+		dialog.hide()
+		dialog.queue_free()
+		soundscape.show_settings.call_deferred()
+	)
+	layout.add_child(volume)
+	var label:=Label.new()
+	label.text="Velocidade ao entrar no mundo"
+	layout.add_child(label)
+	var select_speed:=OptionButton.new()
+	for speed in [0.5,1.0,2.0,4.0]:
+		select_speed.add_item(str(speed)+"x")
+		if is_equal_approx(startup_speed,speed): select_speed.select(select_speed.item_count-1)
+	select_speed.item_selected.connect(func(index:int):
+		startup_speed=[0.5,1.0,2.0,4.0][index]
+		_remember_world()
+	)
+	select_speed.custom_minimum_size=Vector2(0,44)
+	layout.add_child(select_speed)
+	var update:=Button.new()
+	update.text="Verificar atualizacoes"
+	update.custom_minimum_size=Vector2(0,52)
+	update.pressed.connect(func():
+		dialog.hide()
+		dialog.queue_free()
+		_check_updates.call_deferred()
+	)
+	layout.add_child(update)
+	var version:=Label.new()
+	version.text="Versao "+str(update_manager.get("_installed_version_name"))
+	layout.add_child(version)
+	dialog.add_child(layout)
+	add_child(dialog)
+	dialog.confirmed.connect(dialog.queue_free)
+	dialog.canceled.connect(dialog.queue_free)
+	dialog.popup_centered(Vector2i(530,365))
+
+func _menu_notice(message:String) -> void:
+	var dialog:=AcceptDialog.new()
+	dialog.title="Legado das Eras"
+	dialog.dialog_text=message
+	add_child(dialog)
+	dialog.confirmed.connect(dialog.queue_free)
+	dialog.canceled.connect(dialog.queue_free)
+	dialog.popup_centered()
+
+func _draw_home_art() -> void:
+	if not landscape_objects.has("title_landscape"): landscape_objects["title_landscape"]=load("res://assets/landscape/title_landscape.svg")
+	var art:Texture2D=landscape_objects["title_landscape"]
+	if art!=null:
+		var extent:Vector2=Vector2(screen_width,720)
+		var scale:float=maxf(extent.x/art.get_width(),extent.y/art.get_height())
+		var size:Vector2=art.get_size()*scale
+		draw_texture_rect(art,Rect2((extent-size)*0.5,size),false)
+	draw_rect(Rect2(0,0,screen_width,720),Color(0.035,0.065,0.054,0.20))
+	var middle:float=screen_width*0.5
+	draw_rect(Rect2(middle-239,151,478,432),Color(0.071,0.105,0.083,0.90))
+	draw_rect(Rect2(middle-239,151,478,432),Color("#a78a56"),false,2)
+	draw_line(Vector2(middle-180,279),Vector2(middle+180,279),Color("#987c4e"),1)
+	draw_string(ThemeDB.fallback_font,Vector2(middle-226,220),"LEGADO DAS ERAS",HORIZONTAL_ALIGNMENT_CENTER,452,43,Color("#f1d28d"))
+	draw_string(ThemeDB.fallback_font,Vector2(middle-226,255),"Cada civilizacao escreve sua historia.",HORIZONTAL_ALIGNMENT_CENTER,452,18,Color("#ddd0ad"))
+	draw_string(ThemeDB.fallback_font,Vector2(24,690),"SIMULACAO DE CIVILIZACOES",HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("#ddcda7"))

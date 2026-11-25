@@ -322,6 +322,11 @@ func _run_tests() -> void:
 	var game: Node2D = Main.new()
 	root.add_child(game)
 	_check(not game.texture_missing, "Todos os desenhos de pixel art foram importados")
+	_check(game._valid_world_path("user://world.json") and game._valid_world_path("user://worlds/123.json") and not game._valid_world_path("user://worlds/../123.json"),"Mundos usam arquivos separados e caminhos validados")
+	game._open_home(false)
+	_check(game.home_open and game.home_buttons.size()==3 and game.world.speed==0,"Menu inicial pausa o mundo e tem tres botoes")
+	game._enter_world()
+	_check(not game.home_open and game.world.speed>0,"Continuar fecha menu e retoma simulacao")
 	_check(game.landscape_objects["civilian_walk"] is Texture2D and game.landscape_objects["civilian_walk"].get_size()==Vector2(192,2176),"Atlas de 68 modelos civis com seis poses")
 	_check(game.landscape_objects["military_walk"] is Texture2D and game.landscape_objects["military_walk"].get_size()==Vector2(192,2048),"Atlas de 64 aparencias militares por funcao e armadura")
 	var visual_worker:Dictionary={"x":5.0,"y":5.0,"target_x":8.0,"target_y":5.0,"task":"Pescando"}

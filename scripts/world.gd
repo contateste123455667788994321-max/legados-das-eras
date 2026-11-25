@@ -525,11 +525,14 @@ func _predator_attacks(dt:float) -> void:
 		if bool(beast.get("alive",false)): _hostile_animal_step(beast,dt)
 
 
+var save_path:String="user://world.json"
+var world_name:String="Meu mundo"
 func save_world() -> bool:
-	var file := FileAccess.open("user://world.json", FileAccess.WRITE)
+	var file := FileAccess.open(save_path+".tmp", FileAccess.WRITE)
 	if file == null:
 		return false
 	var data := {
+		"world_name":world_name,
 		"tiles": tiles, "towns": towns, "people": people, "beasts": beasts,
 		"trees": trees, "next_seed_day": next_seed_day,
 		"wildlife": wildlife, "sites": sites, "rivers_v58":rivers_v58, "habitats_v59":habitats_v59, "ecology_v60":ecology_v60,
@@ -538,21 +541,34 @@ func save_world() -> bool:
 		"next_growth": next_growth, "wars": wars, "rivals": rivals, "predators": predators
 	}
 	file.store_string(JSON.stringify(data))
+	file.flush()
+	var error:Error=file.get_error()
 	file.close()
+	if error!=OK: return false
+	var target:String=ProjectSettings.globalize_path(save_path)
+	var temporary:String=ProjectSettings.globalize_path(save_path+".tmp")
+	var backup:String=ProjectSettings.globalize_path(save_path+".bak")
+	var had_previous:bool=FileAccess.file_exists(save_path)
+	if FileAccess.file_exists(save_path+".bak"): DirAccess.remove_absolute(backup)
+	if had_previous and DirAccess.rename_absolute(target,backup)!=OK: return false
+	if DirAccess.rename_absolute(temporary,target)!=OK:
+		if had_previous: DirAccess.rename_absolute(backup,target)
+		return false
 	return true
 
 func load_world() -> bool:
 	agent_ai.elapsed = 0.0
 	politics.elapsed = 0.0
-	if not FileAccess.file_exists("user://world.json"):
-		return false
-	var file := FileAccess.open("user://world.json", FileAccess.READ)
+	var source:String=save_path if FileAccess.file_exists(save_path) else save_path+".bak"
+	if not FileAccess.file_exists(source): return false
+	var file := FileAccess.open(source, FileAccess.READ)
 	if file == null:
 		return false
 	var value = JSON.parse_string(file.get_as_text())
 	file.close()
 	if typeof(value) != TYPE_DICTIONARY:
 		return false
+	world_name=str(value.get("world_name","Meu mundo"))
 	tiles = value.get("tiles", [])
 	towns = value.get("towns", [])
 	people = value.get("people", [])
