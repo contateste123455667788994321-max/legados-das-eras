@@ -24,6 +24,8 @@ var update_restarting:bool=false
 var update_previous_speed:float=1.0
 var home_open:bool=false
 var home_panel:Control
+var premium_home_art:TextureRect
+const PREMIUM_MENU_PATH := "res://assets/landscape/legado_das_eras_vale_dourado.png"
 var home_buttons:Array[Button]=[]
 var title_font:SystemFont
 const ANIMAL_ROWS:Array[String]=["chicken","deer","rabbit","frog","capybara","heron","camel","lizard","snow_hare","crocodile","turtle","duck","boar","fox","wolf","bear","cow","sheep","goat","horse","pig","dog","cat","eagle","owl","crow","bat","penguin"]
@@ -596,6 +598,13 @@ func _draw_world_sites() -> void:
 				for i in range(3):
 					var age:float=fposmod(world.swamp_clock*0.34+float(i)*0.33,1.0)
 					draw_circle(p+Vector2(unit*(0.13+age*0.10),-unit*(0.59+age*0.55)),unit*(0.035+age*0.055),Color(0.72,0.72,0.68,(1-age)*0.18))
+		elif kind=="forge":
+			_draw_landscape_object("forge",p,unit*0.95)
+			if MAP_AREA.grow(-unit).has_point(p):
+				for i in range(4):
+					var age:float=fposmod(world.swamp_clock*0.32+float(i)*0.25,1.0)
+					var drift:float=sin(age*2.6)*0.13+age*0.12
+					draw_circle(p+Vector2(unit*(0.22+drift),-unit*(0.76+age*0.64)),unit*(0.025+age*0.065),Color(0.71,0.69,0.64,(1.0-age)*0.25))
 		else:
 			_draw_landscape_object(kind,p,unit*(1.45 if kind=="mine" else 0.95))
 
@@ -2174,11 +2183,46 @@ func _open_home(save_first:bool=true) -> void:
 	home_panel=Control.new()
 	home_panel.mouse_filter=Control.MOUSE_FILTER_STOP
 	add_child(home_panel)
+	premium_home_art=null
+	if ResourceLoader.exists(PREMIUM_MENU_PATH):
+		var artwork:=load(PREMIUM_MENU_PATH) as Texture2D
+		if artwork!=null:
+			premium_home_art=TextureRect.new()
+			premium_home_art.texture=artwork
+			premium_home_art.expand_mode=TextureRect.EXPAND_IGNORE_SIZE
+			premium_home_art.stretch_mode=TextureRect.STRETCH_SCALE
+			premium_home_art.mouse_filter=Control.MOUSE_FILTER_IGNORE
+			premium_home_art.texture_filter=CanvasItem.TEXTURE_FILTER_LINEAR
+			var effect:=Shader.new()
+			effect.code="""shader_type canvas_item;
+float spot(vec2 p, vec2 c, vec2 r){return 1.0-smoothstep(0.15,1.0,length((p-c)/r));}
+void fragment(){
+ vec2 p=UV;
+ float t=TIME;
+ float river=spot(p,vec2(0.62,0.79),vec2(0.145,0.12))+spot(p,vec2(0.72,0.94),vec2(0.19,0.095));
+ float falls=spot(p,vec2(0.309,0.607),vec2(0.016,0.043));
+ float flag=spot(p,vec2(0.201,0.267),vec2(0.037,0.023));
+ float smoke=spot(p,vec2(0.16,0.621),vec2(0.020,0.048))+spot(p,vec2(0.91,0.545),vec2(0.020,0.042));
+ vec2 uv=p;
+ uv.x+=river*0.00075*sin(p.y*380.0-t*2.3)+flag*0.0008*sin(p.x*220.0+t*2.4)+smoke*0.00065*sin(p.y*180.0-t*1.1);
+ uv.y+=falls*0.0011*sin(p.y*480.0-t*5.0)+flag*0.0011*sin(p.x*270.0-t*3.0);
+ vec4 col=texture(TEXTURE,uv);
+ float torch=spot(p,vec2(0.162,0.519),vec2(0.009,0.016))+spot(p,vec2(0.268,0.519),vec2(0.009,0.016));
+ col.rgb+=torch*vec3(0.035,0.018,0.003)*(0.5+0.5*sin(t*6.3+ p.x*70.0));
+ COLOR=col;
+}
+"""
+			var material:=ShaderMaterial.new()
+			material.shader=effect
+			premium_home_art.material=material
+			home_panel.add_child(premium_home_art)
 	home_buttons.clear()
 	for item in [{"label":"Carregar mundo","action":Callable(self,"_continue_world")},{"label":"Mundos salvos","action":Callable(self,"_show_saved_worlds")},{"label":"Opções","action":Callable(self,"_show_home_options")}]:
 		var button:Button=_button(str(item["label"]),Vector2.ZERO,Vector2(360,62),item["action"])
 		button.reparent(home_panel,false)
 		button.add_theme_font_size_override("font_size",24)
+		if is_instance_valid(premium_home_art):
+			button.self_modulate=Color(1,1,1,0)
 		home_buttons.append(button)
 	_layout_home()
 	queue_redraw()
@@ -2187,6 +2231,18 @@ func _layout_home() -> void:
 	if not is_instance_valid(home_panel): return
 	home_panel.position=Vector2.ZERO
 	home_panel.size=Vector2(screen_width,720)
+	if is_instance_valid(premium_home_art):
+		var available:=home_panel.size
+		var native_size:=premium_home_art.texture.get_size()
+		var fit:float=minf(available.x/native_size.x,available.y/native_size.y)
+		var art_size:Vector2=native_size*fit
+		var origin:Vector2=(available-art_size)*0.5
+		premium_home_art.position=origin
+		premium_home_art.size=art_size
+		for i in range(home_buttons.size()):
+			home_buttons[i].position=origin+art_size*Vector2(0.363,0.374+0.096*i)
+			home_buttons[i].size=art_size*Vector2(0.274,0.084)
+		return
 	for i in range(home_buttons.size()):
 		home_buttons[i].position=Vector2(screen_width*0.5-184,320+i*77)
 		home_buttons[i].size=Vector2(368,62)
@@ -2241,6 +2297,7 @@ func _enter_world() -> void:
 	home_open=false
 	if is_instance_valid(home_panel): home_panel.queue_free()
 	home_panel=null
+	premium_home_art=null
 	home_buttons.clear()
 	world.speed=startup_speed
 	resume_speed=startup_speed
@@ -2385,6 +2442,9 @@ func _menu_notice(message:String) -> void:
 	dialog.popup_centered()
 
 func _draw_home_art() -> void:
+	if is_instance_valid(premium_home_art):
+		draw_rect(Rect2(Vector2.ZERO,Vector2(screen_width,720)),Color("#0d1925"))
+		return
 	if not landscape_objects.has("title_landscape"): landscape_objects["title_landscape"]=load("res://assets/landscape/title_landscape_v2.svg")
 	var art:Texture2D=landscape_objects["title_landscape"]
 	var extent:Vector2=Vector2(screen_width,720)

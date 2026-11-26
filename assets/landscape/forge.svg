@@ -1,1 +1,34 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" shape-rendering="crispEdges"><path d="M7 56V24L18 15H46L57 24V56Z" fill="#5b4d3d"/><path d="M4 25L15 12H49L61 25 56 29H8Z" fill="#b28440"/><path d="M9 25L16 15H48L55 25Z" fill="#d6aa58"/><path d="M17 53V34L24 27H41L48 34V53Z" fill="#39302c"/><path d="M22 52V38L28 32H38L43 38V52Z" fill="#b84b24"/><path d="M26 51L30 40 33 45 37 36 40 51Z" fill="#ffd15a"/><rect x="38" y="5" width="12" height="11" fill="#79766e"/><rect x="39" y="5" width="10" height="3" fill="#b3aca0"/><rect x="4" y="49" width="12" height="4" fill="#52565a"/><rect x="7" y="53" width="6" height="4" fill="#757a7e"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" shape-rendering="crispEdges">
+<!-- Pixel-aligned original workshop: chimney, timber roof, masonry furnace and working anvil. -->
+<path d="M3 54H9V50H55V54H62V60H54V62H8V60H3Z" fill="#303b2c" opacity=".65"/>
+<path d="M7 25H56V57H7Z" fill="#3a3026"/>
+<path d="M10 28H54V54H10Z" fill="#92734d"/>
+<path d="M12 32H51V34H12ZM12 39H51V41H12ZM12 46H51V48H12Z" fill="#674e39"/>
+<path d="M8 28H12V56H8ZM51 28H55V56H51Z" fill="#523725"/>
+<path d="M9 29H10V54H9ZM52 29H53V54H52Z" fill="#ad8350"/>
+<path d="M39 7H53V20H39Z" fill="#464449"/>
+<path d="M41 9H51V18H41Z" fill="#858078"/>
+<path d="M38 5H54V9H38Z" fill="#b0a295"/>
+<path d="M42 12H50V14H42ZM45 9H47V12H45Z" fill="#565359"/>
+<path d="M2 26H6V21H11V16H16V11H46V15H51V19H56V23H61V28H58V31H5V29H2Z" fill="#4b3524"/>
+<path d="M6 25H10V20H15V15H19V13H44V17H49V21H54V25H58V27H6Z" fill="#bd8a42"/>
+<path d="M13 19H17V16H44V18H49V21H13ZM8 24H54V26H8Z" fill="#e0b266"/>
+<path d="M19 14H21V17H19ZM29 14H31V17H29ZM39 14H41V17H39ZM15 19H17V23H15ZM25 19H27V23H25ZM35 19H37V23H35ZM45 19H47V23H45Z" fill="#8f5f35"/>
+<path d="M7 28H57V30H7Z" fill="#76502f"/>
+<path d="M17 55V36H21V31H39V34H44V55Z" fill="#353037"/>
+<path d="M19 54V37H23V33H37V36H42V54Z" fill="#79736e"/>
+<path d="M20 40H41V42H20ZM20 47H41V49H20ZM29 34H31V38H29Z" fill="#514f51"/>
+<path d="M24 53V42H27V38H35V41H38V53Z" fill="#331f20"/>
+<path d="M26 52V45H28V41H31V47H33V43H35V47H37V52Z" fill="#bd4c28"/>
+<path d="M28 52V48H30V45H32V49H34V46H35V52Z" fill="#ffc353"/>
+<path d="M30 49H32V52H30Z" fill="#fff1aa"/>
+<path d="M15 54H45V57H15Z" fill="#4a4644"/>
+<path d="M2 47H18V50H15V53H12V56H16V58H3V56H6V53H8V51H4Z" fill="#30343a"/>
+<path d="M3 47H17V49H3ZM8 51H11V55H8Z" fill="#a09d95"/>
+<path d="M2 59H17V61H2Z" fill="#5e432e"/>
+<path d="M46 44H58V47H46Z" fill="#593e27"/>
+<path d="M47 46H49V57H47ZM55 46H57V57H55Z" fill="#4c3427"/>
+<path d="M47 42H52V44H47ZM53 41H57V43H53Z" fill="#b6b5a9"/>
+<path d="M48 50H52V52H48ZM50 52H54V54H50Z" fill="#a8a199"/>
+<path d="M57 56H61V58H57ZM45 58H49V60H45Z" fill="#d49045"/>
+</svg>
