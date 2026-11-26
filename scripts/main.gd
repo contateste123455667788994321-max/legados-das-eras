@@ -598,6 +598,13 @@ func _draw_world_sites() -> void:
 				for i in range(3):
 					var age:float=fposmod(world.swamp_clock*0.34+float(i)*0.33,1.0)
 					draw_circle(p+Vector2(unit*(0.13+age*0.10),-unit*(0.59+age*0.55)),unit*(0.035+age*0.055),Color(0.72,0.72,0.68,(1-age)*0.18))
+		elif kind=="forge":
+			_draw_landscape_object("forge",p,unit*0.95)
+			if MAP_AREA.grow(-unit).has_point(p):
+				for i in range(4):
+					var age:float=fposmod(world.swamp_clock*0.32+float(i)*0.25,1.0)
+					var drift:float=sin(age*2.6)*0.13+age*0.12
+					draw_circle(p+Vector2(unit*(0.22+drift),-unit*(0.76+age*0.64)),unit*(0.025+age*0.065),Color(0.71,0.69,0.64,(1.0-age)*0.25))
 		else:
 			_draw_landscape_object(kind,p,unit*(1.45 if kind=="mine" else 0.95))
 
