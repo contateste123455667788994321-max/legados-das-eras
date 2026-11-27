@@ -7,9 +7,9 @@ const SIZE := 20
 const WIDTH := 48
 # Um dia dura dez segundos a 1x; um ano dura cerca de 61 minutos.
 const DAYS_PER_REAL_SECOND := 0.10
-const HOUSE_DECAY_GRACE_DAYS := 6.0
-const HOUSE_DECAY_DAYS := 24.0
-const HOUSE_COLLAPSE_INTERVAL := 3.0
+const HOUSE_DECAY_GRACE_DAYS := 365.0
+const HOUSE_DECAY_DAYS := 365.0 * 9.0
+const HOUSE_COLLAPSE_INTERVAL := 45.0
 const NAMES := ["Ari", "Nara", "Taro", "Lia", "Breno", "Iara", "Dara", "Enzo", "Kira", "Suri", "Davi", "Maya", "Ravi", "Luna", "Rael", "Yara", "Cael", "Tina", "Eron", "Ayla"]
 var rng := RandomNumberGenerator.new()
 var agent_ai = AgentAI.new()
