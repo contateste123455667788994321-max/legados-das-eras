@@ -29,13 +29,13 @@ func _run_tests() -> void:
 	for resident in decay_world.people:
 		if int(resident["town"])==abandoned_id: resident["alive"]=false
 	decay_world._update_abandoned_houses()
-	decay_world.day+=12.0
+	decay_world.day+=365.0 * 5.0
 	decay_world._update_abandoned_houses()
 	_check(decay_world.house_decay(abandoned)>0.0 and int(abandoned["houses"])==2,"Casas abandonadas mofam antes do colapso")
-	decay_world.day+=12.0
+	decay_world.day+=World.HOUSE_DECAY_DAYS-365.0*5.0
 	decay_world._update_abandoned_houses()
 	_check(int(abandoned["houses"])==1 and decay_world.house_levels(abandoned).size()==1,"Primeira casa desaba apos o prazo")
-	decay_world.day+=3.0
+	decay_world.day+=World.HOUSE_COLLAPSE_INTERVAL
 	decay_world._update_abandoned_houses()
 	_check(int(abandoned["houses"])==0 and decay_world.house_levels(abandoned).is_empty(),"Casas abandonadas desaparecem gradualmente")
 	decay_world.make_person(abandoned_id,float(abandoned["x"]),float(abandoned["y"]))
