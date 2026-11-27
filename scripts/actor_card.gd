@@ -126,6 +126,9 @@ func display(sim: World, subject: Dictionary, is_human: bool, get_portrait: Call
 	_rule(body)
 	occupation = _label(body, 17)
 	equipment = _label(body, 16)
+	equipment.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+	equipment.custom_minimum_size.y = 24
+	equipment.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	extra = _label(body, 15, Color("#d4c3a4"))
 	if human:
 		var details := _action(body, "Ver crônicas")
@@ -136,7 +139,7 @@ func display(sim: World, subject: Dictionary, is_human: bool, get_portrait: Call
 func _age(years: float) -> String:
 	if years < 1:
 		var months := int(years * 12)
-		return "Menos de um mês" if months == 0 else ("%d mês" if months == 1 else "%d meses") % months
+		return "< 1 mês" if months == 0 else ("%d mês" if months == 1 else "%d meses") % months
 	return "%d ano" % int(years) if int(years) == 1 else "%d anos" % int(years)
 
 func refresh() -> void:
@@ -153,7 +156,6 @@ func refresh() -> void:
 			if not kind.is_empty(): items.append(str(World.RESOURCE_NAMES.get(kind, kind)))
 		if actor.get("witch_staff", false): items.append("Cajado do brejo")
 		equipment.text = "Equipamento  " + (" · ".join(items) if not items.is_empty() else "Nenhum")
-		equipment.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		extra.visible = false
 	else:
 		var species := str(actor["species"])
