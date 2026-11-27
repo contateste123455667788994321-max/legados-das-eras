@@ -304,7 +304,7 @@ func _terrain_type(tile: String) -> String:
 		return "snow"
 	return tile
 
-func _draw_sprite(key: String, center: Vector2, dimensions: Vector2, clip_to_map: bool = false) -> void:
+func _draw_sprite(key: String, center: Vector2, dimensions: Vector2, clip_to_map: bool = false, tint:Color=Color.WHITE) -> void:
 	if not actor_textures.has(key):
 		return
 	var texture: Texture2D = actor_textures[key]
@@ -314,9 +314,9 @@ func _draw_sprite(key: String, center: Vector2, dimensions: Vector2, clip_to_map
 		if clipped.size.x <= 0.0 or clipped.size.y <= 0.0:
 			return
 		var source := Rect2((clipped.position - dest.position) / dest.size * texture.get_size(), clipped.size / dest.size * texture.get_size())
-		draw_texture_rect_region(texture, clipped, source)
+		draw_texture_rect_region(texture, clipped, source, tint)
 	else:
-		draw_texture_rect(texture, dest, false)
+		draw_texture_rect(texture, dest, false, tint)
 
 
 func _landscape_color(kind: String, season: int) -> Color:
@@ -494,7 +494,7 @@ func _draw() -> void:
 			var house_size: float = 1.75 if i == 0 else 1.48
 			var era: int = clampi(int(world.house_levels(town)[i]), 1, 4)
 			var house_center:Vector2=center+spot*unit
-			scene_depth.append({"y":house_center.y+house_size*unit*0.30,"kind":"house","p":house_center,"size":house_size*unit,"era":era})
+			scene_depth.append({"y":house_center.y+house_size*unit*0.30,"kind":"house","p":house_center,"size":house_size*unit,"era":era,"decay":world.house_decay(town)})
 		var site: Dictionary = town.get("construction", {})
 		if not site.is_empty() and MAP_AREA.grow(-35.0).has_point(center):
 			var kind: String = str(site.get("kind", "house"))
@@ -2080,7 +2080,22 @@ func _draw_depth_entities() -> void:
 				# A ampliacao aumenta discretamente o tamanho, sem trocar o estilo.
 				var grown:float=size*(1.0+float(era-1)*0.045)
 				var anchored:Vector2=p-Vector2(0,(grown-size)*0.41)
-				_draw_sprite("tribal_hut" if era==1 else "hut",anchored,Vector2(grown,grown*0.82),true)
+				var decay:float=float(entry.get("decay",0.0))
+				var tint:Color=Color.WHITE.lerp(Color("#74835a"),minf(decay*1.5,1.0))
+				tint=tint.lerp(Color("#68604f"),maxf(0.0,(decay-0.55)/0.45))
+				var collapse:float=clampf((decay-0.65)/0.35,0.0,1.0)
+				var height:float=grown*0.82*(1.0-collapse*0.55)
+				var base:Vector2=anchored+Vector2(0,grown*0.41)
+				_draw_sprite("tribal_hut" if era==1 else "hut",base-Vector2(0,height*0.5),Vector2(grown,height),true,tint)
+				if decay>0.35 and MAP_AREA.grow(-grown*0.5).has_point(anchored):
+					# Pequenas manchas de musgo e fragmentos, em pixel art.
+					for j in range(5):
+						var patch:Vector2=base+Vector2((float(j)-2.0)*grown*0.085,-height*(0.40+float(j%2)*0.15))
+						draw_rect(Rect2(patch,Vector2(grown*0.045,grown*0.025)),Color(0.24,0.38,0.17,decay))
+					if collapse>0.0:
+						for j in range(4):
+							var debris:Vector2=base+Vector2((float(j)-1.5)*grown*0.15,-grown*0.035*float(j%2))
+							draw_rect(Rect2(debris,Vector2(grown*0.09,grown*0.045)),Color(0.36,0.29,0.19,collapse))
 			"person": _draw_person_variant(entry["actor"],p)
 			"animal": _draw_natural_animal(entry["actor"],p)
 			"beast": _draw_animated_beast(entry["actor"],p,str(entry["key"]))
