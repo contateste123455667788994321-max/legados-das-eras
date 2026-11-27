@@ -1,12 +1,17 @@
 shader_type canvas_item;
 
+// Retangulo normalizado da arte original, sem deformacao.
+uniform vec4 art_rect = vec4(0.0, 0.0, 1.0, 1.0);
+
 // Cada máscara cobre um detalhe já pintado na tela de 1280 x 720.
 float spot(vec2 uv, vec2 center, vec2 radius) {
 	return 1.0 - smoothstep(0.15, 1.0, length((uv - center) / radius));
 }
 
 void fragment() {
-	vec2 p = UV;
+	vec2 original_uv = (UV - art_rect.xy) / art_rect.zw;
+	// Reflexao continua das extremidades, mantendo a escala original.
+	vec2 p = 1.0 - abs(mod(original_uv, vec2(2.0)) - 1.0);
 	float river = spot(p, vec2(0.60, 0.74), vec2(0.06, 0.035))
 			+ spot(p, vec2(0.50, 0.84), vec2(0.055, 0.045))
 			+ spot(p, vec2(0.58, 0.90), vec2(0.075, 0.045))

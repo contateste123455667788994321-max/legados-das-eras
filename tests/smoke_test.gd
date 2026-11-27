@@ -408,6 +408,7 @@ func _run_tests() -> void:
 	game._open_home(false)
 	_check(game.home_open and game.home_buttons.size()==3 and game.world.speed==0,"Menu inicial pausa o mundo e tem tres botoes")
 	_check(is_instance_valid(game.home_art) and game.home_art.texture.resource_path == game.HOME_ART_PATH, "Menu usa a paisagem de Vale Dourado")
+	_check(game.home_art.size.is_equal_approx(game.home_panel.size), "Arte do menu preenche toda a tela sem barras")
 	game._enter_world()
 	_check(not game.home_open and game.world.speed>0,"Continuar fecha menu e retoma simulacao")
 	var new_humans: Texture2D = game.landscape_objects["habitantes"]

@@ -2245,10 +2245,15 @@ func _layout_home() -> void:
 	if is_instance_valid(home_art):
 		home_panel.size = get_viewport_rect().size
 		var fit := minf(home_panel.size.x / HOME_ART_SIZE.x, home_panel.size.y / HOME_ART_SIZE.y)
-		home_art.size = HOME_ART_SIZE * fit
-		home_art.position = (home_panel.size - home_art.size) * 0.5
+		# A arte central conserva a proporcao; o shader prolonga apenas as bordas.
+		var art_size := HOME_ART_SIZE * fit
+		var art_position := (home_panel.size - art_size) * 0.5
+		home_art.position = Vector2.ZERO
+		home_art.size = home_panel.size
+		var art_rect := Vector4(art_position.x / home_panel.size.x, art_position.y / home_panel.size.y, art_size.x / home_panel.size.x, art_size.y / home_panel.size.y)
+		(home_art.material as ShaderMaterial).set_shader_parameter("art_rect", art_rect)
 		for i in range(home_buttons.size()):
-			home_buttons[i].position = home_art.position + Vector2(466, HOME_BUTTON_TOPS[i]) * fit
+			home_buttons[i].position = art_position + Vector2(466, HOME_BUTTON_TOPS[i]) * fit
 			home_buttons[i].size = HOME_BUTTON_SIZE * fit
 		return
 	for i in range(home_buttons.size()):
