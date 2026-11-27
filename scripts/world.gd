@@ -7,6 +7,9 @@ const SIZE := 20
 const WIDTH := 48
 # Um dia dura dez segundos a 1x; um ano dura cerca de 61 minutos.
 const DAYS_PER_REAL_SECOND := 0.10
+const HOUSE_DECAY_GRACE_DAYS := 6.0
+const HOUSE_DECAY_DAYS := 24.0
+const HOUSE_COLLAPSE_INTERVAL := 3.0
 const NAMES := ["Ari", "Nara", "Taro", "Lia", "Breno", "Iara", "Dara", "Enzo", "Kira", "Suri", "Davi", "Maya", "Ravi", "Luna", "Rael", "Yara", "Cael", "Tina", "Eron", "Ayla"]
 var rng := RandomNumberGenerator.new()
 var agent_ai = AgentAI.new()
@@ -250,6 +253,8 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 	_update_drops(dt)
 	_update_swamp(dt,controlled_id)
 	for t in towns:
+		if active_population(int(t["id"])) == 0:
+			continue
 		# Avanco vinculado aos dias do mundo e a geracoes, nao aos quadros por segundo.
 		t["knowledge"] = float(t["knowledge"]) + elapsed_days * (0.012 + float(active_population(int(t["id"]))) * 0.00035)
 		var researched_level := 1 + int(float(t["knowledge"]) / 18.0)
@@ -294,6 +299,38 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 	_update_campaigns()
 	for town in towns:
 		progress_construction(town, dt)
+	_update_abandoned_houses()
+
+# O tempo de abandono e salvo no proprio dicionario da vila.
+func house_decay(town:Dictionary) -> float:
+	if not town.has("abandoned_day"):
+		return 0.0
+	return clampf((day-float(town["abandoned_day"])-HOUSE_DECAY_GRACE_DAYS)/(HOUSE_DECAY_DAYS-HOUSE_DECAY_GRACE_DAYS),0.0,1.0)
+
+func _update_abandoned_houses() -> void:
+	for town in towns:
+		if active_population(int(town["id"])) > 0:
+			town.erase("abandoned_day")
+			town.erase("next_house_collapse")
+			continue
+		if not town.has("abandoned_day"):
+			town["abandoned_day"]=day
+			town["next_house_collapse"]=day+HOUSE_DECAY_DAYS
+		var levels:Array=house_levels(town)
+		while not levels.is_empty() and day >= float(town.get("next_house_collapse",float(town["abandoned_day"])+HOUSE_DECAY_DAYS)):
+			# Remover o ultimo lote mantem a posicao das demais casas.
+			var key:String="house_"+str(levels.size()-1)
+			var stocks:Dictionary=building_stocks(town)
+			var camp:Dictionary=stocks.get("camp",{})
+			var salvage:Dictionary=stocks.get(key,{})
+			for resource in salvage.keys():
+				camp[resource]=float(camp.get(resource,0))+float(salvage[resource])
+			stocks["camp"]=camp
+			stocks.erase(key)
+			levels.pop_back()
+			town["houses"]=levels.size()
+			town["next_house_collapse"]=float(town.get("next_house_collapse",day))+HOUSE_COLLAPSE_INTERVAL
+			news=str(town["name"])+": uma casa abandonada desabou."
 
 func construction_cost(kind: String) -> float:
 	match kind:
@@ -474,6 +511,7 @@ func fishing_position(town:Dictionary) -> Dictionary:
 func _grow_economies() -> void:
 	for town in towns:
 		var population: int = active_population(int(town["id"]))
+		if population == 0: continue
 		var biome: String = str(town.get("home_biome", "grass"))
 		var food_factor: float = 1.0
 		var wood_factor: float = 1.0
