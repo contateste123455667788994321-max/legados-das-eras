@@ -88,6 +88,13 @@ func _run_tests() -> void:
 	world.store_resource(housed_town,"house_0","bone",2)
 	_check(float(world.building_stocks(housed_town).get("house_0",{}).get("bone",0))==2 and float(housed_town["bone"])==2,"Estoque por casa e total coerentes")
 	var craft_town:Dictionary={"id":777,"x":5,"y":5,"houses":1,"level":1,"wood":20.0,"stone":5.0,"fiber":2.0,"forge":false}
+	var early_camp := {"houses":0, "level":1, "wood":2.0}
+	_check(world.craft_item(early_camp,"wood_spear") and early_camp["wood"] == 0.0 and early_camp["wood_spear"] == 1.0, "Lança de madeira disponível antes de obter pedra")
+	var previous_damage := 0.0
+	for kind in ["wood_spear", "spear", "iron_spear", "sword", "steel_sword"]:
+		var damage:float = world.attack_damage({"id": 71, "strength": 40, "weapon_kind": kind, "weapon": World.WEAPON_LEVEL[kind]})
+		_check(damage > previous_damage, "Progressão de dano: " + World.RESOURCE_NAMES[kind])
+		previous_damage = damage
 	_check(not world.craft_item(craft_town,"sword"),"Espada nao existe antes da forja")
 	_check(world.craft_item(craft_town,"spear") and float(craft_town["spear"])==1,"Lanca produzida e armazenada")
 	_check(not world.craft_item({"level":1,"wood":2.0},"wood_shield"),"Escudo exige materiais")
@@ -400,10 +407,17 @@ func _run_tests() -> void:
 	_check(game._valid_world_path("user://world.json") and game._valid_world_path("user://worlds/123.json") and not game._valid_world_path("user://worlds/../123.json"),"Mundos usam arquivos separados e caminhos validados")
 	game._open_home(false)
 	_check(game.home_open and game.home_buttons.size()==3 and game.world.speed==0,"Menu inicial pausa o mundo e tem tres botoes")
+	_check(is_instance_valid(game.home_art) and game.home_art.texture.resource_path == game.HOME_ART_PATH, "Menu usa a paisagem de Vale Dourado")
 	game._enter_world()
 	_check(not game.home_open and game.world.speed>0,"Continuar fecha menu e retoma simulacao")
-	_check(game.landscape_objects["civilian_walk"] is Texture2D and game.landscape_objects["civilian_walk"].get_size()==Vector2(192,2176),"Atlas de 68 modelos civis com seis poses")
-	_check(game.landscape_objects["military_walk"] is Texture2D and game.landscape_objects["military_walk"].get_size()==Vector2(192,2048),"Atlas de 64 aparencias militares por funcao e armadura")
+	var new_humans: Texture2D = game.landscape_objects["habitantes"]
+	_check(new_humans.get_size() == Vector2(1920, 1728), "Prancha humana com 36 figurinos, quatro variantes e dez poses")
+	var portrait_actor := {"id":11, "gender":1, "age":28, "profession":"Ferreiro"}
+	var portrait: AtlasTexture = game._human_portrait(portrait_actor)
+	_check(portrait.atlas == new_humans and portrait.region == game._human_source(portrait_actor, 0), "Ficha usa exatamente o figurino do mapa")
+	portrait_actor["military_role"] = "soldier"
+	portrait_actor["armor"] = 3
+	_check(game._human_source(portrait_actor, 6).position.y != portrait.region.position.y, "Armadura e combate selecionam sprites militares reais")
 	var visual_worker:Dictionary={"x":5.0,"y":5.0,"target_x":8.0,"target_y":5.0,"task":"Pescando"}
 	_check(game.world.visible_action(visual_worker).is_empty(),"Pescador guarda vara durante deslocamento")
 	visual_worker["target_x"]=5.0
@@ -437,6 +451,7 @@ func _run_tests() -> void:
 	for popup in game.get_children():
 		if popup is ConfirmationDialog and popup.title == "Construir na aldeia":
 			construction_dialog_found = true
+			popup.hide()
 	_check(construction_dialog_found, "Jogador consegue abrir escolha de casas e fazendas")
 	_check(game._preferred_town_id() > 0, "Botao construir encontra uma aldeia proxima")
 	game.call("_show_diplomacy")
@@ -444,6 +459,7 @@ func _run_tests() -> void:
 	for child in game.get_children():
 		if child is ConfirmationDialog and child.title == "Diplomacia entre aldeias":
 			found_window = true
+			child.hide()
 	_check(found_window, "Janela de diplomacia abre com controles reais")
 	game.call("_show_options")
 	var options_found := false

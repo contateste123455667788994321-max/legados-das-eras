@@ -45,20 +45,25 @@ func _init_person(sim, p: Dictionary) -> void:
 			p["profession"] = "Crianca"
 			return
 		var mind: Dictionary = p["mind"]
-		if int(p["id"])%6==0:
-			p["profession"]="Pescador"
-		elif int(p["id"])%6==1:
-			p["profession"]="Minerador"
-		elif int(p["id"])%6==2:
-			p["profession"]="Cozinheiro"
-		elif float(mind["bravery"]) > 0.8:
-			p["profession"] = "Explorador"
-		elif float(mind["curiosity"]) > 0.76:
-			p["profession"] = "Explorador"
-		elif float(mind["ambition"]) > 0.72:
-			p["profession"] = "Construtor"
-		else:
-			p["profession"] = "Agricultor"
+		var id := int(p["id"])
+		match posmod(id, 8):
+			0, 3: p["profession"] = "Pescador"
+			1, 4: p["profession"] = "Minerador"
+			2: p["profession"] = "Cozinheiro"
+			_:
+				match posmod(int(id / 8) + id, 8):
+					0: p["profession"] = "Lenhador"
+					1: p["profession"] = "Caçador"
+					2: p["profession"] = "Curandeiro"
+					3: p["profession"] = "Ferreiro"
+					_:
+						if float(mind["bravery"]) > 0.8 or float(mind["curiosity"]) > 0.76:
+							p["profession"] = "Explorador"
+						elif float(mind["ambition"]) > 0.72:
+							p["profession"] = "Construtor"
+						else:
+							p["profession"] = "Agricultor"
+		p["specialty_v57"] = true
 
 func _init_town(t: Dictionary) -> void:
 	if not t.has("houses"):
@@ -191,6 +196,18 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 		return
 	# A personalidade altera os objetivos de trabalho e as exploracoes.
 	match str(p["profession"]):
+		"Lenhador":
+			_gather_wood(sim,p,home)
+		"Caçador":
+			_hunt(sim,p,home)
+		"Curandeiro":
+			_tend_injured(sim,p,home,step)
+		"Ferreiro":
+			# A fabricação e a entrega usam a mesma fila de trabalho de toda a aldeia.
+			if bool(home.get("forge",false)):
+				sim._set_delivery_goal(p,sim.workshop_position(home,"forge"),"Aguardando na forja")
+			else:
+				_gather_wood(sim,p,home)
 		"Pescador":
 			if _site_work(sim,p,home,"fish","Pescando"):
 				var has_rod:bool=str(p.get("tool_kind",""))=="rod"
@@ -256,6 +273,28 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 			_remember(p, "Sonha em liderar " + str(home["name"]) + ".", sim)
 	if sim.rng.randf() < 0.06:
 		_socialize(sim, p, home)
+
+func _tend_injured(sim, healer: Dictionary, home: Dictionary, step: float) -> void:
+	var origin := Vector2(healer["x"], healer["y"])
+	var patient: Dictionary = {}
+	var nearest := INF
+	for member in sim.people:
+		if not bool(member["alive"]) or int(member["town"]) != int(home["id"]) or int(member["id"]) == int(healer["id"]):
+			continue
+		if float(member["health"]) >= sim.max_hp(member) or float(member.get("needs", {}).get("hunger", 0.0)) >= 85.0:
+			continue
+		var distance := origin.distance_squared_to(Vector2(member["x"], member["y"]))
+		if distance < nearest:
+			patient = member
+			nearest = distance
+	if patient.is_empty():
+		_set_task(sim,healer,home,"De plantão",0.65)
+		return
+	sim._set_delivery_goal(healer,Vector2(patient["x"],patient["y"]),"Cuidando de ferido")
+	if nearest <= 0.75 * 0.75:
+		patient["health"] = minf(sim.max_hp(patient), float(patient["health"]) + step * 0.8)
+		sim._mark_action(healer,"healing",step)
+		sim.gain_xp(healer,step*0.2,"trabalho")
 
 func _set_task(sim, p: Dictionary, home: Dictionary, task: String, distance: float) -> void:
 	var old_task: String = str(p.get("task", ""))

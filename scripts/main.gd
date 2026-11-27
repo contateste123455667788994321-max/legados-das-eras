@@ -1,8 +1,10 @@
 extends Node2D
 ## Legado das Eras — tela jogavel. A simulacao permanece em world.gd.
 const World = preload("res://scripts/world.gd")
+const ActorCard = preload("res://scripts/actor_card.gd")
 const Updates = preload("res://scripts/update_manager.gd")
 const GameAudio = preload("res://scripts/game_audio.gd")
+const CAMPFIRE_FRAMES := preload("res://assets/landscape/fogueira_do_vale.png")
 const TILE_SIZE := 44.0
 const MAP_ORIGIN := Vector2(15.0, 79.0)
 var MAP_AREA := Rect2(12.0, 78.0, 1256.0, 626.0)
@@ -71,6 +73,7 @@ var view_button: Button
 var action_button: Button
 var inventory_button: Button
 
+var actor_card: ActorCard
 var info_label: Label
 var stats_label: Label
 var news_label: Label
@@ -149,10 +152,11 @@ func _load_art() -> void:
 	for key in ["hut","farm"]:
 		var new_art: Resource = load("res://assets/landscape/reference_"+key+".png")
 		if new_art is Texture2D: actor_textures[key] = new_art
+	landscape_objects["mine"] = preload("res://assets/landscape/mina_do_vale.png")
+	landscape_objects["forge"] = preload("res://assets/landscape/forja_do_vale.png")
 	landscape_objects["tree"] = load("res://assets/landscape/reference_tree.png")
 	landscape_objects["reference_characters"] = load("res://assets/landscape/reference_characters.png")
-	landscape_objects["civilian_walk"]=load("res://assets/landscape/people_v2.svg")
-	landscape_objects["military_walk"]=load("res://assets/landscape/military_v2.svg")
+	landscape_objects["habitantes"] = preload("res://assets/landscape/habitantes.png")
 	if texture_missing:
 		push_warning("Alguns desenhos do mapa ainda nao foram carregados.")
 
@@ -232,6 +236,8 @@ func _button(value: String, pos: Vector2, dimensions: Vector2, callback: Callabl
 	return b
 
 func _refresh_ui() -> void:
+	if is_instance_valid(actor_card) and not actor_card.is_queued_for_deletion():
+		actor_card.refresh()
 	var years := int(world.day / 365.0)
 	var day_of_year := int(world.day) % 365 + 1
 	var living := 0
@@ -506,12 +512,14 @@ func _draw() -> void:
 	_draw_resource_drops()
 	# Personagens separados visualmente por idade e aparencia.
 	for p in world.people:
-		if not bool(p["alive"]):
+		if not bool(p["alive"]) and world.swamp_clock >= float(p.get("fell_at", -2.0)) + 1.4:
 			continue
 		var center := _world_to_screen(Vector2(float(p["x"]) + 0.5, float(p["y"]) + 0.5))
 		if not MAP_AREA.has_point(center):
 			continue
 		scene_depth.append({"y":center.y,"kind":"person","p":center,"actor":p})
+		if not bool(p["alive"]):
+			continue
 		if float(p.get("poison_remaining",0))>0 and MAP_AREA.grow(-12).has_point(center):
 			var pulse:float=0.55+0.25*sin(world.swamp_clock*8.0)
 			draw_arc(center,10.0*zoom,0,TAU,18,Color(0.48,0.78,0.24,pulse),1.5)
@@ -595,6 +603,10 @@ func _draw_world_sites() -> void:
 			_draw_landscape_object("bridge",p,unit*1.9)
 		elif kind=="mine" and not bool(site.get("developed",false)):
 			_draw_landscape_object("rock",p,unit*0.95)
+		elif kind=="forge":
+			var size := unit * 1.65
+			_draw_landscape_object("forge", p, size)
+			_draw_forge_smoke(p + Vector2(0.26, -0.61) * size, size)
 		elif kind=="oven":
 			_draw_landscape_object("oven",p,unit*0.84)
 			if MAP_AREA.grow(-unit).has_point(p):
@@ -604,26 +616,26 @@ func _draw_world_sites() -> void:
 		else:
 			_draw_landscape_object(kind,p,unit*(1.45 if kind=="mine" else 0.95))
 
-func _draw_live_campfire(p:Vector2,u:float) -> void:
-	if not MAP_AREA.grow(-u*0.6).has_point(p): return
-	var z:float=maxf(1.0,u/32.0)
-	var t:float=world.swamp_clock
-	for i in range(10):
-		var angle:float=float(i)*TAU/10.0
-		var q:Vector2=(p+Vector2(cos(angle)*7,sin(angle)*3)*z).round()
-		draw_rect(Rect2(q-Vector2(2,2)*z,Vector2(4,4)*z),Color("#514846"))
-		draw_rect(Rect2(q-Vector2(2,2)*z,Vector2(3,2)*z),Color("#9b9181"))
-	for i in range(5):
-		var x:float=float(i-2)*2*z
-		var h:float=(5.0+float(2-abs(i-2))*2.0+sin(t*9.0+float(i)*2.1)*2.0)*z
-		var q:Vector2=(p+Vector2(x,-h)).round()
-		draw_rect(Rect2(q,Vector2(2*z,h)),Color("#bd4321"))
-		draw_rect(Rect2(q+Vector2(0,h*0.32),Vector2(z,h*0.68)),Color("#ff9e2c"))
-		draw_rect(Rect2(q+Vector2(z,h*0.63),Vector2(z,h*0.37)),Color("#ffe397"))
-	for i in range(5):
-		var a:float=fposmod(t*0.85+float(i)*0.2,1.0)
-		var q:Vector2=(p+Vector2(sin(a*3.0+float(i))*4,-8-a*12)*z).round()
-		draw_rect(Rect2(q,Vector2.ONE*z),Color(1.0,0.65,0.18,1.0-a))
+func _draw_forge_smoke(chimney: Vector2, size: float) -> void:
+	for i in range(4):
+		var age := fposmod(world.swamp_clock * 0.62 + i / 4.0, 1.0)
+		var puff_size := size * lerpf(0.044, 0.103, age)
+		var center := chimney + Vector2(age * age * 0.20, -age * 0.30) * size
+		var puff := Rect2(center - Vector2.ONE * puff_size * 0.5, Vector2.ONE * puff_size)
+		if MAP_AREA.encloses(puff):
+			draw_circle(center, puff_size * 0.5, Color(0.76, 0.73, 0.69, 0.37 * (1.0 - age)))
+
+func _draw_live_campfire(p: Vector2, unit: float) -> void:
+	var size := unit * 0.72
+	var dest := Rect2(p - Vector2(0.5, 0.8) * size, Vector2.ONE * size)
+	var clipped := dest.intersection(MAP_AREA)
+	if not clipped.has_area():
+		return
+	var frame := int(world.swamp_clock * 6.0) % 3
+	var source_size := Vector2(CAMPFIRE_FRAMES.get_width() / 3.0, CAMPFIRE_FRAMES.get_height())
+	var source_origin := Vector2(frame * source_size.x, 0)
+	var source := Rect2(source_origin + (clipped.position - dest.position) / size * source_size, clipped.size / size * source_size)
+	draw_texture_rect_region(CAMPFIRE_FRAMES, clipped, source)
 
 func _draw_rivers() -> void:
 	var unit:float=TILE_SIZE*zoom
@@ -660,46 +672,71 @@ func _draw_waterfall(p:Vector2,u:float) -> void:
 		draw_rect(Rect2(q,Vector2(u*(0.08+f*0.07),maxf(1,u*0.026))),Color(0.87,0.98,0.95,(1-f)*0.78))
 
 
+const HUMAN_CELL := 48
+const HUMAN_POSES := 10
+const HUMAN_JOBS := {"Agricultor":4, "Minerador":5, "Construtor":6, "Ferreiro":7, "Explorador":8, "Caçador":8, "Lenhador":10, "Governante":11}
+
+func _human_row(person: Dictionary) -> int:
+	var female := clampi(int(person.get("gender", 0)), 0, 1)
+	var first_row := female * 16
+	var stage: int = world.life_stage(person)
+	if stage < 2:
+		return first_row + 2
+	var job := str(person.get("profession", ""))
+	if job == "Governante":
+		return first_row + 11
+	if world.is_military(person):
+		var armor := clampi(int(person.get("armor", 0)), 0, 4)
+		var tier := 0
+		if armor > 0:
+			tier = 1 if armor < 3 else armor - 1
+		return first_row + 12 + tier
+	if stage == 3:
+		return first_row + 3
+	match job:
+		"Pescador": return 25 if female else 17
+		"Cozinheiro": return 34 + female
+		"Curandeiro": return 32 + female
+	return first_row + int(HUMAN_JOBS.get(job, 0))
+
+func _human_source(person: Dictionary, pose: int = 0) -> Rect2:
+	var identity := posmod(int(person.get("appearance", person.get("id", 0))) + int(person.get("skin", 0)) * 3 + int(person.get("hair", 0)), 4)
+	return Rect2((identity * HUMAN_POSES + pose) * HUMAN_CELL, _human_row(person) * HUMAN_CELL, HUMAN_CELL, HUMAN_CELL)
+
+func _human_portrait(person: Dictionary) -> Texture2D:
+	var portrait := AtlasTexture.new()
+	portrait.atlas = landscape_objects["habitantes"]
+	portrait.region = _human_source(person)
+	return portrait
+
 func _draw_person_variant(p:Dictionary,center:Vector2) -> void:
-	var stage:int=world.life_stage(p)
-	var profession:String=str(p.get("profession",""))
-	var sex:int=clampi(int(p.get("gender",0)),0,1)
-	var appearance:int=posmod(int(p.get("appearance",p["id"])),10)
-	var variation:int=posmod(appearance+int(p.get("skin",0))+int(p.get("hair",0)),2)
-	var s:float=24.0*zoom*[0.51,0.77,1.0,0.93][stage]
-	var atlas:Texture2D=landscape_objects["civilian_walk"]
-	var row:int=appearance+sex*10
-	var movement:Dictionary=visual_motion.get(int(p["id"]),{})
-	var moving:bool=bool(movement.get("moving",false)) and world.speed>0
-	var phase:float=float(movement.get("phase",0))
-	var face:float=float(movement.get("face",1.0))
-	var action:String=world.visible_action(p)
-	var working:bool=action in ["mining","chopping","farming","building","fishing","combat","cooking"]
-	var frame:int=int(fposmod(phase,TAU)/TAU*4) if moving else 0
-	if working and not moving: frame=4+int(world.swamp_clock*3.5)%2
-	if stage<2:
-		row=20+sex*4+posmod(appearance,4)
-	elif stage==3 and not world.is_military(p):
-		row=28+sex*4+posmod(appearance,4)
-	if stage>=2 and not world.is_military(p):
-		var job:int=int({"Agricultor":0,"Pescador":1,"Minerador":2,"Construtor":3,"Cozinheiro":4,"Explorador":5,"Lenhador":6,"Governante":7}.get(profession,-1))
-		if job>=0 and stage!=3: row=36+job*4+sex*2+variation
-	if world.is_military(p) and stage>=2:
-		atlas=landscape_objects["military_walk"]
-		var role:int=int({"soldier":0,"archer":1,"royal":2,"general":3}.get(str(p.get("military_role","soldier")),0))
-		var tier:int=0
-		var armor:int=int(p.get("armor",0))
-		if armor>0: tier=1 if armor<=2 else 2
-		if str(p.get("armor_material","")) in ["bone","shell","croc_hide"] and armor>0: tier=3
-		row=role*16+tier*4+sex*2+variation
-	var bounce:float=absf(sin(phase))*s*0.012 if moving else 0.0
-	var depth:float=world.water_depth(Vector2(float(p["x"]),float(p["y"])))
-	if depth>0:
-		var swim_frame:int=int(world.swamp_clock*4.0+float(int(p["id"])%3))%4
-		_draw_water_actor(atlas,Rect2((swim_frame+0)*32,row*32,32,32),center,s,face,depth,"human",moving)
+	var stage: int = world.life_stage(p)
+	var s: float = 22.0 * zoom * [0.53, 0.78, 1.0, 0.94][stage]
+	var atlas: Texture2D = landscape_objects["habitantes"]
+	var movement: Dictionary = visual_motion.get(int(p["id"]), {})
+	var moving: bool = bool(movement.get("moving", false)) and world.speed > 0
+	var phase := float(movement.get("phase", 0))
+	var face := float(movement.get("face", 1.0))
+	if not bool(p.get("alive", true)):
+		var fallen_for: float = world.swamp_clock - float(p["fell_at"])
+		var death_pose := 8 if fallen_for < 0.3 else 9
+		_draw_walk_sprite(atlas, _human_source(p, death_pose), center, s, face, 0.0, false, 0.0)
 		return
-	_contact_shadow(center,s*0.24,s*0.09)
-	_draw_walk_sprite(atlas,Rect2(frame*32,row*32,32,32),center,s,face,phase,false,bounce)
+	var action: String = world.visible_action(p)
+	var pose := int(fposmod(phase, TAU) / TAU * 4.0) if moving else 0
+	var beat := int(world.swamp_clock * 4.0 + int(p["id"]) % 2) % 2
+	if action == "combat":
+		pose = 6 + beat
+	elif action in ["mining", "chopping", "farming", "building", "smithing", "healing", "fishing", "cooking"] and not moving:
+		pose = 4 + beat
+	var bounce := absf(sin(phase)) * s * 0.018 if moving else 0.0
+	var depth: float = world.water_depth(Vector2(float(p["x"]), float(p["y"])))
+	if depth > 0:
+		var stroke := int(world.swamp_clock * 4.0 + int(p["id"]) % 3) % 4
+		_draw_water_actor(atlas, _human_source(p, stroke), center, s, face, depth, "human", moving)
+		return
+	_contact_shadow(center, s * 0.22, s * 0.07)
+	_draw_walk_sprite(atlas, _human_source(p, pose), center, s, face, phase, false, bounce)
 	_draw_equipment(p,center,s,bounce,face)
 	if bool(p.get("witch_staff",false)) and action=="combat":
 		_draw_landscape_object("magic_staff",center+Vector2(face*s*0.27,0),s*0.78)
@@ -909,6 +946,7 @@ func _zoom_around(screen_point: Vector2, desired_zoom: float) -> void:
 	_clamp_map()
 
 func _touch_map(position: Vector2) -> void:
+	_close_actor_card()
 	if character_view:
 		if controlled_id > 0:
 			var actor: Dictionary = world.get_actor(controlled_id)
@@ -943,7 +981,7 @@ func _touch_map(position: Vector2) -> void:
 			min_dist = d
 			nearest_id = 0
 			nearest_beast_id = int(b["id"])
-	if nearest_id==0 and nearest_beast_id==0 and controlled_id==0:
+	if controlled_id==0:
 		var chosen_animal:Dictionary={}
 		for animal in world.wildlife:
 			if float(animal.get("health",1))<=0: continue
@@ -952,12 +990,18 @@ func _touch_map(position: Vector2) -> void:
 				min_dist=d
 				chosen_animal=animal
 		if not chosen_animal.is_empty():
+			selected_person_id = 0
+			selected_beast_id = 0
+			selected_town_id = 0
+			_refresh_ui()
 			_show_animal_card(chosen_animal)
 			return
 	if nearest_id > 0:
 		selected_person_id = nearest_id
 		selected_beast_id = 0
 		selected_town_id = 0
+		if controlled_id == 0:
+			_open_actor_card(world.get_person(nearest_id), true)
 	elif nearest_beast_id > 0:
 		selected_beast_id = nearest_beast_id
 		selected_person_id = 0
@@ -1076,6 +1120,7 @@ func _sync_character_ui() -> void:
 	inventory_button.visible = controlled_id > 0
 
 func _toggle_view() -> void:
+	_close_actor_card()
 	if controlled_id>0:
 		controlled_id=0
 		world.news="Observando o mundo."
@@ -1685,65 +1730,39 @@ func _draw_project_marker(site:Dictionary,p:Vector2,unit:float) -> void:
 	draw_rect(Rect2(bar.position,Vector2(bar.size.x*ratio,bar.size.y)),Color("#e8bd65"))
 	draw_string(ThemeDB.fallback_font,p+Vector2(-unit*0.48,unit*0.36),"%d/%d"%[int(received),int(total)],HORIZONTAL_ALIGNMENT_CENTER,unit,12,Color("#ffedb8"))
 
-func _draw_equipment(p:Dictionary,c:Vector2,s:float,bounce:float,face:float=1.0) -> void:
-	if float(p["age"])<16 or not MAP_AREA.grow(-s).has_point(c): return
-	var action:String=world.visible_action(p)
-	var tool:String=str(p.get("tool_kind",""))
-	var weapon:String=str(p.get("weapon_kind",""))
-	var grip:Vector2=c+Vector2(face*s*0.22,-s*0.28-bounce)
-	var lift:float=sin(world.swamp_clock*11.0)*s*0.08
-	var wood:Color=Color("#7b5735")
-	var iron:Color=Color("#bfc4bf")
-	var stone:Color=Color("#9b9b86")
-	var thickness:float=maxf(1,s*0.045)
-	if action=="combat":
-		var shield:String=str(p.get("shield_kind",""))
-		if not shield.is_empty():
-			var sp:Vector2=c+Vector2(-face*s*0.19,-s*0.27-bounce)
-			var metal:bool=shield=="iron_shield"
-			draw_circle(sp,s*0.17,Color("#473d30"))
-			draw_circle(sp,s*0.135,Color("#a6afae") if metal else Color("#a27c4b"))
-			draw_circle(sp,s*0.045,Color("#e0cf9d"))
-		if weapon=="bow":
-			var bow_center:Vector2=grip+Vector2(face*s*0.05,0)
-			var angle:float=0.0 if face>0 else PI
-			draw_arc(bow_center,s*0.23,angle-PI*0.5,angle+PI*0.5,10,Color("#c79b54"),thickness)
-			draw_line(bow_center-Vector2(0,s*0.23),bow_center+Vector2(0,s*0.23),Color("#e0d5ba"),1.0)
-			draw_line(bow_center,bow_center+Vector2(face*s*0.23,0),Color("#c8b18a"),1.0)
-		elif weapon in ["sword","steel_sword"]:
-			if weapon=="steel_sword": iron=Color("#c3ecff")
-			var tip:Vector2=grip+Vector2(face*s*0.16,-s*0.42+lift)
-			draw_line(grip,tip,Color("#465251"),maxf(2,s*0.11))
-			draw_line(grip,tip,iron,maxf(1,s*0.065))
-			draw_line(grip+Vector2(-s*0.08,-s*0.045),grip+Vector2(s*0.08,s*0.035),Color("#c9a35b"),thickness)
-		elif weapon in ["spear","iron_spear","club"]:
-			var tip:Vector2=grip+Vector2(face*s*0.22,-s*0.43+lift)
-			draw_line(grip-Vector2(face*s*0.12,s*0.08),tip,wood,maxf(1,s*0.055))
-			if weapon=="club":
-				draw_line(tip,tip+Vector2(face*s*0.065,-s*0.12),Color("#725137"),maxf(2,s*0.105))
-			else:
-				var end:Vector2=tip+Vector2(face*s*0.08,-s*0.17)
-				var side:Vector2=Vector2(-0.065,-face*0.03)*s
-				draw_colored_polygon(PackedVector2Array([tip-side,end,tip+side,tip+Vector2(0,s*0.05)]),Color("#c3cbd0") if weapon=="iron_spear" else stone)
-				draw_line(tip,end,Color("#ebd9b4"),1.0)
-		return
-	if action=="fishing" and tool=="rod":
-		var tip:Vector2=grip+Vector2(face*s*0.46,-s*0.31+lift*0.25)
-		draw_line(grip,tip,wood,thickness)
-		draw_line(tip,tip+Vector2(face*s*0.06,s*0.48),Color("#c6d6cf"),1.0)
-		return
-	if action in ["mining","chopping","farming","building"]:
-		var matches:bool=(action=="mining" and tool in ["pickaxe","iron_pickaxe"]) or (action=="chopping" and tool=="axe") or (action=="farming" and tool=="hoe") or (action=="building" and tool=="axe")
-		if not matches: return
-		var tip:Vector2=grip+Vector2(face*s*0.12,-s*0.31+lift)
-		draw_line(grip,tip,wood,thickness)
-		if tool in ["pickaxe","iron_pickaxe"]:
-			draw_line(tip+Vector2(-face*s*0.12,-s*0.025),tip+Vector2(face*s*0.12,s*0.04),iron if tool=="iron_pickaxe" else stone,maxf(1,s*0.075))
-		elif tool=="axe":
-			draw_rect(Rect2(tip+Vector2(-s*0.055,-s*0.045),Vector2(s*0.13,s*0.15)),stone)
-		elif tool=="hoe":
-			draw_line(tip,tip+Vector2(face*s*0.15,s*0.06),stone,maxf(1,s*0.075))
+const HELD_ATLAS := preload("res://assets/landscape/held_items.png")
+const HELD_ITEM_TILE := {"wood_spear":0, "spear":1, "iron_spear":2, "sword":3, "steel_sword":4, "bow":5, "club":6, "wood_shield":7, "iron_shield":8, "pickaxe":9, "iron_pickaxe":10, "hoe":11, "axe":12, "rod":13}
 
+func _draw_held_item(kind: String, hand: Vector2, scale_px: float, face: float, angle: float, grip_height: int = 22) -> void:
+	if not HELD_ITEM_TILE.has(kind): return
+	var tile := int(HELD_ITEM_TILE[kind])
+	var source := Rect2(tile % 8 * 24, floori(tile / 8.0) * 32, 24, 32)
+	draw_set_transform(hand, angle * face, Vector2(face, 1) * scale_px)
+	draw_texture_rect_region(HELD_ATLAS, Rect2(-12, -grip_height, 24, 32), source)
+	draw_set_transform(Vector2.ZERO)
+
+func _draw_equipment(person: Dictionary, center: Vector2, size: float, bounce: float, face: float = 1.0) -> void:
+	if float(person["age"]) < 16 or not MAP_AREA.grow(-size).has_point(center): return
+	var action: String = world.visible_action(person)
+	var hand := center + Vector2(face * size * 0.19, -size * 0.31 - bounce)
+	var scale_px := size / 39.0
+	var swing := sin(world.swamp_clock * 9.0 + int(person["id"]))
+	if world.is_military(person) or action == "combat" or not str(person.get("weapon_kind", "")).is_empty() and action.is_empty():
+		var shield_hand := center + Vector2(-face * size * 0.17, -size * 0.30 - bounce)
+		_draw_held_item(str(person.get("shield_kind", "")), shield_hand, scale_px, face, 0.0, 17)
+		var angle := 0.15 + swing * 0.95 if action == "combat" else 0.20
+		_draw_held_item(str(person.get("weapon_kind", "")), hand, scale_px, face, angle)
+		return
+	var tool := str(person.get("tool_kind", ""))
+	var angle := 0.18
+	if action in ["mining", "chopping", "building", "farming", "fishing", "smithing"]:
+		angle += swing * (0.12 if action == "fishing" else 0.78)
+	elif not action.is_empty() or not person.get("cargo", {}).is_empty():
+		return
+	_draw_held_item(tool, hand, scale_px, face, angle)
+	if action == "fishing" and tool == "rod":
+		var tip := hand + Vector2(0, -22 * scale_px).rotated(angle * face)
+		draw_line(tip, tip + Vector2(face * size * 0.10, size * 0.57), Color("#c6d6cf"), 1.0)
 
 func _toggle_spawn() -> void:
 	if not spawn_species.is_empty():
@@ -1754,6 +1773,7 @@ func _toggle_spawn() -> void:
 	_show_spawn_menu()
 
 func _show_spawn_menu() -> void:
+	_close_actor_card()
 	var dialog:=AcceptDialog.new()
 	dialog.title="Criar vida"
 	dialog.ok_button_text="Fechar"
@@ -1872,25 +1892,37 @@ func _add_stat_bar(body:VBoxContainer,label:String,value:float,maximum:float,col
 	bar.add_theme_stylebox_override("fill",fill)
 	body.add_child(bar)
 
-func _show_animal_card(animal:Dictionary) -> void:
-	world.init_animal_health(animal)
-	var species:String=str(animal["species"])
-	var dialog:=AcceptDialog.new()
-	dialog.title=str(World.SPAWN_NAMES.get(species,species))
-	dialog.ok_button_text="Fechar"
-	var body:=VBoxContainer.new()
-	body.custom_minimum_size=Vector2(380,200)
-	body.add_theme_constant_override("separation",10)
-	_add_stat_bar(body,"Vida",float(animal["health"]),float(animal["max_health"]),Color("#b95850"))
-	_add_stat_bar(body,"Saciedade",100-float(animal.get("hunger",0)),100.0,Color("#d5a455"))
-	var detail:=Label.new()
-	detail.text="Idade: %.1f anos   |   Nível: %d\nDano: %.0f\nEstado: %s"%[world.animal_age(animal),world.animal_level(animal),world.animal_damage(animal),str(animal.get("state","Explorando"))]
-	body.add_child(detail)
-	dialog.add_child(body)
-	add_child(dialog)
-	dialog.confirmed.connect(dialog.queue_free)
-	dialog.canceled.connect(dialog.queue_free)
-	dialog.popup_centered(Vector2i(430,280))
+func _close_actor_card() -> void:
+	if is_instance_valid(actor_card):
+		actor_card.hide()
+		actor_card.queue_free()
+	actor_card = null
+
+func _card_portrait(subject: Dictionary, human: bool) -> Texture2D:
+	if human:
+		return _human_portrait(subject)
+	var key := str(subject["species"])
+	var species: String = {"Urso": "bear", "Lobo": "wolf"}.get(key, key)
+	var row := ANIMAL_ROWS.find(species)
+	if row < 0: return null
+	var still_image := "res://assets/landscape/" + species + ".svg"
+	if ResourceLoader.exists(still_image):
+		return load(still_image) as Texture2D
+	var portrait := AtlasTexture.new()
+	portrait.atlas = preload("res://assets/landscape/fauna_pixel.svg")
+	portrait.region = Rect2(0, row * 32, 32, 32)
+	return portrait
+
+func _open_actor_card(subject: Dictionary, human: bool) -> void:
+	_close_actor_card()
+	actor_card = ActorCard.new()
+	add_child(actor_card)
+	actor_card.position = MAP_AREA.position + Vector2(12, 12)
+	actor_card.display(world, subject, human, _card_portrait)
+	actor_card.chronicles_requested.connect(_show_details)
+
+func _show_animal_card(animal: Dictionary) -> void:
+	_open_actor_card(animal, false)
 
 func _draw_resource_drops() -> void:
 	for drop in world.resource_drops:
@@ -2170,6 +2202,7 @@ func _open_home(save_first:bool=true) -> void:
 		_remember_world()
 	if is_instance_valid(home_panel): return
 	home_open=true
+	_close_actor_card()
 	world.speed=0.0
 	active_touches.clear()
 	dragging=false
@@ -2272,6 +2305,7 @@ func _enter_world() -> void:
 	home_open=false
 	if is_instance_valid(home_panel): home_panel.queue_free()
 	home_panel=null
+	home_art=null
 	home_buttons.clear()
 	world.speed=startup_speed
 	resume_speed=startup_speed

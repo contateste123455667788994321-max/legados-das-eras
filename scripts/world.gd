@@ -544,6 +544,7 @@ func kill_person(person: Dictionary) -> void:
 	if not bool(person["alive"]):
 		return
 	person["alive"] = false
+	person["fell_at"] = swamp_clock
 	sound_at("death",person)
 	agent_ai.on_death(self, person)
 	var town: Dictionary = get_town(int(person["town"]))
@@ -1284,7 +1285,7 @@ func _seed_extra_animals() -> void:
 	ecology_v60=true
 
 func resource_weight(kind:String) -> float:
-	return float({"wood":2.0,"stone":3.0,"ore":3.0,"metal":3.0,"food":1.0,"water":1.0,"fish":1.0,"meat":1.0,"hide":1.0,"croc_hide":1.5,"feather":0.15,"bone":0.7,"shell":1.5,"fiber":0.2,"cord":0.4,"club":2.0,"spear":2.0,"bow":1.0,"sword":3.0,"pickaxe":3.0,"iron_pickaxe":4.0,"arrows":0.1,"hoe":3.0,"axe":2.0,"rod":1.0,"wood_shield":3.0,"iron_shield":5.0}.get(kind,1.0))
+	return float({"wood":2.0,"stone":3.0,"ore":3.0,"metal":3.0,"food":1.0,"water":1.0,"fish":1.0,"meat":1.0,"hide":1.0,"croc_hide":1.5,"feather":0.15,"bone":0.7,"shell":1.5,"fiber":0.2,"cord":0.4,"club":2.0,"wood_spear":1.5,"spear":2.0,"bow":1.0,"sword":3.0,"pickaxe":3.0,"iron_pickaxe":4.0,"arrows":0.1,"hoe":3.0,"axe":2.0,"rod":1.0,"wood_shield":3.0,"iron_shield":5.0}.get(kind,1.0))
 
 func load_capacity(p:Dictionary) -> float:
 	var base:float=22.0
@@ -1797,14 +1798,14 @@ func equip_worker(town:Dictionary,p:Dictionary) -> void:
 				p["shield_kind"]=item
 				break
 		var kind:String=str(p.get("weapon_kind",""))
-		var desired:Array=["bow","spear","club"] if str(p.get("military_role",""))=="archer" else ["steel_sword","sword","iron_spear","spear","club"]
+		var desired:Array=ARCHER_WEAPONS if str(p.get("military_role",""))=="archer" else MELEE_WEAPONS
 		for item in desired:
 			if kind==item: break
 			if float(town.get(item,0))<1.0: continue
 			if not take_equipment(town,p,str(item)): continue
 			if not kind.is_empty() and RESOURCE_NAMES.has(kind): store_resource(town,preferred_storage(town,kind,p),kind,1)
 			p["weapon_kind"]=item
-			p["weapon"]=int({"club":1,"spear":2,"iron_spear":3,"bow":2,"sword":4,"steel_sword":4}[item])
+			p["weapon"]=int(WEAPON_LEVEL[item])
 			break
 		if str(p.get("weapon_kind",""))=="bow" and int(p.get("ammo",0))<3:
 			for n in range(6):
@@ -1816,7 +1817,7 @@ func equip_worker(town:Dictionary,p:Dictionary) -> void:
 		match profession:
 			"Minerador": desired=["iron_pickaxe","pickaxe"]
 			"Agricultor": desired=["hoe"]
-			"Construtor": desired=["axe"]
+			"Construtor", "Lenhador": desired=["axe"]
 			"Pescador": desired=["rod"]
 		var current:String=str(p.get("tool_kind",""))
 		for item in desired:
@@ -2287,7 +2288,7 @@ func hunt_animal(person:Dictionary,animal:Dictionary) -> bool:
 		collect_nearby_drop(person)
 	return true
 
-const RESOURCE_NAMES:Dictionary={"wood":"Madeira","stone":"Pedra","ore":"Minerio","metal":"Metal","food":"Comida","water":"Agua","fish":"Peixe","meat":"Carne","hide":"Couro","croc_hide":"Couro de crocodilo","feather":"Penas","bone":"Ossos","shell":"Casco","fiber":"Fibra vegetal","cord":"Corda","club":"Bastao","spear":"Lanca tribal","bow":"Arco","sword":"Espada de ferro","steel_sword":"Espada de aço","iron_spear":"Lança de ferro","pickaxe":"Picareta de pedra","iron_pickaxe":"Picareta de ferro","arrows":"Flechas","hoe":"Enxada","axe":"Machado","rod":"Vara de pesca","wood_shield":"Escudo de madeira","iron_shield":"Escudo de ferro"}
+const RESOURCE_NAMES:Dictionary={"wood":"Madeira","stone":"Pedra","ore":"Minerio","metal":"Metal","food":"Comida","water":"Agua","fish":"Peixe","meat":"Carne","hide":"Couro","croc_hide":"Couro de crocodilo","feather":"Penas","bone":"Ossos","shell":"Casco","fiber":"Fibra vegetal","cord":"Corda","club":"Bastão","wood_spear":"Lança de madeira","spear":"Lança de pedra","bow":"Arco","sword":"Espada de ferro","steel_sword":"Espada de aço","iron_spear":"Lança de ferro","pickaxe":"Picareta de pedra","iron_pickaxe":"Picareta de ferro","arrows":"Flechas","hoe":"Enxada","axe":"Machado","rod":"Vara de pesca","wood_shield":"Escudo de madeira","iron_shield":"Escudo de ferro"}
 
 func animal_loot(species:String) -> Dictionary:
 	match species:
@@ -2419,8 +2420,12 @@ func loot_stock(attacker:Dictionary,defender:Dictionary) -> Dictionary:
 	return stolen
 
 # Receitas abstratas de jogo; materiais e produtos fazem parte do estoque.
+const MELEE_WEAPONS := ["steel_sword", "sword", "iron_spear", "spear", "wood_spear", "club"]
+const ARCHER_WEAPONS := ["bow", "spear", "wood_spear", "club"]
+const WEAPON_LEVEL := {"club": 1, "wood_spear": 1, "spear": 2, "bow": 2, "iron_spear": 3, "sword": 4, "steel_sword": 4}
 const CRAFT_RECIPES:Dictionary={
 	"club":{"wood":2},
+	"wood_spear":{"wood":2},
 	"wood_shield":{"wood":3,"fiber":1},
 	"iron_shield":{"wood":2,"metal":2},
 	"spear":{"wood":2,"stone":1},
@@ -2469,13 +2474,13 @@ func equipment_job(person:Dictionary,town:Dictionary) -> bool:
 	if float(person["age"])<16: return false
 	var wanted:Array=[]
 	if is_military(person):
-		wanted=["bow","spear","club"] if str(person["military_role"])=="archer" else ["steel_sword","sword","iron_spear","spear","club"]
+		wanted=ARCHER_WEAPONS if str(person["military_role"])=="archer" else MELEE_WEAPONS
 		if int(town.get("raid_target",0))>0 or int(town.get("siege_by",0))>0: return false
 	else:
 		match str(person.get("profession","")):
 			"Minerador": wanted=["iron_pickaxe","pickaxe"]
 			"Agricultor": wanted=["hoe"]
-			"Construtor": wanted=["axe"]
+			"Construtor", "Lenhador": wanted=["axe"]
 			"Pescador": wanted=["rod"]
 	var current:String=str(person.get("weapon_kind","")) if is_military(person) else str(person.get("tool_kind",""))
 	var stocks:Dictionary=building_stocks(town)
@@ -2538,9 +2543,9 @@ func next_craft(town:Dictionary) -> String:
 					if weapon!="sword": desired.append("sword")
 					if weapon not in ["sword","iron_spear"]: desired.append("iron_spear")
 				if weapon not in ["spear","iron_spear","sword"]: desired.append("spear")
-				if weapon.is_empty(): desired.append("club")
+				if weapon in ["", "club"]: desired.append("wood_spear")
 		elif profession=="Agricultor" and tool!="hoe": desired.append("hoe")
-		elif profession=="Construtor" and tool!="axe": desired.append("axe")
+		elif profession in ["Construtor","Lenhador"] and tool!="axe": desired.append("axe")
 		elif profession=="Pescador" and tool!="rod":
 			desired.append("rod")
 			bow_needed=true
@@ -2566,18 +2571,24 @@ func crafting_job(person:Dictionary,town:Dictionary,step:float) -> bool:
 		if item.is_empty(): return false
 		job={"worker":person["id"],"item":item,"progress":0.0}
 		town["craft_job"]=job
-	if int(job["worker"])!=int(person["id"]): return false
 	var item:String=str(job["item"])
+	var forge_work:bool=item in ["metal","sword","steel_sword","iron_spear","iron_pickaxe","iron_shield"]
+	var pos:Vector2=workshop_position(town,"forge" if forge_work else "campfire")
+	if int(job["worker"])!=int(person["id"]):
+		# O especialista já na forja pode assumir uma encomenda ainda não iniciada.
+		if not forge_work or str(person.get("profession",""))!="Ferreiro" or float(job["progress"])>0.0 or Vector2(person["x"],person["y"]).distance_to(pos)>=0.65:
+			return false
+		job["worker"]=person["id"]
 	if not craft_allowed(town,item):
 		town["craft_job"]={}
 		return false
-	var pos:Vector2=workshop_position(town,"forge" if item in ["metal","sword","steel_sword","iron_spear","iron_pickaxe","iron_shield"] else "campfire")
 	_set_delivery_goal(person,pos,"Fabricando "+str(RESOURCE_NAMES[item]))
 	if Vector2(float(person["x"]),float(person["y"])).distance_to(pos)<0.65:
+		if forge_work: _mark_action(person,"smithing",step)
 		job["progress"]=float(job["progress"])+step
-		if float(job["progress"])>=(12.0 if item in ["metal","sword","steel_sword","iron_spear","iron_pickaxe","iron_shield"] else 5.0):
+		if float(job["progress"])>=(12.0 if forge_work else 5.0):
 			if craft_item(town,item):
-				sound_at("forge" if item in ["metal","sword","steel_sword","iron_spear","iron_pickaxe","iron_shield"] else "build",person)
+				sound_at("forge" if forge_work else "build",person)
 				gain_xp(person,5.0,"trabalho")
 			town["craft_job"]={}
 	return true
