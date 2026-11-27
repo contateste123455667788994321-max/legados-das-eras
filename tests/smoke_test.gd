@@ -18,6 +18,29 @@ func _run_tests() -> void:
 	var world = World.new()
 	world.generate_world()
 	_check(world.tiles.size() == World.SIZE and world.tiles[0].size()==World.WIDTH, "Mapa largo gerado")
+	var decay_world=World.new()
+	decay_world.generate_world()
+	var abandoned:Dictionary=decay_world.towns[0]
+	abandoned["houses"]=2
+	abandoned["house_levels"]=[1,2]
+	var abandoned_id:int=int(abandoned["id"])
+	decay_world._update_abandoned_houses()
+	_check(decay_world.house_decay(abandoned)==0.0 and int(abandoned["houses"])==2,"Casas habitadas nao deterioram")
+	for resident in decay_world.people:
+		if int(resident["town"])==abandoned_id: resident["alive"]=false
+	decay_world._update_abandoned_houses()
+	decay_world.day+=12.0
+	decay_world._update_abandoned_houses()
+	_check(decay_world.house_decay(abandoned)>0.0 and int(abandoned["houses"])==2,"Casas abandonadas mofam antes do colapso")
+	decay_world.day+=12.0
+	decay_world._update_abandoned_houses()
+	_check(int(abandoned["houses"])==1 and decay_world.house_levels(abandoned).size()==1,"Primeira casa desaba apos o prazo")
+	decay_world.day+=3.0
+	decay_world._update_abandoned_houses()
+	_check(int(abandoned["houses"])==0 and decay_world.house_levels(abandoned).is_empty(),"Casas abandonadas desaparecem gradualmente")
+	decay_world.make_person(abandoned_id,float(abandoned["x"]),float(abandoned["y"]))
+	decay_world._update_abandoned_houses()
+	_check(decay_world.house_decay(abandoned)==0.0 and not abandoned.has("abandoned_day"),"Reocupacao encerra deterioracao")
 	var random_map=World.new()
 	random_map.generate_world()
 	_check(world.map_seed!=random_map.map_seed and world.tiles!=random_map.tiles,"Cada mundo novo possui distribuicao aleatoria")
