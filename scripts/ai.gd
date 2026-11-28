@@ -126,6 +126,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 	var home: Dictionary = sim.get_town(int(p["town"]))
 	if home.is_empty():
 		return
+	if sim.border_duty(p,home): return
 	if sim.react_to_hostile_animal(p): return
 	if sim.ancestral_combat_job(p): return
 	if sim.swamp_combat_job(p): return
