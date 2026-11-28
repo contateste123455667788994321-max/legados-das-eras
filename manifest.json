@@ -1,12 +1,12 @@
 {
-  "version_code": 29,
-  "version_name": "0.5.24",
+  "version_code": 30,
+  "version_name": "0.5.25",
   "min_apk_code": 4,
   "release_notes": "Tela inicial do Vale Dourado, novos habitantes e profiss\u00f5es, evolu\u00e7\u00e3o de equipamentos, fichas ao tocar e novas artes de mina, forja e fogueira.",
   "pack_format": "pck",
   "pack_url": "https://raw.githubusercontent.com/contateste123455667788994321-max/legados-das-eras/main/updates/Legado-das-Eras-conteudo.pck",
-  "pack_sha256": "1cace5bcf740904e8496690231f60be249749286120bf48a97bf3857c947ed36",
-  "pack_pck_sha256": "1cace5bcf740904e8496690231f60be249749286120bf48a97bf3857c947ed36",
-  "pack_bytes": 4837424,
+  "pack_sha256": "3e04099946b4a5c2fbbf2834e733d40c3cd472517a8b82db93c5756f2de54f6d",
+  "pack_pck_sha256": "3e04099946b4a5c2fbbf2834e733d40c3cd472517a8b82db93c5756f2de54f6d",
+  "pack_bytes": 5398448,
   "apk_url": ""
 }
