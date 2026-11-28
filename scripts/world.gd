@@ -139,6 +139,7 @@ func generate_world() -> void:
 	_seed_swamp_witch()
 	_seed_ancestrals()
 	politics.prepare(self)
+	_rebuild_border_cells()
 	news = "Tres tribos chegaram. Os moradores vao coletar recursos e construir suas aldeias."
 
 func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
@@ -780,11 +781,12 @@ func load_world() -> bool:
 		if not bool(value.get("village_layout_v2",false)):
 			for town in towns:
 				var project:Dictionary=town.get("construction",{})
-				if str(project.get("kind","")) in ["house","farm","upgrade"]:
+				if str(project.get("kind","")) in ["house","farm","upgrade","castle","tribal_castle","castle_upgrade"]:
 					var point:Vector2=workshop_position(town,str(project["kind"]))
 					project["x"]=point.x
 					project["y"]=point.y
 		politics.prepare(self)
+		_rebuild_border_cells()
 		return true
 	return false
 
