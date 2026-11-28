@@ -88,9 +88,47 @@ jobs:
           path: player-test.log
           if-no-files-found: ignore
 
+  visualizar:
+    name: Capturar imagens reais do jogo
+    needs: validar
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container:
+      image: barichello/godot-ci:4.4.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparar renderizacao grafica
+        shell: bash
+        run: |
+          set -eo pipefail
+          if ! command -v xvfb-run; then
+            apt-get update -qq
+            apt-get install -y -qq xvfb xauth libgl1-mesa-dri
+          fi
+          godot --headless --path . --import
+      - name: Capturar a cena real (OpenGL)
+        shell: bash
+        run: |
+          set -eo pipefail
+          LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1536x864x24" timeout --kill-after=10s 5m godot --path . --rendering-method gl_compatibility --audio-driver Dummy --resolution 1536x864 --script res://tests/visual_regression.gd 2>&1 | tee visual-test.log
+          test -s visuals/01-vila-tribal.png
+          test -s visuals/04-cachoeira.png
+          test -s visuals/06-fauna-andando.png
+          test -s visuals/07-ancestrais.png
+          if grep -E 'SCRIPT ERROR|Parse Error|ERROR:.*Invalid' visual-test.log; then exit 1; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: capturas-reais-do-jogo
+          path: |
+            visuals/*.png
+            visual-test.log
+          if-no-files-found: warn
+          retention-days: 30
+
   apk_teste:
     name: Gerar APK Android (não é versão final)
-    needs: [validar, avaliar_jogadores]
+    needs: [validar, avaliar_jogadores, visualizar]
     runs-on: ubuntu-24.04
     container:
       image: barichello/godot-ci:4.4.1

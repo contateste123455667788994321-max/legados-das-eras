@@ -29,6 +29,8 @@ const ANCESTRAL_NAMES:Dictionary={"witch":"Bruxa do brejo","golem":"Golem de Ped
 var ancestrals:Dictionary={}
 var border_intruders:Dictionary={}
 var border_bounds:Dictionary={}
+var border_cells:Dictionary={}
+const BORDER_GRID:float=0.25
 var border_scan_elapsed:float=0.0
 var swamp_witch:Dictionary={}
 var swamp_spiders:Array=[]
@@ -67,6 +69,7 @@ func generate_world() -> void:
 	ancestrals.clear()
 	border_intruders.clear()
 	border_bounds.clear()
+	border_cells.clear()
 	border_scan_elapsed=0.0
 	swamp_spiders.clear()
 	resource_drops.clear()
@@ -136,6 +139,7 @@ func generate_world() -> void:
 	_seed_swamp_witch()
 	_seed_ancestrals()
 	politics.prepare(self)
+	_rebuild_border_cells()
 	news = "Tres tribos chegaram. Os moradores vao coletar recursos e construir suas aldeias."
 
 func make_town(town_name: String, x: int, y: int, hostile: bool) -> void:
@@ -316,6 +320,8 @@ func construction_cost(kind: String) -> float:
 		"house": return 14.0
 		"upgrade": return 18.0
 		"castle": return 150.0
+		"tribal_castle": return 45.0
+		"castle_upgrade": return 90.0
 		"palisade": return 3.0
 		"farm": return 18.0
 		"oven": return 8.0
@@ -343,8 +349,14 @@ func start_construction(town_id: int, kind: String) -> bool:
 		return false
 	if kind=="upgrade" and upgrade_index(town)<0: return false
 	if kind=="palisade" and next_palisade(town).is_empty(): return false
-	if kind=="castle" and (int(town["level"])<4 or bool(town.get("castle",false)) or not bool(town.get("forge",false))):
-		news="Castelo exige era 4 e forja."
+	if kind=="castle" and (int(town["level"])<4 or castle_level(town)>=3 or not bool(town.get("forge",false))):
+		news="Castelo de pedra final exige era 4 e forja."
+		return false
+	if kind=="tribal_castle" and (castle_level(town)>0 or int(town.get("houses",0))<3 or active_population(town_id)<8):
+		news="Fortificacao tribal exige tres casas e oito moradores."
+		return false
+	if kind=="castle_upgrade" and (castle_level(town)!=1 or int(town["level"])<3 or not bool(town.get("forge",false))):
+		news="Castelo nivel 2 exige era 3 e forja."
 		return false
 	if float(town.get("stone",0))<workshop_stone_cost(kind):
 		news="Pedra insuficiente para a obra."
@@ -361,8 +373,8 @@ func start_construction(town_id: int, kind: String) -> bool:
 		news = "Madeira insuficiente: precisa de %d, tem %d." % [int(cost), int(float(town["wood"]))]
 		return false
 	town["wood"] = float(town["wood"]) - cost
-	var label:String={"castle":"castelo","upgrade":"melhoria de casa","campfire":"fogueira","house":"casa","farm":"fazenda","oven":"forno","forge":"forja","crossing":"ponte","palisade":"paliçada"}[kind]
-	town["construction"]={"kind":kind,"progress":0.0,"duration":float({"castle":150,"palisade":7,"upgrade":24,"campfire":8,"house":12,"farm":15,"oven":20,"forge":32,"crossing":26}[kind])}
+	var label:String={"castle":"castelo","tribal_castle":"fortificacao tribal","castle_upgrade":"ampliacao do castelo","upgrade":"melhoria de casa","campfire":"fogueira","house":"casa","farm":"fazenda","oven":"forno","forge":"forja","crossing":"ponte","palisade":"paliçada"}[kind]
+	town["construction"]={"kind":kind,"progress":0.0,"duration":float({"castle":150,"tribal_castle":42,"castle_upgrade":95,"palisade":7,"upgrade":24,"campfire":8,"house":12,"farm":15,"oven":20,"forge":32,"crossing":26}[kind])}
 	var stone_cost:float=workshop_stone_cost(kind)
 	town["stone"]=float(town.get("stone",0))-stone_cost
 	_prepare_project(town)
@@ -404,6 +416,15 @@ func progress_construction(town: Dictionary, dt: float) -> void:
 		var levels:Array=house_levels(town)
 		var index:int=int(site.get("house_index",0))
 		if index>=0 and index<levels.size(): levels[index]=mini(4,int(levels[index])+1)
+	elif kind in ["castle","tribal_castle","castle_upgrade"]:
+		town["castle"]=true
+		town["castle_level"]=1 if kind=="tribal_castle" else (2 if kind=="castle_upgrade" else 3)
+		var existing:Dictionary=local_site("castle",int(town["id"]))
+		var pos:Vector2=workshop_position(town,"castle")
+		if existing.is_empty(): sites.append({"kind":"castle","x":pos.x,"y":pos.y,"town":town["id"]})
+		else:
+			existing["x"]=pos.x
+			existing["y"]=pos.y
 	elif kind=="farm":
 		town["farms"]=int(town.get("farms",1))+1
 	elif kind=="palisade":
@@ -416,7 +437,7 @@ func progress_construction(town: Dictionary, dt: float) -> void:
 		town[kind]=true
 		sites.append({"kind":kind,"x":site["x"],"y":site["y"],"town":town["id"]})
 	town["construction"]={}
-	var label:String={"castle":"Castelo construido","upgrade":"Casa ampliada","campfire":"Fogueira acesa","house":"Casa pronta","farm":"Fazenda pronta","oven":"Forno construido","forge":"Forja construida","crossing":"Ponte construida","palisade":"Trecho de paliçada pronto"}[kind]
+	var label:String={"castle":"Castelo nivel 3 construido","tribal_castle":"Castelo tribal construido","castle_upgrade":"Castelo nivel 2 construido","upgrade":"Casa ampliada","campfire":"Fogueira acesa","house":"Casa pronta","farm":"Fazenda pronta","oven":"Forno construido","forge":"Forja construida","crossing":"Ponte construida","palisade":"Trecho de paliçada pronto"}[kind]
 	var history: Array = town.get("historical_events", [])
 	history.append({"day": int(day), "event": label + "."})
 	if history.size() > 12:
@@ -740,6 +761,9 @@ func load_world() -> bool:
 			if str(site["kind"]) in ["campfire","oven","forge","crossing","castle"]:
 				var owner:Dictionary=get_town(int(site["town"]))
 				if not bool(owner.get(str(site["kind"]),false)): sites.remove_at(i)
+				elif str(site["kind"])=="castle":
+					site["x"]=owner["x"]
+					site["y"]=owner["y"]
 		if not value.has("wildlife"): _seed_wildlife()
 		habitats_v59=bool(value.get("habitats_v59",false))
 		if not habitats_v59: _seed_habitat_animals()
@@ -757,11 +781,12 @@ func load_world() -> bool:
 		if not bool(value.get("village_layout_v2",false)):
 			for town in towns:
 				var project:Dictionary=town.get("construction",{})
-				if str(project.get("kind","")) in ["house","farm","upgrade"]:
+				if str(project.get("kind","")) in ["house","farm","upgrade","castle","tribal_castle","castle_upgrade"]:
 					var point:Vector2=workshop_position(town,str(project["kind"]))
 					project["x"]=point.x
 					project["y"]=point.y
 		politics.prepare(self)
+		_rebuild_border_cells()
 		return true
 	return false
 
@@ -1269,12 +1294,12 @@ func stop_wartime_construction(town:Dictionary) -> void:
 	town["construction"]={}
 
 func workshop_stone_cost(kind:String) -> float:
-	return float({"oven":12,"forge":24,"crossing":4,"upgrade":12,"castle":300}.get(kind,0))
+	return float({"oven":12,"forge":24,"crossing":4,"upgrade":12,"castle":300,"tribal_castle":20,"castle_upgrade":140}.get(kind,0))
 
 func workshop_position(town:Dictionary,kind:String) -> Vector2:
 	var origin:=Vector2(float(town["x"]),float(town["y"]))
 	if kind=="campfire": return origin+Vector2(0.7,1.0)
-	if kind=="castle": return origin+Vector2(0,-3.0)
+	if kind in ["castle","tribal_castle","castle_upgrade"]: return origin
 	if kind in ["house","upgrade"]:
 		var spots:Array[Vector2]=house_layout(town)
 		return origin+spots[clampi(upgrade_index(town) if kind=="upgrade" else int(town.get("houses",2)),0,7)]
@@ -1484,6 +1509,10 @@ func deposit_inventory(p:Dictionary) -> bool:
 	news="Recursos entregues ao estoque da aldeia."
 	return true
 
+func castle_level(town:Dictionary) -> int:
+	if not bool(town.get("castle",false)): return 0
+	return clampi(int(town.get("castle_level",3)),1,3)
+
 func house_levels(town:Dictionary) -> Array:
 	if not town.has("house_levels"): town["house_levels"]=[]
 	var levels:Array=town["house_levels"]
@@ -1494,7 +1523,7 @@ func housing_capacity(town:Dictionary) -> int:
 	var total:int=0
 	for level in house_levels(town):
 		total+=[4,6,10,14][clampi(int(level)-1,0,3)]
-	if bool(town.get("castle",false)): total+=8
+	if bool(town.get("castle",false)): total+=[0,4,6,8][castle_level(town)]
 	return total
 
 func upgrade_index(town:Dictionary) -> int:
@@ -2151,6 +2180,18 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 		witch["cast"]=maxf(0,float(witch["cast"])-dt)
 		witch["summon"]=maxf(0,float(witch["summon"])-dt)
 		witch["wander"]=float(witch["wander"])-dt
+		# O caldeirao tem uma posicao fixa, persistida com os dados da bruxa.
+		if not witch.has("cauldron_x"):
+			var home:Vector2=p
+			for offset in [Vector2(0.8,0.0),Vector2(-0.8,0.0),Vector2(0.0,0.8),Vector2(0.0,-0.8)]:
+				if _witch_ground(p+offset):
+					home=p+offset
+					break
+			witch["cauldron_x"]=home.x
+			witch["cauldron_y"]=home.y
+		var cauldron:=Vector2(float(witch["cauldron_x"]),float(witch["cauldron_y"]))
+		if p.distance_to(cauldron)<=1.6:
+			witch["health"]=minf(float(witch.get("max_health",500.0)),float(witch["health"])+2.0*dt)
 		var target:Dictionary=_swamp_human(p,7.0)
 		if float(witch.get("summon_anim",0))>0:
 			var previous:float=float(witch["summon_anim"])
@@ -2165,8 +2206,12 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 			witch["state"]="Lancando magia"
 		elif target.is_empty():
 			witch["state"]="Vigiando"
-			if float(witch["wander"])<=0:
-				var q:Vector2=_swamp_target(p,2.0)
+			if float(witch["health"])<float(witch.get("max_health",500.0))*0.70 and p.distance_to(cauldron)>1.1:
+				witch["tx"]=cauldron.x
+				witch["ty"]=cauldron.y
+				witch["state"]="Voltando ao caldeirao"
+			elif float(witch["wander"])<=0:
+				var q:Vector2=_swamp_target(cauldron,2.0)
 				witch["tx"]=q.x
 				witch["ty"]=q.y
 				witch["wander"]=rng.randf_range(4,8)
@@ -2947,11 +2992,11 @@ func _nearest_swim_bank(p:Vector2) -> Vector2:
 	return best
 
 func house_layout(town:Dictionary) -> Array[Vector2]:
-	var options:Array[Vector2]=[Vector2(-0.95,-0.85),Vector2(0.95,-0.85),Vector2(-2.85,-0.85),Vector2(2.85,-0.85),Vector2(-0.95,-2.3),Vector2(0.95,-2.3),Vector2(-2.85,-2.3),Vector2(2.85,-2.3),Vector2(-4.75,-0.85),Vector2(4.75,-0.85),Vector2(-4.75,-2.3),Vector2(4.75,-2.3)]
+	var options:Array[Vector2]=[Vector2(-2.05,-0.95),Vector2(2.05,-0.95),Vector2(-1.05,-2.85),Vector2(1.05,-2.85),Vector2(-2.05,1.20),Vector2(2.05,1.20),Vector2(-4.0,-0.95),Vector2(4.0,-0.95),Vector2(-3.5,-2.85),Vector2(3.5,-2.85),Vector2(-4.0,1.20),Vector2(4.0,1.20)]
 	return _dry_layout(town,options,8)
 
 func farm_layout(town:Dictionary) -> Array[Vector2]:
-	var options:Array[Vector2]=[Vector2(-1.9,1.8),Vector2(1.9,1.8),Vector2(0,3.2),Vector2(-1.9,3.2),Vector2(1.9,3.2),Vector2(0,4.6),Vector2(-3.8,1.8),Vector2(3.8,1.8),Vector2(-3.8,3.2),Vector2(3.8,3.2)]
+	var options:Array[Vector2]=[Vector2(-1.9,3.0),Vector2(1.9,3.0),Vector2(0,4.4),Vector2(-3.8,3.0),Vector2(3.8,3.0),Vector2(-1.9,4.4),Vector2(1.9,4.4),Vector2(-3.8,4.4),Vector2(3.8,4.4)]
 	return _dry_layout(town,options,6)
 
 func _dry_layout(town:Dictionary,options:Array[Vector2],count:int) -> Array[Vector2]:
@@ -3097,6 +3142,7 @@ func _golem_smash(town:Dictionary,structure:Dictionary) -> void:
 		town["houses"]=maxi(0,int(town["houses"])-1)
 	else:
 		town["castle"]=false
+		town["castle_level"]=0
 		for i in range(sites.size()-1,-1,-1):
 			if str(sites[i]["kind"])=="castle" and int(sites[i]["town"])==int(town["id"]): sites.remove_at(i)
 	news="O golem destruiu uma construcao de "+str(town["name"])+"!"
@@ -3167,44 +3213,63 @@ func _update_ancestrals(dt:float,controlled_id:int) -> void:
 			_ancestral_step(actor,goal,dt,0.65)
 
 # Limites derivados das construcoes reais, sem modificar terreno ou colisao.
-func territory_bounds(town:Dictionary) -> Rect2:
+# A mesma malha de posse alimenta a defesa e o desenho da fronteira.
+func _claim_building(cells:Dictionary,center:Vector2,half:Vector2) -> void:
+	var radius:float=0.60
+	var low:Vector2i=Vector2i(((center-half-Vector2.ONE*radius)/BORDER_GRID).floor())
+	var high:Vector2i=Vector2i(((center+half+Vector2.ONE*radius)/BORDER_GRID).ceil())
+	for y in range(maxi(0,low.y),mini(SIZE*4,high.y+1)):
+		for x in range(maxi(0,low.x),mini(WIDTH*4,high.x+1)):
+			var cell:=Vector2i(x,y)
+			var p:Vector2=(Vector2(cell)+Vector2(0.5,0.5))*BORDER_GRID
+			var delta:Vector2=(p-center).abs()-half
+			if Vector2(maxf(0,delta.x),maxf(0,delta.y)).length()<=radius:
+				cells[cell]=true
+
+func territory_cells(town:Dictionary) -> Dictionary:
+	var cells:Dictionary={}
 	var center:=Vector2(float(town["x"]),float(town["y"]))
-	var area:=Rect2(center-Vector2(1.5,1.5),Vector2(3,3))
+	_claim_building(cells,center,Vector2(0.65,0.55))
 	var houses:Array[Vector2]=house_layout(town)
 	for i in range(mini(int(town.get("houses",0)),houses.size())):
-		var p:Vector2=center+houses[i]
-		area=area.merge(Rect2(p-Vector2(0.8,0.9),Vector2(1.6,1.5)))
+		_claim_building(cells,center+houses[i],Vector2(0.80,0.70))
 	var farms:Array[Vector2]=farm_layout(town)
 	for i in range(mini(int(town.get("farms",0)),farms.size())):
-		var p:Vector2=center+farms[i]
-		area=area.merge(Rect2(p-Vector2(0.75,0.5),Vector2(1.5,1.0)))
+		_claim_building(cells,center+farms[i],Vector2(0.73,0.48))
 	for site in sites:
 		if int(site.get("town",-1))!=int(town["id"]) or str(site["kind"]) not in ["castle","campfire","forge","oven"]: continue
 		var p:=Vector2(float(site["x"]),float(site["y"]))
-		var size:=Vector2(2.8,2.5) if str(site["kind"])=="castle" else Vector2(1,1)
-		area=area.merge(Rect2(p-size*0.5,size))
-	return area.grow(0.6).intersection(Rect2(1,1,WIDTH-3,SIZE-3))
+		_claim_building(cells,p,Vector2(1.4,1.25) if str(site["kind"])=="castle" else Vector2(0.50,0.50))
+	return cells
+
+func territory_bounds(town:Dictionary) -> Rect2:
+	var center:=Vector2(float(town["x"]),float(town["y"]))
+	var area:=Rect2(center,Vector2.ZERO)
+	for cell in territory_cells(town):
+		area=area.merge(Rect2(Vector2(cell)*BORDER_GRID,Vector2.ONE*BORDER_GRID))
+	return area
 
 func territory_owner(p:Vector2) -> Dictionary:
-	var chosen:Dictionary={}
-	var best:float=INF
+	var key:=Vector2i((p/BORDER_GRID).floor())
+	return get_town(int(border_cells.get(key,0)))
+
+func _rebuild_border_cells() -> void:
+	border_cells.clear()
+	border_bounds.clear()
 	for town in towns:
+		if active_population(int(town["id"]))<=0: continue
 		var id:int=int(town["id"])
-		if not border_bounds.has(id): continue
-		var bounds:Rect2=border_bounds[id]
-		if not bounds.has_point(p): continue
-		var distance:float=p.distance_squared_to(Vector2(float(town["x"]),float(town["y"])))
-		if distance<best:
-			chosen=town
-			best=distance
-	return chosen
+		var center:=Vector2(float(town["x"]),float(town["y"]))
+		for cell in territory_cells(town):
+			if border_cells.has(cell):
+				var other:Dictionary=get_town(int(border_cells[cell]))
+				var q:Vector2=(Vector2(cell)+Vector2(0.5,0.5))*BORDER_GRID
+				if not other.is_empty() and q.distance_squared_to(Vector2(float(other["x"]),float(other["y"])))<=q.distance_squared_to(center): continue
+			border_cells[cell]=id
 
 func _scan_borders() -> void:
-	border_bounds.clear()
+	_rebuild_border_cells()
 	border_intruders.clear()
-	for town in towns:
-		if active_population(int(town["id"]))>0:
-			border_bounds[int(town["id"])]=territory_bounds(town)
 	for person in people:
 		if not bool(person.get("alive",false)): continue
 		var home:Dictionary=get_town(int(person["town"]))

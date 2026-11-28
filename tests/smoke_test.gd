@@ -44,8 +44,39 @@ func _run_tests() -> void:
 	_check(ancient_world.strike_ancestral(attacker) and not bool(golem["alive"]),"Golem pode ser derrotado")
 	_check(not ancient_world.resource_drops.is_empty() and ancient_world.resource_drops.back()["items"].has("stone"),"Golem deixa recursos recolhiveis")
 	_check(not fenrir.has("hunger") and not golem.has("hunger"),"Ancestrais independentes de fome")
-	var fauna_approved:Texture2D=preload("res://assets/landscape/fauna_approved_idle.png")
-	_check(fauna_approved.get_width()==24 and fauna_approved.get_height()==24*28 and Main.ANIMAL_ROWS.size()==28,"Prancha aprovada possui os 28 animais na ordem do jogo")
+	var fauna_approved:Texture2D=preload("res://assets/landscape/fauna_aprovada.png")
+	_check(fauna_approved.get_width()==48*4 and fauna_approved.get_height()==48*28 and Main.ANIMAL_ROWS.size()==28,"Prancha aprovada possui os 28 animais e quatro poses")
+	var fauna_image:Image=fauna_approved.get_image()
+	_check(fauna_image.get_region(Rect2i(0,48,48,48)).get_used_rect().has_area(),"Sprite do veado tem conteudo")
+	var art:Texture2D=preload("res://assets/landscape/construcoes_aprovadas.png")
+	_check(art.get_width()==480 and art.get_height()==384,"Dois niveis de casa e tres castelos em quatro biomas")
+	_check(preload("res://assets/landscape/cachoeira_aprovada.png").get_width()==180,"Cachoeira usa recorte real")
+	var castle_world=World.new()
+	castle_world.generate_world()
+	var city:Dictionary=castle_world.towns[0]
+	var city_id:int=int(city["id"])
+	city["houses"]=3
+	city["house_levels"]=[1,1,2]
+	for i in range(3): castle_world.make_person(city_id,float(city["x"]),float(city["y"]),25)
+	city["wood"]=1000.0
+	city["stone"]=1000.0
+	_check(castle_world.start_construction(city_id,"tribal_castle"),"Fortificacao tribal pode iniciar antes da era 4")
+	var castle_project:Dictionary=city["construction"]
+	_check(castle_project["x"]==city["x"] and castle_project["y"]==city["y"],"Castelo no centro da aldeia")
+	var castle_worker:Dictionary=castle_world.people[0]
+	castle_worker["task"]="Construindo"
+	castle_worker["x"]=city["x"]
+	castle_worker["y"]=city["y"]
+	castle_project["delivered"]=castle_project["required"].duplicate()
+	castle_project["progress"]=float(castle_project["duration"])-0.1
+	castle_world.progress_construction(city,1.0)
+	_check(castle_world.castle_level(city)==1,"Fortificacao construida no nivel 1")
+	city["level"]=3
+	city["forge"]=true
+	_check(castle_world.start_construction(city_id,"castle_upgrade"),"Castelo tribal pode evoluir para nivel 2")
+	castle_world._rebuild_border_cells()
+	var center:=Vector2(float(city["x"]),float(city["y"]))
+	_check(int(castle_world.territory_owner(center).get("id",0))==city_id,"Posse territorial inclui o castelo e usa a malha desenhada")
 	var ground_atlas:Texture2D=preload("res://assets/landscape/ground_details.svg")
 	_check(ground_atlas.get_width()==408 and ground_atlas.get_height()==24,"Atlas com 17 detalhes naturais dos biomas")
 	var world = World.new()
