@@ -516,6 +516,7 @@ func _draw() -> void:
 	draw_rect(MAP_AREA, Color("#355943"), true)
 	scene_depth.clear()
 	_draw_landscape()
+	_draw_water_reflections()
 	_draw_rivers()
 	_draw_territory_borders()
 	# Caminhos sao camada de solo: nunca pintar sobre castelos, oficinas ou personagens.
@@ -801,6 +802,96 @@ func _draw_live_campfire(p: Vector2, unit: float) -> void:
 	var source := Rect2(source_origin + (clipped.position - dest.position) / size * source_size, clipped.size / size * source_size)
 	draw_texture_rect_region(CAMPFIRE_FRAMES, clipped, source)
 
+# Reflexos espelhados dos sprites existentes, recortados pela agua.
+# Somente objetos visiveis e celulas de agua proximas geram comandos de desenho.
+func _reflect_sprite(texture:Texture2D,source:Rect2,base:Vector2,size:Vector2,opacity:float=0.38) -> void:
+	if texture==null or not MAP_AREA.grow(size.y).has_point(base): return
+	var extent:=Rect2(base-Vector2(size.x*0.5,0),size)
+	var a:Vector2=_screen_to_world(extent.position)
+	var b:Vector2=_screen_to_world(extent.end)
+	var unit:float=TILE_SIZE*zoom
+	for y in range(maxi(0,floori(a.y)),mini(World.SIZE,ceili(b.y))):
+		for x in range(maxi(0,floori(a.x)),mini(World.WIDTH,ceili(b.x))):
+			if str(world.tiles[y][x])!="water" or world.is_bridge(x,y): continue
+			var cell:=Rect2(_world_to_screen(Vector2(x,y)),Vector2.ONE*unit)
+			# Inset only at land edges; neighboring water tiles join seamlessly.
+			if x==0 or str(world.tiles[y][x-1])!="water":
+				cell.position.x+=unit*0.10
+				cell.size.x-=unit*0.10
+			if x==World.WIDTH-1 or str(world.tiles[y][x+1])!="water": cell.size.x-=unit*0.10
+			if y==0 or str(world.tiles[y-1][x])!="water":
+				cell.position.y+=unit*0.10
+				cell.size.y-=unit*0.10
+			if y==World.SIZE-1 or str(world.tiles[y+1][x])!="water": cell.size.y-=unit*0.10
+			var visible:Rect2=extent.intersection(cell).intersection(MAP_AREA)
+			if not visible.has_area(): continue
+			var band:float=maxf(2.0,unit*0.075)
+			var top:float=visible.position.y
+			while top<visible.end.y-0.1:
+				var h:float=minf(band,visible.end.y-top)
+				var part:=Rect2(Vector2(visible.position.x,top),Vector2(visible.size.x,h))
+				var progress:float=clampf((part.get_center().y-extent.position.y)/size.y,0.0,1.0)
+				var shimmer:float=sin(progress*22.0-world.swamp_clock*3.0+base.x*0.01)*unit*0.024
+				var sample_x:float=clampf((part.position.x-extent.position.x+shimmer)/size.x,0.0,1.0)
+				var sample_w:float=minf(part.size.x/size.x,1.0-sample_x)
+				if sample_w>0.001:
+					part.size.x=sample_w*size.x
+					var uv:=Rect2(source.position+Vector2(sample_x,1.0-(top+h-extent.position.y)/size.y)*source.size,Vector2(sample_w,h/size.y)*source.size)
+					var tint:=Color(0.64,0.82,0.77,opacity*(1.0-progress*0.80))
+					draw_set_transform(Vector2(0,part.position.y+part.end.y),0,Vector2(1,-1))
+					draw_texture_rect_region(texture,part,uv,tint)
+					draw_set_transform(Vector2.ZERO)
+				top+=h
+
+func _water_ripple(center:Vector2,radius:float,seed:float) -> void:
+	if not MAP_AREA.grow(-radius).has_point(center): return
+	for ring in range(2):
+		var phase:float=fposmod(world.swamp_clock*0.50+seed+float(ring)*0.5,1.0)
+		var rx:float=radius*(0.35+phase*0.85)
+		var ry:float=rx*0.36
+		for i in range(18):
+			var a:float=float(i)*TAU/18.0
+			var b:float=float(i+1)*TAU/18.0
+			var p:Vector2=center+Vector2(cos(a)*rx,sin(a)*ry)
+			var q:Vector2=center+Vector2(cos(b)*rx,sin(b)*ry)
+			if world.water_depth(_screen_to_world(p)-Vector2(0.5,0.5))<=0.0: continue
+			if world.water_depth(_screen_to_world(q)-Vector2(0.5,0.5))<=0.0: continue
+			draw_line(p,q,Color(0.64,0.84,0.80,(1.0-phase)*0.32),maxf(1.0,zoom*0.8))
+
+func _draw_water_reflections() -> void:
+	var unit:float=TILE_SIZE*zoom
+	for entry in scene_depth:
+		if str(entry["kind"])!="tree": continue
+		var key:String=str(entry["key"])
+		if not landscape_objects.has(key):
+			landscape_objects[key]=load("res://assets/landscape/"+key+".svg")
+		var tex:Texture2D=landscape_objects.get(key)
+		if tex==null: continue
+		var p:Vector2=entry["p"]
+		var size:float=float(entry["size"])
+		_reflect_sprite(tex,Rect2(Vector2.ZERO,tex.get_size()*Vector2(1,0.85)),p+Vector2(0,size*0.09),Vector2(size,size*0.64))
+		_water_ripple(p+Vector2(0,size*0.10),size*0.32,float(int(p.x)%17)*0.07)
+	for town in world.towns:
+		var center:Vector2=_world_to_screen(Vector2(float(town["x"])+0.5,float(town["y"])+0.5))
+		if not MAP_AREA.grow(unit*6).has_point(center): continue
+		var row:int=int({"snow":1,"sand":2,"swamp":3}.get(str(town.get("home_biome","grass")),0))
+		var houses:Array[Vector2]=world.house_layout(town)
+		for i in range(mini(int(town.get("houses",0)),houses.size())):
+			var era:int=clampi(int(world.house_levels(town)[i]),1,4)
+			var size:float=unit*(1.75 if i==0 else 1.48)*(1.0+float(era-1)*0.045)
+			var base:Vector2=center+houses[i]*unit+Vector2(0,size*0.41)
+			_reflect_sprite(BUILDINGS_APPROVED,Rect2((0 if era==1 else 1)*96,row*96,96,86),base,Vector2(size,size*0.65))
+		var level:int=world.castle_level(town)
+		if level>0:
+			var size:float=unit*[1.95,2.48,3.05][level-1]
+			_reflect_sprite(BUILDINGS_APPROVED,Rect2((level+1)*96,row*96,96,86),center+Vector2(0,size*0.13),Vector2(size,size*0.65))
+	for site in world.sites:
+		if str(site["kind"])!="campfire": continue
+		var base:Vector2=_world_to_screen(Vector2(float(site["x"])+0.5,float(site["y"])+0.5))
+		var frame:int=int(world.swamp_clock*6.0)%3
+		var source_size:=Vector2(CAMPFIRE_FRAMES.get_width()/3.0,CAMPFIRE_FRAMES.get_height()*0.8)
+		_reflect_sprite(CAMPFIRE_FRAMES,Rect2(Vector2(frame*source_size.x,0),source_size),base+Vector2(0,unit*0.14),Vector2(unit*0.72,unit*0.58),0.58)
+
 func _draw_rivers() -> void:
 	var unit:float=TILE_SIZE*zoom
 	var time:float=float(Time.get_ticks_msec())*0.00055
@@ -810,8 +901,8 @@ func _draw_rivers() -> void:
 			var p:Vector2=_world_to_screen(Vector2(x+0.5,y+0.5))
 			if not MAP_AREA.grow(-unit*0.65).has_point(p): continue
 			if world.swamp_water(x,y):
-				if posmod(x*19+y*13,5)<2: _draw_landscape_object("lilies",p+Vector2(0,unit*0.25),unit*0.75)
 				if posmod(x*31+y*71,11)==0: _draw_mosquitoes(p,x*31+y*71,unit)
+				if posmod(x*19+y*13,5)==0: _water_ripple(p,unit*0.28,float(posmod(x*13+y*7,19))/19.0)
 				continue
 			var flow:Vector2=world.water_flow(Vector2(x,y))
 			for i in range(4):
@@ -863,7 +954,7 @@ func _waterfall_for_site(site:Vector2,extent:Vector2) -> Texture2D:
 			for radius in range(1,5):
 				var edge:bool=false
 				for off in [Vector2i(radius,0),Vector2i(-radius,0),Vector2i(0,radius),Vector2i(0,-radius)]:
-					var q:=Vector2i(x,y)+off
+					var q:Vector2i=Vector2i(x,y)+Vector2i(off)
 					if q.x<0 or q.y<0 or q.x>=width or q.y>=height or src.get_pixelv(q).a<0.1:
 						edge=true
 						break
@@ -2479,6 +2570,7 @@ func _draw_water_actor(texture:Texture2D,source:Rect2,p:Vector2,s:float,face:flo
 		elif species in ["crocodile","lizard","frog"]:
 			draw_line(Vector2(-s*0.20,-s*0.025),Vector2(-s*0.45,sin(cycle)*s*0.08),Color("#58794d",0.75),maxf(1,s*0.05))
 	draw_set_transform(Vector2.ZERO)
+	_water_ripple(p,s*0.52,0.0)
 	# Linha d'agua e ondulacoes cobrem as partes submersas, nunca os pes sobre a superficie.
 	draw_line(p-Vector2(s*0.32,0),p+Vector2(s*0.32,0),Color("#80cbd1",0.82),maxf(1,s*0.04))
 	var spread:float=0.5 if moving else 0.25
