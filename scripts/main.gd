@@ -501,6 +501,7 @@ func _draw() -> void:
 	draw_rect(MAP_AREA, Color("#355943"), true)
 	_draw_landscape()
 	_draw_rivers()
+	_draw_territory_borders()
 	_draw_world_sites()
 	scene_depth.clear()
 	# Quantidade real de casas e fazendas aparece no mapa, conforme o estoque da vila.
@@ -617,6 +618,30 @@ func _draw_dirt_path(a: Vector2,b: Vector2,unit: float) -> void:
 		if i%3==0:
 			draw_rect(Rect2(p-Vector2(size*0.2,size*0.25),Vector2(size*0.23,size*0.18)),Color("#d4b477"))
 
+
+func _draw_territory_borders() -> void:
+	var palette:Array[Color]=[Color("#d6b76a"),Color("#79c1df"),Color("#a9cb84"),Color("#d28b83"),Color("#b7a2e0"),Color("#e8b183")]
+	for town in world.towns:
+		if world.active_population(int(town["id"]))<=0: continue
+		var bounds:Rect2=world.territory_bounds(town)
+		var start:Vector2=_world_to_screen(bounds.position+Vector2(0.5,0.5))
+		var finish:Vector2=_world_to_screen(bounds.end+Vector2(0.5,0.5))
+		var color:Color=palette[posmod(world.kingdom_id(town),palette.size())]
+		color.a=0.68 if int(town["id"])==selected_town_id else 0.34
+		for edge in [[start,Vector2(finish.x,start.y)],[Vector2(finish.x,start.y),finish],[finish,Vector2(start.x,finish.y)],[Vector2(start.x,finish.y),start]]:
+			var p:Vector2=edge[0]
+			var q:Vector2=edge[1]
+			var delta:Vector2=q-p
+			var length:float=delta.length()
+			if length<1.0: continue
+			var direction:Vector2=delta/length
+			var dash:float=maxf(4.0,7.0*zoom)
+			var steps:int=ceili(length/(dash*1.75))
+			for n in range(steps):
+				var first:Vector2=p+direction*(float(n)*dash*1.75)
+				var last:Vector2=p+direction*minf(length,float(n)*dash*1.75+dash)
+				if MAP_AREA.has_point(first) and MAP_AREA.has_point(last):
+					draw_line(first,last,color,maxf(1.0,zoom))
 
 func _draw_world_sites() -> void:
 	var unit:float=TILE_SIZE*zoom
