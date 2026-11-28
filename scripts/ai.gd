@@ -105,8 +105,12 @@ func _manage_town(sim, town: Dictionary, step: float) -> void:
 			sim.start_construction(int(town["id"]),"crossing")
 		elif int(town["level"])>=3 and bool(town.get("oven",false)) and not bool(town.get("forge",false)) and float(town.get("stone",0))>=24 and float(town["wood"])>=20:
 			sim.start_construction(int(town["id"]),"forge")
-		elif int(town["level"])>=4 and bool(town.get("forge",false)) and not bool(town.get("castle",false)) and float(town["wood"])>=150 and float(town.get("stone",0))>=300:
+		elif int(town["level"])>=4 and bool(town.get("forge",false)) and sim.castle_level(town)<3 and float(town["wood"])>=150 and float(town.get("stone",0))>=300:
 			sim.start_construction(int(town["id"]),"castle")
+		elif sim.castle_level(town)==1 and int(town["level"])>=3 and bool(town.get("forge",false)) and float(town["wood"])>=90 and float(town.get("stone",0))>=140:
+			sim.start_construction(int(town["id"]),"castle_upgrade")
+		elif sim.castle_level(town)==0 and int(town.get("houses",0))>=3 and pop>=8 and float(town["wood"])>=45 and float(town.get("stone",0))>=20:
+			sim.start_construction(int(town["id"]),"tribal_castle")
 	var harvest: float = step * float(town["farms"]) * 0.15 * sim.harvest_factor(town)
 	if sim.blockade_active(town) and float(town.get("food",0))<float(pop):
 		town["morale"]=maxf(0.0,float(town.get("morale",60))-step*0.6)
@@ -188,7 +192,10 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 			2: p["profession"]="Cozinheiro"
 	# Garante que uma aldeia sem madeira tenha pelo menos um coletor.
 	var wood_goal:float=18.0 if int(home.get("farms",1))==0 and int(home.get("houses",2))>0 else 14.0
-	if int(home["level"])>=4 and not bool(home.get("castle",false)) and int(p["id"])%3==0: wood_goal=150.0
+	if int(p["id"])%3==0 and sim.castle_level(home)<3:
+		if int(home["level"])>=4: wood_goal=150.0
+		elif int(home["level"])>=3 and sim.castle_level(home)==1: wood_goal=90.0
+		elif sim.castle_level(home)==0 and int(home.get("houses",0))>=3: wood_goal=45.0
 	if sim.village_at_war(home): wood_goal=maxf(wood_goal,25.0)
 	if float(p["age"])>=16 and float(home["wood"])<wood_goal and (int(home.get("houses",2))==0 or (int(p["id"])!=int(home["leader"]) and int(p["id"])%2==0)):
 		_gather_wood(sim,p,home)
@@ -228,7 +235,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 						deposit["developed"]=true
 						sim.news=str(home["name"])+" abriu uma mina."
 				elif int(home["level"])>=3 and str(p.get("tool_kind","")) in ["pickaxe","iron_pickaxe"]:
-					sim.collect_cargo(p,"stone",3.0) if float(home.get("stone",0))<12 or (int(home["level"])>=4 and float(home.get("stone",0))<300 and not bool(home.get("castle",false))) else sim.collect_cargo(p,"ore",3.0 if str(p["tool_kind"])=="iron_pickaxe" else 2.0)
+					sim.collect_cargo(p,"stone",3.0) if float(home.get("stone",0))<12 or (int(home["level"])>=4 and float(home.get("stone",0))<300 and sim.castle_level(home)<3) or (int(home["level"])>=3 and float(home.get("stone",0))<140 and sim.castle_level(home)==1) else sim.collect_cargo(p,"ore",3.0 if str(p["tool_kind"])=="iron_pickaxe" else 2.0)
 				else:
 					sim.collect_cargo(p,"stone",2.0)
 		"Cozinheiro":
