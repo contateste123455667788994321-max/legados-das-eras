@@ -370,14 +370,13 @@ func _make_landscape() -> void:
 			var wetland:bool=str(world.tiles[y0][x0])=="swamp" or str(world.tiles[y0][x1])=="swamp" or str(world.tiles[y1][x0])=="swamp" or str(world.tiles[y1][x1])=="swamp"
 			var wet:float=noise.get_noise_2d(px*0.48+803,py*0.48+301)
 			if col==Color("#536e47"):
-				col=Color("#455b36").lerp(Color("#797c45"),clampf(wet+0.45,0.0,1.0))
-				if wet>0.04: col=Color("#3c5d48").lerp(Color("#244e49"),clampf(wet*1.7,0.0,1.0))
-				if wet>0.26 and grain>0.9 and py%4==0: col=col.lightened(0.15)
+				col=Color("#393b38").lerp(Color("#525142"),clampf(wet+0.45,0.0,1.0))
+				if wet>0.04: col=Color("#3c5145").lerp(Color("#263c3c"),clampf(wet*1.7,0.0,1.0))
 			if water > 0.46:
 				var depth:float=smoothstep(0.54,0.98,water)
-				col = Color("#648c72").lerp(Color("#143d3b"),depth) if wetland else Color("#58b8bc").lerp(Color("#104567"),depth)
+				col = Color("#426858").lerp(Color("#102d2b"),depth) if wetland else Color("#58b8bc").lerp(Color("#104567"),depth)
 				col=col.lerp(Color("#26778f") if not wetland else Color("#3d7660"),clampf((grain-0.35)*0.13,0.0,0.10))
-				if water < 0.60: col = Color("#769d86") if wetland else Color("#8dd1cd")
+				if water < 0.60: col = Color("#597768") if wetland else Color("#8dd1cd")
 				elif grain > 0.89 and py % 5 == 0: col = col.lightened(0.20)
 			elif water > 0.28:
 				col = Color("#706342") if wetland else (Color("#b8cfd4") if season==3 else Color("#b6a274"))
@@ -423,9 +422,9 @@ func _draw_landscape() -> void:
 					draw_rect(Rect2(q+Vector2(ss,ss),Vector2(ss,ss)),Color("#91a94e"))
 					if k%7==0: draw_rect(Rect2(q-Vector2(0,ss),Vector2(ss,ss)),Color("#ead0a5"))
 			elif kind == "swamp":
-				_draw_ground_details(kind,pos,side,seed)
-				if seed%3==0: _draw_landscape_object("swamp_reeds",pos,side*(0.44+float(seed%5)*0.07))
-				elif seed%7==0: _draw_landscape_object("swamp_flowers",pos,side*0.55)
+				# Brejo limpo: apenas juncos grandes nas margens, sem folhinhas soltas.
+				if seed%9==0 and world.water_depth(Vector2(x,y)+Vector2(0.45,0.0))>0.0:
+					_draw_landscape_object("swamp_reeds",pos,side*0.82)
 				if seed%13==0: _draw_mosquitoes(pos,seed,side)
 			elif kind == "mountain":
 				if seed%3!=0: _draw_landscape_object("rock", pos, side*(0.7+float(seed%5)*0.14))
@@ -438,7 +437,7 @@ func _draw_landscape() -> void:
 	for tree in world.trees.values():
 		var p: Vector2 = _world_to_screen(Vector2(float(tree["x"])+0.5+float(tree["ox"]),float(tree["y"])+0.5+float(tree["oy"])))
 		if not MAP_AREA.grow(-side*0.3).has_point(p): continue
-		var s: float = side*(1.43 if world.swamp_at(Vector2(float(tree["x"]),float(tree["y"]))) else 1.22)*world.tree_scale(tree)
+		var s: float = side*(1.78 if world.swamp_at(Vector2(float(tree["x"]),float(tree["y"]))) else 1.22)*world.tree_scale(tree)
 		var tree_key:String=_natural_tree_key(tree)
 		var state: String = str(tree["state"])
 		if state == "stump":
@@ -804,7 +803,7 @@ func _draw_live_campfire(p: Vector2, unit: float) -> void:
 
 # Reflexos espelhados dos sprites existentes, recortados pela agua.
 # Somente objetos visiveis e celulas de agua proximas geram comandos de desenho.
-func _reflect_sprite(texture:Texture2D,source:Rect2,base:Vector2,size:Vector2,opacity:float=0.38) -> void:
+func _reflect_sprite(texture:Texture2D,source:Rect2,base:Vector2,size:Vector2,opacity:float=0.62) -> void:
 	if texture==null or not MAP_AREA.grow(size.y).has_point(base): return
 	var extent:=Rect2(base-Vector2(size.x*0.5,0),size)
 	var a:Vector2=_screen_to_world(extent.position)
@@ -837,7 +836,7 @@ func _reflect_sprite(texture:Texture2D,source:Rect2,base:Vector2,size:Vector2,op
 				if sample_w>0.001:
 					part.size.x=sample_w*size.x
 					var uv:=Rect2(source.position+Vector2(sample_x,1.0-(top+h-extent.position.y)/size.y)*source.size,Vector2(sample_w,h/size.y)*source.size)
-					var tint:=Color(0.64,0.82,0.77,opacity*(1.0-progress*0.80))
+					var tint:=Color(0.77,0.91,0.84,opacity*(1.0-progress*0.58))
 					draw_set_transform(Vector2(0,part.position.y+part.end.y),0,Vector2(1,-1))
 					draw_texture_rect_region(texture,part,uv,tint)
 					draw_set_transform(Vector2.ZERO)
