@@ -25,6 +25,8 @@ var habitats_v59:bool=false
 var ecology_v60:bool=false
 var fauna_v3:bool=false
 const FLYING_SPECIES:Array[String]=["heron","duck","eagle","owl","crow","bat"]
+const ANCESTRAL_NAMES:Dictionary={"witch":"Bruxa do brejo","golem":"Golem de Pedra","fenrir":"Fenrir"}
+var ancestrals:Dictionary={}
 var swamp_witch:Dictionary={}
 var swamp_spiders:Array=[]
 var resource_drops:Array=[]
@@ -59,6 +61,7 @@ func generate_world() -> void:
 	beasts.clear()
 	wildlife.clear()
 	swamp_witch.clear()
+	ancestrals.clear()
 	swamp_spiders.clear()
 	resource_drops.clear()
 	sound_events.clear()
@@ -125,6 +128,7 @@ func generate_world() -> void:
 	_seed_new_fauna()
 	for animal in wildlife: init_animal_health(animal)
 	_seed_swamp_witch()
+	_seed_ancestrals()
 	politics.prepare(self)
 	news = "Tres tribos chegaram. Os moradores vao coletar recursos e construir suas aldeias."
 
@@ -249,6 +253,7 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 	_update_wildlife(dt)
 	_update_drops(dt)
 	_update_swamp(dt,controlled_id)
+	_update_ancestrals(dt,controlled_id)
 	for t in towns:
 		# Avanco vinculado aos dias do mundo e a geracoes, nao aos quadros por segundo.
 		t["knowledge"] = float(t["knowledge"]) + elapsed_days * (0.012 + float(active_population(int(t["id"]))) * 0.00035)
@@ -601,7 +606,7 @@ func save_world() -> bool:
 		"tiles": tiles, "towns": towns, "people": people, "beasts": beasts,
 		"trees": trees, "next_seed_day": next_seed_day,
 		"wildlife": wildlife, "sites": sites, "rivers_v58":rivers_v58, "habitats_v59":habitats_v59, "ecology_v60":ecology_v60,"fauna_v3":fauna_v3,
-		"swamp_witch":swamp_witch,"swamp_spiders":swamp_spiders,"swamp_clock":swamp_clock,"resource_drops":resource_drops,
+		"ancestrals":ancestrals,"swamp_witch":swamp_witch,"swamp_spiders":swamp_spiders,"swamp_clock":swamp_clock,"resource_drops":resource_drops,
 		"next_id": next_id, "day": day, "next_birth": next_birth,
 		"next_growth": next_growth, "wars": wars, "rivals": rivals, "predators": predators
 	}
@@ -667,6 +672,8 @@ func load_world() -> bool:
 		for y in range(SIZE):
 			for x in range(maxi(32,old_width),WIDTH):
 				if _tree_allowed(x,y) and not trees.has(tree_key(x,y)) and rng.randf()<0.55: _plant_tree(x,y,true)
+		ancestrals=value.get("ancestrals",{})
+		if not value.has("ancestrals"): _seed_ancestrals()
 		swamp_witch=value.get("swamp_witch",{})
 		swamp_spiders=value.get("swamp_spiders",[])
 		for spider in swamp_spiders:
@@ -1863,7 +1870,7 @@ const SPAWN_NAMES:Dictionary={
 	"lizard":"Lagarto","snow_hare":"Lebre da neve","crocodile":"Crocodilo",
 	"turtle":"Tartaruga","duck":"Pato","boar":"Javali","fox":"Raposa",
 	"wolf":"Lobo","bear":"Urso","witch":"Bruxa do brejo",
-	"cow":"Vaca","sheep":"Ovelha","goat":"Cabra","horse":"Cavalo","pig":"Porco","dog":"Cão","cat":"Gato","eagle":"Águia","owl":"Coruja","crow":"Corvo","bat":"Morcego","penguin":"Pinguim"
+	"cow":"Vaca","sheep":"Ovelha","goat":"Cabra","horse":"Cavalo","pig":"Porco","dog":"Cão","cat":"Gato","eagle":"Águia","owl":"Coruja","crow":"Corvo","bat":"Morcego","penguin":"Pinguim","golem":"Golem de Pedra","fenrir":"Fenrir"
 }
 
 func spawn_creature(species:String,point:Vector2) -> bool:
@@ -1873,6 +1880,13 @@ func spawn_creature(species:String,point:Vector2) -> bool:
 		return false
 	var p:=point
 	var terrain:String=str(tiles[int(p.y)][int(p.x)])
+	if species in ["golem","fenrir"]:
+		if terrain=="water": return false
+		if bool(ancestrals.get(species,{}).get("alive",false)):
+			news="Ja existe um ancestral desta especie vivo."
+			return false
+		_create_ancestral(species,p)
+		return true
 	if species=="witch":
 		if bool(swamp_witch.get("alive",false)):
 			news="Ja existe uma bruxa viva neste mundo."
@@ -2019,6 +2033,7 @@ func strike_witch(person:Dictionary) -> bool:
 	gain_xp(person,3.0,"combate")
 	if float(swamp_witch["health"])<=0:
 		swamp_witch["alive"]=false
+		_drop_ancestral_loot(swamp_witch,"witch")
 		swamp_witch["killer"]=int(person["id"])
 		sound_at("complete",person)
 		if not bool(swamp_witch.get("staff_awarded",false)):
@@ -2295,7 +2310,7 @@ func hunt_animal(person:Dictionary,animal:Dictionary) -> bool:
 		collect_nearby_drop(person)
 	return true
 
-const RESOURCE_NAMES:Dictionary={"wood":"Madeira","stone":"Pedra","ore":"Minerio","metal":"Metal","food":"Comida","water":"Agua","fish":"Peixe","meat":"Carne","hide":"Couro","croc_hide":"Couro de crocodilo","feather":"Penas","bone":"Ossos","shell":"Casco","fiber":"Fibra vegetal","cord":"Corda","club":"Bastão","wood_spear":"Lança de madeira","spear":"Lança de pedra","bow":"Arco","sword":"Espada de ferro","steel_sword":"Espada de aço","iron_spear":"Lança de ferro","pickaxe":"Picareta de pedra","iron_pickaxe":"Picareta de ferro","arrows":"Flechas","hoe":"Enxada","axe":"Machado","rod":"Vara de pesca","wood_shield":"Escudo de madeira","iron_shield":"Escudo de ferro"}
+const RESOURCE_NAMES:Dictionary={"wood":"Madeira","stone":"Pedra","ore":"Minerio","metal":"Metal","food":"Comida","water":"Agua","fish":"Peixe","meat":"Carne","hide":"Couro","croc_hide":"Couro de crocodilo","feather":"Penas","bone":"Ossos","shell":"Casco","fiber":"Fibra vegetal","cord":"Corda","club":"Bastão","wood_spear":"Lança de madeira","spear":"Lança de pedra","bow":"Arco","sword":"Espada de ferro","steel_sword":"Espada de aço","iron_spear":"Lança de ferro","pickaxe":"Picareta de pedra","iron_pickaxe":"Picareta de ferro","arrows":"Flechas","hoe":"Enxada","axe":"Machado","rod":"Vara de pesca","wood_shield":"Escudo de madeira","iron_shield":"Escudo de ferro","magic_essence":"Essencia magica","bone_mask":"Mascara de osso","stone_core":"Nucleo de pedra","frost_hide":"Couro glacial","frost_fang":"Presa congelada","ice_heart":"Coracao de gelo"}
 
 func animal_loot(species:String) -> Dictionary:
 	match species:
@@ -2915,3 +2930,178 @@ func _seed_new_fauna() -> void:
 			init_animal_health(animal)
 			wildlife.append(animal)
 	fauna_v3=true
+
+# Ancestrais nao participam do ciclo de fome, idade ou reproducao da fauna.
+func _create_ancestral(kind:String,p:Vector2) -> void:
+	var hp:float=2000.0 if kind=="golem" else 350.0
+	ancestrals[kind]={"id":new_id(),"species":kind,"name":ANCESTRAL_NAMES[kind],"x":p.x,"y":p.y,"home_x":p.x,"home_y":p.y,"health":hp,"max_health":hp,"alive":true,"attack_cd":0.0,"state":"Adormecido" if kind=="golem" else "Patrulhando","target_town":-1,"face":1.0}
+	news=str(ANCESTRAL_NAMES[kind])+" surgiu no mundo."
+
+func _seed_ancestrals() -> void:
+	for kind in ["golem","fenrir"]:
+		if ancestrals.has(kind): continue
+		var candidates:Array[Vector2]=[]
+		var habitat:String="mountain" if kind=="golem" else "snow"
+		for y in range(1,SIZE-1):
+			for x in range(1,WIDTH-1):
+				if str(tiles[y][x])==habitat and water_depth(Vector2(x,y))<0.1: candidates.append(Vector2(x,y))
+		if not candidates.is_empty(): _create_ancestral(kind,candidates[rng.randi_range(0,candidates.size()-1)])
+
+func _drop_ancestral_loot(actor:Dictionary,kind:String) -> void:
+	if bool(actor.get("dropped",false)): return
+	actor["dropped"]=true
+	var items:Dictionary={}
+	match kind:
+		"witch":
+			if rng.randf()<0.60: items["magic_essence"]=1
+			if rng.randf()<0.15: items["bone_mask"]=1
+		"golem":
+			items={"stone":12,"ore":5}
+			if rng.randf()<0.25: items["stone_core"]=1
+		"fenrir":
+			items={"frost_hide":2}
+			if rng.randf()<0.50: items["frost_fang"]=1
+			if rng.randf()<0.10: items["ice_heart"]=1
+	if not items.is_empty():
+		resource_drops.append({"id":new_id(),"source":int(actor.get("id",-1)),"x":float(actor["x"]),"y":float(actor["y"]),"items":items,"remaining":180.0})
+
+func strike_ancestral(person:Dictionary) -> bool:
+	if not person.has("town") or not bool(person.get("alive",false)) or float(person.get("ancestral_attack_cd",0))>0: return false
+	var p:=Vector2(float(person["x"]),float(person["y"]))
+	for kind in ancestrals:
+		var actor:Dictionary=ancestrals[kind]
+		if not bool(actor.get("alive",false)): continue
+		if p.distance_to(Vector2(float(actor["x"]),float(actor["y"])))>0.95: continue
+		person["ancestral_attack_cd"]=1.25
+		_mark_action(person,"combat",0.85)
+		var damage:float=attack_damage(person)
+		actor["health"]=maxf(0,float(actor["health"])-damage)
+		_mark_hit(actor,damage)
+		if kind=="golem" and int(actor.get("target_town",-1))<0:
+			actor["target_town"]=int(person["town"])
+			actor["state"]="Enfurecido"
+			news="O golem despertou e busca a aldeia que o atacou!"
+		if float(actor["health"])<=0:
+			actor["alive"]=false
+			actor["state"]="Derrotado"
+			_drop_ancestral_loot(actor,str(kind))
+			gain_xp(person,150.0,"combate")
+		return true
+	return false
+
+func _ancestral_step(actor:Dictionary,goal:Vector2,dt:float,pace:float) -> void:
+	var p:=Vector2(float(actor["x"]),float(actor["y"]))
+	var n:=p.move_toward(goal,dt*pace)
+	if n.x<1 or n.y<1 or n.x>WIDTH-2 or n.y>SIZE-2 or water_depth(n)>0.35: return
+	if str(tiles[int(n.y)][int(n.x)])=="mountain" and str(actor["species"])!="golem": return
+	if absf(n.x-p.x)>0.001: actor["face"]=signf(n.x-p.x)
+	actor["x"]=n.x
+	actor["y"]=n.y
+
+func _golem_structure(town:Dictionary,p:Vector2) -> Dictionary:
+	var best:Dictionary={}
+	var distance:float=10000.0
+	for wall in town.get("palisades",[]):
+		var q:=Vector2(float(wall["x"]),float(wall["y"]))
+		if q.distance_to(p)<distance:
+			distance=q.distance_to(p)
+			best={"kind":"wall","wall":wall,"point":q}
+	var houses:int=int(town.get("houses",0))
+	var spots:Array[Vector2]=house_layout(town)
+	if houses>0 and houses<=spots.size():
+		var q:=Vector2(float(town["x"]),float(town["y"]))+spots[houses-1]
+		if q.distance_to(p)<distance:
+			distance=q.distance_to(p)
+			best={"kind":"house","point":q}
+	if bool(town.get("castle",false)):
+		var q:Vector2=workshop_position(town,"castle")
+		if q.distance_to(p)<distance: best={"kind":"castle","point":q}
+	return best
+
+func _golem_smash(town:Dictionary,structure:Dictionary) -> void:
+	var kind:String=str(structure["kind"])
+	if kind=="wall":
+		damage_palisade(town,structure["wall"],100.0)
+		return
+	var key:String="castle" if kind=="castle" else "house_"+str(int(town["houses"])-1)
+	var health:Dictionary=town.get("ancestral_structure_hp",{})
+	health[key]=maxf(0,float(health.get(key,500.0 if kind=="castle" else 200.0))-100.0)
+	town["ancestral_structure_hp"]=health
+	if float(health[key])>0: return
+	health.erase(key)
+	var stores:Dictionary=building_stocks(town)
+	if stores.has(key):
+		for item in stores[key]:
+			town[item]=maxf(0,float(town.get(item,0))-float(stores[key][item]))
+		stores.erase(key)
+	if kind=="house":
+		var levels:Array=house_levels(town)
+		if not levels.is_empty(): levels.pop_back()
+		town["houses"]=maxi(0,int(town["houses"])-1)
+	else:
+		town["castle"]=false
+		for i in range(sites.size()-1,-1,-1):
+			if str(sites[i]["kind"])=="castle" and int(sites[i]["town"])==int(town["id"]): sites.remove_at(i)
+	news="O golem destruiu uma construcao de "+str(town["name"])+"!"
+
+func ancestral_combat_job(person:Dictionary) -> bool:
+	if float(person.get("age",0))<16: return false
+	var p:=Vector2(float(person["x"]),float(person["y"]))
+	for kind in ancestrals:
+		var actor:Dictionary=ancestrals[kind]
+		if not bool(actor.get("alive",false)): continue
+		if kind=="golem" and int(actor.get("target_town",-1))!=int(person["town"]): continue
+		var q:=Vector2(float(actor["x"]),float(actor["y"]))
+		if p.distance_to(q)>4.0: continue
+		if is_military(person):
+			_set_delivery_goal(person,q,"Combatendo ancestral")
+			strike_ancestral(person)
+		else:
+			var away:Vector2=(p-q).normalized()
+			if away.length()<0.01: away=Vector2.RIGHT
+			_set_delivery_goal(person,p+away*2.0,"Fugindo de ancestral")
+		return true
+	return false
+
+func _update_ancestrals(dt:float,controlled_id:int) -> void:
+	for person in people:
+		if person.has("ancestral_attack_cd"): person["ancestral_attack_cd"]=maxf(0,float(person["ancestral_attack_cd"])-dt)
+	for kind in ancestrals:
+		var actor:Dictionary=ancestrals[kind]
+		if not bool(actor.get("alive",false)): continue
+		var p:=Vector2(float(actor["x"]),float(actor["y"]))
+		actor["attack_cd"]=maxf(0,float(actor["attack_cd"])-dt)
+		var town_id:int=int(actor.get("target_town",-1))
+		if kind=="golem" and town_id<0: continue
+		var target:Dictionary={}
+		var best:float=6.0 if kind=="fenrir" else 2.0
+		for person in people:
+			if not bool(person.get("alive",false)): continue
+			if kind=="golem" and int(person["town"])!=town_id: continue
+			var d:float=p.distance_to(Vector2(float(person["x"]),float(person["y"])))
+			if d<best:
+				best=d
+				target=person
+		if not target.is_empty():
+			var q:=Vector2(float(target["x"]),float(target["y"]))
+			actor["state"]="Enfurecido" if kind=="golem" else "Cacando"
+			if best<=0.75 and float(actor["attack_cd"])<=0:
+				_swamp_damage(target,70.0 if kind=="golem" else 30.0)
+				actor["attack_cd"]=2.5 if kind=="golem" else 1.2
+			elif best>0.75: _ancestral_step(actor,q,dt,0.42 if kind=="golem" else 1.45)
+		elif kind=="golem":
+			var town:Dictionary=get_town(town_id)
+			if town.is_empty(): continue
+			var structure:Dictionary=_golem_structure(town,p)
+			var goal:=Vector2(float(town["x"]),float(town["y"]))
+			if not structure.is_empty():
+				goal=structure["point"]
+				if p.distance_to(goal)<1.1 and float(actor["attack_cd"])<=0:
+					_golem_smash(town,structure)
+					actor["attack_cd"]=2.5
+			_ancestral_step(actor,goal,dt,0.42)
+		else:
+			actor["state"]="Patrulhando"
+			var home:=Vector2(float(actor["home_x"]),float(actor["home_y"]))
+			var goal:=home+Vector2(cos(swamp_clock*0.18),sin(swamp_clock*0.18))*1.5
+			_ancestral_step(actor,goal,dt,0.65)
