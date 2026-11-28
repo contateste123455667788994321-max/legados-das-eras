@@ -2081,15 +2081,15 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 		witch["cast"]=maxf(0,float(witch["cast"])-dt)
 		witch["summon"]=maxf(0,float(witch["summon"])-dt)
 		witch["wander"]=float(witch["wander"])-dt
-		var target:Dictionary=_swamp_human(p,3.8)
+		var target:Dictionary=_swamp_human(p,7.0)
 		if float(witch.get("summon_anim",0))>0:
 			var previous:float=float(witch["summon_anim"])
 			witch["summon_anim"]=maxf(0,previous-dt)
 			witch["state"]="Invocando aranhas"
-			if previous>0.60 and float(witch["summon_anim"])<=0.60:
+			if previous>0.60 and float(witch["summon_anim"])<=0.60 and not target.is_empty():
 				_spawn_spider_pair(witch)
 		elif not target.is_empty() and float(witch["cast"])<=0:
-			magic_bolts.append({"x":p.x+0.22,"y":p.y-0.15,"target":target["id"],"kind":"human","life":4.0,"damage":24.0})
+			magic_bolts.append({"x":p.x+0.22,"y":p.y-0.15,"target":target["id"],"kind":"human","life":6.0,"damage":24.0,"witch_magic":true})
 			sound_at("magic",witch)
 			witch["cast"]=4.5
 			witch["state"]="Lancando magia"
@@ -2104,7 +2104,7 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 			if _witch_ground(n):
 				witch["x"]=n.x
 				witch["y"]=n.y
-		if float(witch["summon"])<=0 and float(witch.get("summon_anim",0))<=0 and swamp_spiders.size()<=6:
+		if not target.is_empty() and float(witch["summon"])<=0 and float(witch.get("summon_anim",0))<=0 and swamp_spiders.size()<=2:
 			witch["summon"]=18.0
 			witch["summon_anim"]=1.2
 			witch["state"]="Invocando aranhas"
@@ -2127,7 +2127,10 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 			continue
 		spider["bite"]=maxf(0,float(spider["bite"])-dt)
 		spider["timer"]=float(spider["timer"])-dt
-		var target:Dictionary=_swamp_human(p,2.3)
+		var owner_alive:bool=bool(swamp_witch.get("alive",false))
+		var owner:=Vector2(float(swamp_witch.get("x",p.x)),float(swamp_witch.get("y",p.y)))
+		var target:Dictionary=_swamp_human(p,2.3) if not owner_alive or p.distance_to(owner)<4.0 else {}
+		if owner_alive and not target.is_empty() and Vector2(float(target["x"]),float(target["y"])).distance_to(owner)>7.0: target={}
 		var goal:=p
 		if not target.is_empty():
 			goal=Vector2(float(target["x"]),float(target["y"]))
@@ -2143,6 +2146,10 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 					_mark_action(target,"combat",0.8)
 					gain_xp(target,2.0,"combate")
 					if float(spider["health"])<=0: gain_xp(target,12.0,"combate")
+		elif owner_alive:
+			var angle:float=float(int(spider["id"])%8)*TAU/8.0
+			goal=owner+Vector2(cos(angle),sin(angle))*0.65
+			if not _witch_ground(goal): goal=owner
 		elif float(spider["timer"])<=0:
 			goal=_swamp_target(p,1.5)
 			spider["tx"]=goal.x
@@ -2166,7 +2173,7 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 			continue
 		var p:=Vector2(float(bolt["x"]),float(bolt["y"]))
 		var goal:=Vector2(float(target["x"]),float(target["y"]))
-		var q:=p.move_toward(goal,dt*1.65)
+		var q:=p.move_toward(goal,dt*(2.8 if bool(bolt.get("witch_magic",false)) else 1.65))
 		bolt["x"]=q.x
 		bolt["y"]=q.y
 		if q.distance_to(goal)<0.18:
@@ -2634,7 +2641,7 @@ func sound_at(kind:String,entity:Dictionary) -> void:
 
 # Duas aranhas surgem debaixo do manto, e so depois procuram alvos.
 func _spawn_spider_pair(witch:Dictionary) -> void:
-	if swamp_spiders.size()>6 or not bool(witch.get("alive",false)): return
+	if swamp_spiders.size()>2 or not bool(witch.get("alive",false)): return
 	var origin:=Vector2(float(witch["x"]),float(witch["y"]))
 	for side in [-1,1]:
 		var start:=origin+Vector2(float(side)*0.08,0.10)
