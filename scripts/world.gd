@@ -29,6 +29,8 @@ const ANCESTRAL_NAMES:Dictionary={"witch":"Bruxa do brejo","golem":"Golem de Ped
 var ancestrals:Dictionary={}
 var border_intruders:Dictionary={}
 var border_bounds:Dictionary={}
+var border_cells:Dictionary={}
+const BORDER_GRID:float=0.25
 var border_scan_elapsed:float=0.0
 var swamp_witch:Dictionary={}
 var swamp_spiders:Array=[]
@@ -67,6 +69,7 @@ func generate_world() -> void:
 	ancestrals.clear()
 	border_intruders.clear()
 	border_bounds.clear()
+	border_cells.clear()
 	border_scan_elapsed=0.0
 	swamp_spiders.clear()
 	resource_drops.clear()
@@ -3167,44 +3170,63 @@ func _update_ancestrals(dt:float,controlled_id:int) -> void:
 			_ancestral_step(actor,goal,dt,0.65)
 
 # Limites derivados das construcoes reais, sem modificar terreno ou colisao.
-func territory_bounds(town:Dictionary) -> Rect2:
+# A mesma malha de posse alimenta a defesa e o desenho da fronteira.
+func _claim_building(cells:Dictionary,center:Vector2,half:Vector2) -> void:
+	var radius:float=0.60
+	var low:Vector2i=Vector2i(((center-half-Vector2.ONE*radius)/BORDER_GRID).floor())
+	var high:Vector2i=Vector2i(((center+half+Vector2.ONE*radius)/BORDER_GRID).ceil())
+	for y in range(maxi(0,low.y),mini(SIZE*4,high.y+1)):
+		for x in range(maxi(0,low.x),mini(WIDTH*4,high.x+1)):
+			var cell:=Vector2i(x,y)
+			var p:Vector2=(Vector2(cell)+Vector2(0.5,0.5))*BORDER_GRID
+			var delta:Vector2=(p-center).abs()-half
+			if Vector2(maxf(0,delta.x),maxf(0,delta.y)).length()<=radius:
+				cells[cell]=true
+
+func territory_cells(town:Dictionary) -> Dictionary:
+	var cells:Dictionary={}
 	var center:=Vector2(float(town["x"]),float(town["y"]))
-	var area:=Rect2(center-Vector2(1.5,1.5),Vector2(3,3))
+	_claim_building(cells,center,Vector2(0.65,0.55))
 	var houses:Array[Vector2]=house_layout(town)
 	for i in range(mini(int(town.get("houses",0)),houses.size())):
-		var p:Vector2=center+houses[i]
-		area=area.merge(Rect2(p-Vector2(0.8,0.9),Vector2(1.6,1.5)))
+		_claim_building(cells,center+houses[i],Vector2(0.80,0.70))
 	var farms:Array[Vector2]=farm_layout(town)
 	for i in range(mini(int(town.get("farms",0)),farms.size())):
-		var p:Vector2=center+farms[i]
-		area=area.merge(Rect2(p-Vector2(0.75,0.5),Vector2(1.5,1.0)))
+		_claim_building(cells,center+farms[i],Vector2(0.73,0.48))
 	for site in sites:
 		if int(site.get("town",-1))!=int(town["id"]) or str(site["kind"]) not in ["castle","campfire","forge","oven"]: continue
 		var p:=Vector2(float(site["x"]),float(site["y"]))
-		var size:=Vector2(2.8,2.5) if str(site["kind"])=="castle" else Vector2(1,1)
-		area=area.merge(Rect2(p-size*0.5,size))
-	return area.grow(0.6).intersection(Rect2(1,1,WIDTH-3,SIZE-3))
+		_claim_building(cells,p,Vector2(1.4,1.25) if str(site["kind"])=="castle" else Vector2(0.50,0.50))
+	return cells
+
+func territory_bounds(town:Dictionary) -> Rect2:
+	var center:=Vector2(float(town["x"]),float(town["y"]))
+	var area:=Rect2(center,Vector2.ZERO)
+	for cell in territory_cells(town):
+		area=area.merge(Rect2(Vector2(cell)*BORDER_GRID,Vector2.ONE*BORDER_GRID))
+	return area
 
 func territory_owner(p:Vector2) -> Dictionary:
-	var chosen:Dictionary={}
-	var best:float=INF
+	var key:=Vector2i((p/BORDER_GRID).floor())
+	return get_town(int(border_cells.get(key,0)))
+
+func _rebuild_border_cells() -> void:
+	border_cells.clear()
+	border_bounds.clear()
 	for town in towns:
+		if active_population(int(town["id"]))<=0: continue
 		var id:int=int(town["id"])
-		if not border_bounds.has(id): continue
-		var bounds:Rect2=border_bounds[id]
-		if not bounds.has_point(p): continue
-		var distance:float=p.distance_squared_to(Vector2(float(town["x"]),float(town["y"])))
-		if distance<best:
-			chosen=town
-			best=distance
-	return chosen
+		var center:=Vector2(float(town["x"]),float(town["y"]))
+		for cell in territory_cells(town):
+			if border_cells.has(cell):
+				var other:Dictionary=get_town(int(border_cells[cell]))
+				var q:Vector2=(Vector2(cell)+Vector2(0.5,0.5))*BORDER_GRID
+				if not other.is_empty() and q.distance_squared_to(Vector2(float(other["x"]),float(other["y"])))<=q.distance_squared_to(center): continue
+			border_cells[cell]=id
 
 func _scan_borders() -> void:
-	border_bounds.clear()
+	_rebuild_border_cells()
 	border_intruders.clear()
-	for town in towns:
-		if active_population(int(town["id"]))>0:
-			border_bounds[int(town["id"])]=territory_bounds(town)
 	for person in people:
 		if not bool(person.get("alive",false)): continue
 		var home:Dictionary=get_town(int(person["town"]))
