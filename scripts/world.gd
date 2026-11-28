@@ -27,6 +27,9 @@ var fauna_v3:bool=false
 const FLYING_SPECIES:Array[String]=["heron","duck","eagle","owl","crow","bat"]
 const ANCESTRAL_NAMES:Dictionary={"witch":"Bruxa do brejo","golem":"Golem de Pedra","fenrir":"Fenrir"}
 var ancestrals:Dictionary={}
+var border_intruders:Dictionary={}
+var border_bounds:Dictionary={}
+var border_scan_elapsed:float=0.0
 var swamp_witch:Dictionary={}
 var swamp_spiders:Array=[]
 var resource_drops:Array=[]
@@ -62,6 +65,9 @@ func generate_world() -> void:
 	wildlife.clear()
 	swamp_witch.clear()
 	ancestrals.clear()
+	border_intruders.clear()
+	border_bounds.clear()
+	border_scan_elapsed=0.0
 	swamp_spiders.clear()
 	resource_drops.clear()
 	sound_events.clear()
@@ -293,6 +299,10 @@ func update_world(delta: float, controlled_id: int = 0) -> void:
 		next_birth += 120.0
 		_new_children()
 	politics.advance(self, dt)
+	border_scan_elapsed+=dt
+	if border_scan_elapsed>=0.75:
+		border_scan_elapsed=0.0
+		_scan_borders()
 	# IA local atualiza necessidades, trabalhos, relacionamentos e aldeias.
 	# Usa tempo da simulacao: pausa impede progresso e fechar o app nao avanca o mundo.
 	agent_ai.advance(self, dt, controlled_id)
@@ -3155,3 +3165,97 @@ func _update_ancestrals(dt:float,controlled_id:int) -> void:
 			var home:=Vector2(float(actor["home_x"]),float(actor["home_y"]))
 			var goal:=home+Vector2(cos(swamp_clock*0.18),sin(swamp_clock*0.18))*1.5
 			_ancestral_step(actor,goal,dt,0.65)
+
+# Limites derivados das construcoes reais, sem modificar terreno ou colisao.
+func territory_bounds(town:Dictionary) -> Rect2:
+	var center:=Vector2(float(town["x"]),float(town["y"]))
+	var area:=Rect2(center-Vector2(1.5,1.5),Vector2(3,3))
+	var houses:Array[Vector2]=house_layout(town)
+	for i in range(mini(int(town.get("houses",0)),houses.size())):
+		var p:Vector2=center+houses[i]
+		area=area.merge(Rect2(p-Vector2(0.8,0.9),Vector2(1.6,1.5)))
+	var farms:Array[Vector2]=farm_layout(town)
+	for i in range(mini(int(town.get("farms",0)),farms.size())):
+		var p:Vector2=center+farms[i]
+		area=area.merge(Rect2(p-Vector2(0.75,0.5),Vector2(1.5,1.0)))
+	for site in sites:
+		if int(site.get("town",-1))!=int(town["id"]) or str(site["kind"]) not in ["castle","campfire","forge","oven"]: continue
+		var p:=Vector2(float(site["x"]),float(site["y"]))
+		var size:=Vector2(2.8,2.5) if str(site["kind"])=="castle" else Vector2(1,1)
+		area=area.merge(Rect2(p-size*0.5,size))
+	return area.grow(0.6).intersection(Rect2(1,1,WIDTH-3,SIZE-3))
+
+func territory_owner(p:Vector2) -> Dictionary:
+	var chosen:Dictionary={}
+	var best:float=INF
+	for town in towns:
+		var id:int=int(town["id"])
+		if not border_bounds.has(id): continue
+		var bounds:Rect2=border_bounds[id]
+		if not bounds.has_point(p): continue
+		var distance:float=p.distance_squared_to(Vector2(float(town["x"]),float(town["y"])))
+		if distance<best:
+			chosen=town
+			best=distance
+	return chosen
+
+func _scan_borders() -> void:
+	border_bounds.clear()
+	border_intruders.clear()
+	for town in towns:
+		if active_population(int(town["id"]))>0:
+			border_bounds[int(town["id"])]=territory_bounds(town)
+	for person in people:
+		if not bool(person.get("alive",false)): continue
+		var home:Dictionary=get_town(int(person["town"]))
+		var owner:Dictionary=territory_owner(Vector2(float(person["x"]),float(person["y"])))
+		var previous:int=int(person.get("border_owner",0))
+		person["border_owner"]=0
+		if owner.is_empty() or home.is_empty() or kingdom_id(owner)==kingdom_id(home): continue
+		var aid:int=kingdom_id(owner)
+		var bid:int=kingdom_id(home)
+		var score:float=politics.relation_score(self,aid,bid)
+		if score>=100.0: continue
+		person["border_owner"]=int(owner["id"])
+		if previous!=int(owner["id"]):
+			score=politics.border_incident(self,aid,bid)
+		if score<=50.0 and politics.get_status(self,aid,bid)!="war":
+			var intruders:Array=border_intruders.get(int(owner["id"]),[])
+			intruders.append(person)
+			border_intruders[int(owner["id"])]=intruders
+
+func border_duty(person:Dictionary,town:Dictionary) -> bool:
+	var home_id:int=int(town["id"])
+	var p:=Vector2(float(person["x"]),float(person["y"]))
+	var owner:Dictionary=get_town(int(person.get("border_owner",0)))
+	if not owner.is_empty() and kingdom_id(owner)!=kingdom_id(town):
+		var status:String=politics.get_status(self,kingdom_id(owner),kingdom_id(town))
+		if status!="war" and politics.relation_score(self,kingdom_id(owner),kingdom_id(town))<100.0:
+			# Afastamento para a propria vila; nao perseguir alem da fronteira.
+			_set_delivery_goal(person,Vector2(float(town["x"]),float(town["y"])),"Saindo de territorio estrangeiro")
+			return true
+	if float(person.get("age",0))<16.0 or int(person["id"])==int(town.get("leader",0)): return false
+	if str(person.get("military_role",""))=="royal": return false
+	var nearest:Dictionary={}
+	var best:float=5.0 if is_military(person) else 1.35
+	for visitor in border_intruders.get(home_id,[]):
+		if not bool(visitor.get("alive",false)): continue
+		var q:=Vector2(float(visitor["x"]),float(visitor["y"]))
+		var actual:Dictionary=territory_owner(q)
+		if actual.is_empty() or int(actual["id"])!=home_id: continue
+		var distance:float=p.distance_to(q)
+		if distance<best:
+			best=distance
+			nearest=visitor
+	if nearest.is_empty(): return false
+	var goal:=Vector2(float(nearest["x"]),float(nearest["y"]))
+	_set_delivery_goal(person,goal,"Defendendo fronteira")
+	# Expulsao nao letal durante tensao: combate de guerra fica no sistema militar.
+	if best<0.85 and float(person.get("military_cd",0))<=0 and float(nearest.get("age",0))>=16:
+		person["military_cd"]=1.5
+		_mark_action(person,"combat",0.85)
+		var before:float=float(nearest["health"])
+		nearest["health"]=maxf(minf(before,1.0),before-minf(attack_damage(person)*0.45,12.0))
+		_mark_hit(nearest,before-float(nearest["health"]))
+		sound_at("hit",nearest)
+	return true
