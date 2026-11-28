@@ -605,28 +605,41 @@ func _draw() -> void:
 		draw_rect(Rect2(17, 650, 1207, 41), Color("#d1ab6c"), false, 1.0)
 
 # Base irregular de terra pisada. A textura do bioma permanece visivel entre os pixels.
-func _draw_structure_ground(p:Vector2,size:float,biome:String,seed:int) -> void:
-	if not MAP_AREA.grow(size).has_point(p): return
+var foundation_cache:Dictionary={}
+func _foundation_texture(biome:String,seed:int) -> Texture2D:
+	var variant:int=posmod(seed,4)
+	var key:String=biome+":"+str(variant)
+	if foundation_cache.has(key): return foundation_cache[key]
 	var ground:Color=Color("#ac925a")
 	match biome:
 		"snow": ground=Color("#a5aba4")
 		"sand": ground=Color("#bd9c65")
 		"swamp": ground=Color("#5e6242")
-	var step:float=maxf(1.0,size/30.0)
-	var extent:=Vector2(size*0.51,size*0.16)
-	for iy in range(-6,7):
-		for ix in range(-16,17):
-			var d:=Vector2(float(ix)/16.0,float(iy)/6.0)
-			var h:int=posmod(ix*71+iy*131+seed*29,97)
+	var img:=Image.create(64,24,false,Image.FORMAT_RGBA8)
+	for y in range(24):
+		for x in range(64):
+			var d:=Vector2((float(x)-31.5)/30.0,(float(y)-11.5)/11.0)
+			var h:int=posmod(x*71+y*131+variant*29,97)
 			var edge:float=1.0+float(h%7-3)*0.055
 			if d.length_squared()>edge: continue
-			var q:Vector2=p+Vector2(d.x*extent.x,d.y*extent.y)
-			var rect:=Rect2(q,Vector2.ONE*step).intersection(MAP_AREA)
-			if not rect.has_area(): continue
-			if world.water_depth(_screen_to_world(q)-Vector2(0.5,0.5))>0.1: continue
 			var tone:Color=ground.darkened(float(h%5)*0.045)
 			tone.a=0.12+0.27*(1.0-clampf(d.length(),0.0,1.0))
-			draw_rect(rect,tone)
+			img.set_pixel(x,y,tone)
+	var tex:Texture2D=ImageTexture.create_from_image(img)
+	foundation_cache[key]=tex
+	return tex
+
+func _draw_structure_ground(p:Vector2,size:float,biome:String,seed:int) -> void:
+	if not MAP_AREA.grow(size).has_point(p): return
+	var extent:=Vector2(size*0.54,size*0.19)
+	# Se a base cruzar a margem, nao cobrir a agua com terra decorativa.
+	for offset in [Vector2.ZERO,Vector2(-extent.x,0),Vector2(extent.x,0),Vector2(0,extent.y),Vector2(0,-extent.y)]:
+		if world.water_depth(_screen_to_world(p+offset)-Vector2(0.5,0.5))>0.10: return
+	var dest:=Rect2(p-extent,extent*2.0)
+	var clipped:Rect2=dest.intersection(MAP_AREA)
+	if not clipped.has_area(): return
+	var tex:Texture2D=_foundation_texture(biome,seed)
+	draw_texture_rect_region(tex,clipped,Rect2((clipped.position-dest.position)/dest.size*tex.get_size(),clipped.size/dest.size*tex.get_size()))
 
 func _draw_village_ground(town:Dictionary,center:Vector2,unit:float) -> void:
 	if not MAP_AREA.grow(unit*8).has_point(center): return
@@ -842,8 +855,9 @@ func _waterfall_for_site(site:Vector2,extent:Vector2) -> Texture2D:
 					c.a*=smoothstep(0.73,0.88,1.0-absf(uv.x-0.5))*0.22
 				if c.v<0.66:
 					var tint:Color=ground if river_pixel else Color("#226881")
+					var opacity:float=c.a
 					c=c.lerp(tint,0.34)
-					c.a*=end_fade
+					c.a=opacity
 			# Transicao de 4 pixels na silhueta, preserva os detalhes internos.
 			var distance:int=5
 			for radius in range(1,5):
