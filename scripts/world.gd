@@ -861,7 +861,12 @@ func _update_trees(dt: float) -> void:
 					tree["state"]="stump"
 					tree_revision+=1
 			"stump":
-				if not tree.has("stump_until"): tree["stump_until"]=minf(float(tree.get("regrow",day+12)),day+12.0)
+				# Saves antigos tinham prazo curto: preservar o toco ate o prazo de regeneracao.
+				var regrow_at:float=float(tree.get("regrow",0.0))
+				if regrow_at>0.0:
+					tree["stump_until"]=maxf(float(tree.get("stump_until",0.0)),regrow_at)
+				elif not tree.has("stump_until"):
+					tree["stump_until"]=day+50.0
 				if day>=float(tree["stump_until"]):
 					# O toco desaparece; novas mudas surgem pela ecologia, nao do tronco cortado.
 					trees.erase(key)
