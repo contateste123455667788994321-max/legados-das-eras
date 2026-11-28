@@ -2472,9 +2472,54 @@ func _draw_building_art(p:Vector2,size:float,stage:int,biome:String) -> void:
 	var source:=Rect2(clampi(stage,0,4)*96,row*96,96,96)
 	var dest:=Rect2(p-Vector2(size*0.5,size*0.87),Vector2.ONE*size)
 	_contact_shadow(p+Vector2(size*0.03,size*0.075),size*0.42,size*0.095)
-	var clipped:Rect2=dest.intersection(MAP_AREA)
+	if stage>=0 and stage<=1:
+		# Recortar apenas a fumaca estatica do atlas original, preservando a chamine.
+		var cap_rows:Array=[Vector2i(33,33),Vector2i(30,30),Vector2i(30,31),Vector2i(27,27)]
+		var cap_columns:Array=[Vector2i(66,67),Vector2i(64,63),Vector2i(66,65),Vector2i(65,65)]
+		var cap_y:float=float(cap_rows[row][stage])
+		var cap_x:float=float(cap_columns[row][stage])
+		_draw_building_piece(dest,source.position,Rect2(0,0,58,cap_y))
+		_draw_building_piece(dest,source.position,Rect2(0,cap_y,96,96-cap_y))
+		_draw_house_smoke(dest.position+Vector2(cap_x,cap_y)*size/96.0,size,p)
+	else:
+		_draw_building_piece(dest,source.position,Rect2(0,0,96,96))
+
+func _draw_building_piece(dest:Rect2,source_origin:Vector2,local:Rect2) -> void:
+	var scale_factor:float=dest.size.x/96.0
+	var piece:=Rect2(dest.position+local.position*scale_factor,local.size*scale_factor)
+	var clipped:=piece.intersection(MAP_AREA)
 	if clipped.has_area():
-		draw_texture_rect_region(BUILDINGS_APPROVED,clipped,Rect2(source.position+(clipped.position-dest.position)/size*96.0,clipped.size/size*96.0))
+		draw_texture_rect_region(BUILDINGS_APPROVED,clipped,Rect2(source_origin+local.position+(clipped.position-piece.position)/scale_factor,clipped.size/scale_factor))
+
+func _draw_house_smoke(chimney:Vector2,size:float,anchor:Vector2) -> void:
+	if not MAP_AREA.grow(size*0.5).has_point(chimney): return
+	var location:Vector2=_screen_to_world(anchor)
+	var seed_phase:float=fposmod(location.x*0.173+location.y*0.297,1.0)
+	var clock:float=world.swamp_clock
+	var pixel:float=maxf(1.0,size/96.0)
+	# Cada particula sobe, desacelera, acompanha a brisa e se dissipa.
+	for i in range(6):
+		var cycle:float=clock*0.52+float(i)/6.0+seed_phase
+		var age:float=fposmod(cycle,1.0)
+		var born:float=(floorf(cycle)-float(i)/6.0-seed_phase)/0.52
+		var wind:float=0.09+0.11*sin(born*0.37)
+		var drift:float=wind*age*age+0.015*sin(age*7.0+born*0.9)*age
+		var rise:float=0.33*(1.0-exp(-age*1.8))
+		var center:Vector2=chimney+Vector2(drift,-rise)*size
+		var radius:float=size*lerpf(0.018,0.063,age)
+		var alpha:float=0.48*smoothstep(0.0,0.06,age)*pow(1.0-age,1.5)
+		var step_size:float=maxf(pixel,radius*0.45)
+		for iy in range(-2,3):
+			for ix in range(-2,3):
+				var q:=Vector2(float(ix),float(iy))
+				var d:float=q.length()
+				if d>2.5: continue
+				var pos:Vector2=(center+q*step_size).snapped(Vector2.ONE*pixel)
+				var rect:=Rect2(pos-Vector2.ONE*step_size*0.5,Vector2.ONE*step_size)
+				var clipped:=rect.intersection(MAP_AREA)
+				if clipped.has_area():
+					var opacity:float=alpha*(1.0-d*0.20)
+					draw_rect(clipped,Color(0.68+age*0.12,0.65+age*0.12,0.62+age*0.13,opacity))
 
 func _draw_depth_entities() -> void:
 	scene_depth.sort_custom(func(a,b): return float(a["y"])<float(b["y"]))
