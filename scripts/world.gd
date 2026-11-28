@@ -319,6 +319,8 @@ func construction_cost(kind: String) -> float:
 		"house": return 14.0
 		"upgrade": return 18.0
 		"castle": return 150.0
+		"tribal_castle": return 45.0
+		"castle_upgrade": return 90.0
 		"palisade": return 3.0
 		"farm": return 18.0
 		"oven": return 8.0
@@ -346,8 +348,14 @@ func start_construction(town_id: int, kind: String) -> bool:
 		return false
 	if kind=="upgrade" and upgrade_index(town)<0: return false
 	if kind=="palisade" and next_palisade(town).is_empty(): return false
-	if kind=="castle" and (int(town["level"])<4 or bool(town.get("castle",false)) or not bool(town.get("forge",false))):
-		news="Castelo exige era 4 e forja."
+	if kind=="castle" and (int(town["level"])<4 or castle_level(town)>=3 or not bool(town.get("forge",false))):
+		news="Castelo de pedra final exige era 4 e forja."
+		return false
+	if kind=="tribal_castle" and (castle_level(town)>0 or int(town.get("houses",0))<3 or active_population(town_id)<8):
+		news="Fortificacao tribal exige tres casas e oito moradores."
+		return false
+	if kind=="castle_upgrade" and (castle_level(town)!=1 or int(town["level"])<3 or not bool(town.get("forge",false))):
+		news="Castelo nivel 2 exige era 3 e forja."
 		return false
 	if float(town.get("stone",0))<workshop_stone_cost(kind):
 		news="Pedra insuficiente para a obra."
@@ -364,8 +372,8 @@ func start_construction(town_id: int, kind: String) -> bool:
 		news = "Madeira insuficiente: precisa de %d, tem %d." % [int(cost), int(float(town["wood"]))]
 		return false
 	town["wood"] = float(town["wood"]) - cost
-	var label:String={"castle":"castelo","upgrade":"melhoria de casa","campfire":"fogueira","house":"casa","farm":"fazenda","oven":"forno","forge":"forja","crossing":"ponte","palisade":"paliçada"}[kind]
-	town["construction"]={"kind":kind,"progress":0.0,"duration":float({"castle":150,"palisade":7,"upgrade":24,"campfire":8,"house":12,"farm":15,"oven":20,"forge":32,"crossing":26}[kind])}
+	var label:String={"castle":"castelo","tribal_castle":"fortificacao tribal","castle_upgrade":"ampliacao do castelo","upgrade":"melhoria de casa","campfire":"fogueira","house":"casa","farm":"fazenda","oven":"forno","forge":"forja","crossing":"ponte","palisade":"paliçada"}[kind]
+	town["construction"]={"kind":kind,"progress":0.0,"duration":float({"castle":150,"tribal_castle":42,"castle_upgrade":95,"palisade":7,"upgrade":24,"campfire":8,"house":12,"farm":15,"oven":20,"forge":32,"crossing":26}[kind])}
 	var stone_cost:float=workshop_stone_cost(kind)
 	town["stone"]=float(town.get("stone",0))-stone_cost
 	_prepare_project(town)
@@ -407,6 +415,15 @@ func progress_construction(town: Dictionary, dt: float) -> void:
 		var levels:Array=house_levels(town)
 		var index:int=int(site.get("house_index",0))
 		if index>=0 and index<levels.size(): levels[index]=mini(4,int(levels[index])+1)
+	elif kind in ["castle","tribal_castle","castle_upgrade"]:
+		town["castle"]=true
+		town["castle_level"]=1 if kind=="tribal_castle" else (2 if kind=="castle_upgrade" else 3)
+		var existing:Dictionary=local_site("castle",int(town["id"]))
+		var pos:Vector2=workshop_position(town,"castle")
+		if existing.is_empty(): sites.append({"kind":"castle","x":pos.x,"y":pos.y,"town":town["id"]})
+		else:
+			existing["x"]=pos.x
+			existing["y"]=pos.y
 	elif kind=="farm":
 		town["farms"]=int(town.get("farms",1))+1
 	elif kind=="palisade":
@@ -419,7 +436,7 @@ func progress_construction(town: Dictionary, dt: float) -> void:
 		town[kind]=true
 		sites.append({"kind":kind,"x":site["x"],"y":site["y"],"town":town["id"]})
 	town["construction"]={}
-	var label:String={"castle":"Castelo construido","upgrade":"Casa ampliada","campfire":"Fogueira acesa","house":"Casa pronta","farm":"Fazenda pronta","oven":"Forno construido","forge":"Forja construida","crossing":"Ponte construida","palisade":"Trecho de paliçada pronto"}[kind]
+	var label:String={"castle":"Castelo nivel 3 construido","tribal_castle":"Castelo tribal construido","castle_upgrade":"Castelo nivel 2 construido","upgrade":"Casa ampliada","campfire":"Fogueira acesa","house":"Casa pronta","farm":"Fazenda pronta","oven":"Forno construido","forge":"Forja construida","crossing":"Ponte construida","palisade":"Trecho de paliçada pronto"}[kind]
 	var history: Array = town.get("historical_events", [])
 	history.append({"day": int(day), "event": label + "."})
 	if history.size() > 12:
@@ -743,6 +760,9 @@ func load_world() -> bool:
 			if str(site["kind"]) in ["campfire","oven","forge","crossing","castle"]:
 				var owner:Dictionary=get_town(int(site["town"]))
 				if not bool(owner.get(str(site["kind"]),false)): sites.remove_at(i)
+				elif str(site["kind"])=="castle":
+					site["x"]=owner["x"]
+					site["y"]=owner["y"]
 		if not value.has("wildlife"): _seed_wildlife()
 		habitats_v59=bool(value.get("habitats_v59",false))
 		if not habitats_v59: _seed_habitat_animals()
@@ -1272,12 +1292,12 @@ func stop_wartime_construction(town:Dictionary) -> void:
 	town["construction"]={}
 
 func workshop_stone_cost(kind:String) -> float:
-	return float({"oven":12,"forge":24,"crossing":4,"upgrade":12,"castle":300}.get(kind,0))
+	return float({"oven":12,"forge":24,"crossing":4,"upgrade":12,"castle":300,"tribal_castle":20,"castle_upgrade":140}.get(kind,0))
 
 func workshop_position(town:Dictionary,kind:String) -> Vector2:
 	var origin:=Vector2(float(town["x"]),float(town["y"]))
 	if kind=="campfire": return origin+Vector2(0.7,1.0)
-	if kind=="castle": return origin+Vector2(0,-3.0)
+	if kind in ["castle","tribal_castle","castle_upgrade"]: return origin
 	if kind in ["house","upgrade"]:
 		var spots:Array[Vector2]=house_layout(town)
 		return origin+spots[clampi(upgrade_index(town) if kind=="upgrade" else int(town.get("houses",2)),0,7)]
@@ -1487,6 +1507,10 @@ func deposit_inventory(p:Dictionary) -> bool:
 	news="Recursos entregues ao estoque da aldeia."
 	return true
 
+func castle_level(town:Dictionary) -> int:
+	if not bool(town.get("castle",false)): return 0
+	return clampi(int(town.get("castle_level",3)),1,3)
+
 func house_levels(town:Dictionary) -> Array:
 	if not town.has("house_levels"): town["house_levels"]=[]
 	var levels:Array=town["house_levels"]
@@ -1497,7 +1521,7 @@ func housing_capacity(town:Dictionary) -> int:
 	var total:int=0
 	for level in house_levels(town):
 		total+=[4,6,10,14][clampi(int(level)-1,0,3)]
-	if bool(town.get("castle",false)): total+=8
+	if bool(town.get("castle",false)): total+=[0,4,6,8][castle_level(town)]
 	return total
 
 func upgrade_index(town:Dictionary) -> int:
@@ -2950,11 +2974,11 @@ func _nearest_swim_bank(p:Vector2) -> Vector2:
 	return best
 
 func house_layout(town:Dictionary) -> Array[Vector2]:
-	var options:Array[Vector2]=[Vector2(-0.95,-0.85),Vector2(0.95,-0.85),Vector2(-2.85,-0.85),Vector2(2.85,-0.85),Vector2(-0.95,-2.3),Vector2(0.95,-2.3),Vector2(-2.85,-2.3),Vector2(2.85,-2.3),Vector2(-4.75,-0.85),Vector2(4.75,-0.85),Vector2(-4.75,-2.3),Vector2(4.75,-2.3)]
+	var options:Array[Vector2]=[Vector2(-2.05,-0.95),Vector2(2.05,-0.95),Vector2(-1.05,-2.85),Vector2(1.05,-2.85),Vector2(-2.05,1.20),Vector2(2.05,1.20),Vector2(-4.0,-0.95),Vector2(4.0,-0.95),Vector2(-3.5,-2.85),Vector2(3.5,-2.85),Vector2(-4.0,1.20),Vector2(4.0,1.20)]
 	return _dry_layout(town,options,8)
 
 func farm_layout(town:Dictionary) -> Array[Vector2]:
-	var options:Array[Vector2]=[Vector2(-1.9,1.8),Vector2(1.9,1.8),Vector2(0,3.2),Vector2(-1.9,3.2),Vector2(1.9,3.2),Vector2(0,4.6),Vector2(-3.8,1.8),Vector2(3.8,1.8),Vector2(-3.8,3.2),Vector2(3.8,3.2)]
+	var options:Array[Vector2]=[Vector2(-1.9,3.0),Vector2(1.9,3.0),Vector2(0,4.4),Vector2(-3.8,3.0),Vector2(3.8,3.0),Vector2(-1.9,4.4),Vector2(1.9,4.4),Vector2(-3.8,4.4),Vector2(3.8,4.4)]
 	return _dry_layout(town,options,6)
 
 func _dry_layout(town:Dictionary,options:Array[Vector2],count:int) -> Array[Vector2]:
@@ -3100,6 +3124,7 @@ func _golem_smash(town:Dictionary,structure:Dictionary) -> void:
 		town["houses"]=maxi(0,int(town["houses"])-1)
 	else:
 		town["castle"]=false
+		town["castle_level"]=0
 		for i in range(sites.size()-1,-1,-1):
 			if str(sites[i]["kind"])=="castle" and int(sites[i]["town"])==int(town["id"]): sites.remove_at(i)
 	news="O golem destruiu uma construcao de "+str(town["name"])+"!"
