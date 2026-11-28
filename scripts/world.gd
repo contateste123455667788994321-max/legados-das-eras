@@ -2180,6 +2180,18 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 		witch["cast"]=maxf(0,float(witch["cast"])-dt)
 		witch["summon"]=maxf(0,float(witch["summon"])-dt)
 		witch["wander"]=float(witch["wander"])-dt
+		# O caldeirao tem uma posicao fixa, persistida com os dados da bruxa.
+		if not witch.has("cauldron_x"):
+			var home:Vector2=p
+			for offset in [Vector2(0.8,0.0),Vector2(-0.8,0.0),Vector2(0.0,0.8),Vector2(0.0,-0.8)]:
+				if _witch_ground(p+offset):
+					home=p+offset
+					break
+			witch["cauldron_x"]=home.x
+			witch["cauldron_y"]=home.y
+		var cauldron:=Vector2(float(witch["cauldron_x"]),float(witch["cauldron_y"]))
+		if p.distance_to(cauldron)<=1.6:
+			witch["health"]=minf(float(witch.get("max_health",500.0)),float(witch["health"])+2.0*dt)
 		var target:Dictionary=_swamp_human(p,7.0)
 		if float(witch.get("summon_anim",0))>0:
 			var previous:float=float(witch["summon_anim"])
@@ -2194,8 +2206,12 @@ func _update_swamp(dt:float,controlled_id:int=0) -> void:
 			witch["state"]="Lancando magia"
 		elif target.is_empty():
 			witch["state"]="Vigiando"
-			if float(witch["wander"])<=0:
-				var q:Vector2=_swamp_target(p,2.0)
+			if float(witch["health"])<float(witch.get("max_health",500.0))*0.70 and p.distance_to(cauldron)>1.1:
+				witch["tx"]=cauldron.x
+				witch["ty"]=cauldron.y
+				witch["state"]="Voltando ao caldeirao"
+			elif float(witch["wander"])<=0:
+				var q:Vector2=_swamp_target(cauldron,2.0)
 				witch["tx"]=q.x
 				witch["ty"]=q.y
 				witch["wander"]=rng.randf_range(4,8)
