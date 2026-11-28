@@ -2662,10 +2662,11 @@ func _layout_home() -> void:
 	home_panel.size=Vector2(screen_width,720)
 	if is_instance_valid(home_art):
 		home_panel.size = get_viewport_rect().size
-		var fit := minf(home_panel.size.x / HOME_ART_SIZE.x, home_panel.size.y / HOME_ART_SIZE.y)
-		# A arte central conserva a proporcao; o shader prolonga apenas as bordas.
+		# Preencher a tela com uma unica imagem, sem espelhar nem deformar.
+		# Em telas largas, conservar o topo (brasao e titulo) e recortar apenas o excedente inferior.
+		var fit := maxf(home_panel.size.x / HOME_ART_SIZE.x, home_panel.size.y / HOME_ART_SIZE.y)
 		var art_size := HOME_ART_SIZE * fit
-		var art_position := (home_panel.size - art_size) * 0.5
+		var art_position := Vector2((home_panel.size.x - art_size.x) * 0.5, 0.0)
 		home_art.position = Vector2.ZERO
 		home_art.size = home_panel.size
 		var art_rect := Vector4(art_position.x / home_panel.size.x, art_position.y / home_panel.size.y, art_size.x / home_panel.size.x, art_size.y / home_panel.size.y)
