@@ -122,5 +122,38 @@ func _run() -> void:
 		w.swamp_spiders.append({"id":w.new_id(),"x":5.4+float(i)*1.0,"y":7.8,"emerge":0.0,"health":50.0})
 	w.news="Teste visual - ancestrais, bruxa e aranhas"
 	await _capture("07-ancestrais",Vector2(9.5,7),2.7)
+	# Cena controlada: margem real, arvores, casas, fogo e animal nadando.
+	w.ancestrals.clear()
+	w.swamp_witch.clear()
+	w.swamp_spiders.clear()
+	w.wildlife.clear()
+	w.beasts.clear()
+	w.trees.clear()
+	w.sites.clear()
+	for y in range(2,16):
+		for x in range(25,44):
+			w.tiles[y][x]="swamp"
+	for y in range(7,13):
+		for x in range(28,41):
+			if (Vector2(float(x),float(y))-Vector2(34,9.5)).length()<5.7:
+				w.tiles[y][x]="water"
+	for x in [29,32,35,38]:
+		w._plant_tree(x,6,true)
+		w.trees[w.tree_key(x,6)]["oy"]=0.20
+	w.make_town("Brejo de Teste",34,4,false)
+	var village:Dictionary=w.towns.back()
+	village["home_biome"]="swamp"
+	village["houses"]=2
+	village["house_levels"]=[1,2]
+	village["campfire"]=true
+	w.sites.append({"kind":"campfire","x":34.0,"y":6.30,"town":village["id"]})
+	w.spawn_creature("duck",Vector2(34,8))
+	w._rebuild_border_cells()
+	game.landscape_texture=null
+	w.swamp_clock=1.25
+	w.news="Teste visual - reflexos e ondulacoes na agua"
+	await _capture("08-reflexos-pantano",Vector2(34.5,7.5),2.1)
+	w.swamp_clock=2.10
+	await _capture("09-reflexos-em-movimento",Vector2(34.5,7.5),2.1)
 	print("Capturas de renderizador concluidas: ",failures)
 	quit(0 if failures==0 else 1)
