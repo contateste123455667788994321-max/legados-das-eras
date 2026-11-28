@@ -154,7 +154,12 @@ func _load_art() -> void:
 		if new_art is Texture2D: actor_textures[key] = new_art
 	landscape_objects["mine"] = preload("res://assets/landscape/mina_do_vale.png")
 	landscape_objects["forge"] = preload("res://assets/landscape/forja_do_vale.png")
-	landscape_objects["tree"] = load("res://assets/landscape/reference_tree.png")
+	landscape_objects["tree"] = preload("res://assets/landscape/arvore_aprovada.png")
+	landscape_objects["pine"] = preload("res://assets/landscape/pinheiro_aprovado.png")
+	landscape_objects["pine_snow"] = preload("res://assets/landscape/pinheiro_neve_aprovado.png")
+	landscape_objects["tree_snow"] = landscape_objects["pine_snow"]
+	landscape_objects["rock"] = preload("res://assets/landscape/rocha_aprovada.png")
+	landscape_objects["flowers_approved"] = preload("res://assets/landscape/flores_aprovadas.png")
 	landscape_objects["reference_characters"] = load("res://assets/landscape/reference_characters.png")
 	landscape_objects["habitantes"] = preload("res://assets/landscape/habitantes.png")
 	if texture_missing:
@@ -452,6 +457,12 @@ func _draw_landscape() -> void:
 # Um atlas estatico e no maximo dois desenhos por terreno visivel.
 func _draw_ground_details(kind:String,p:Vector2,side:float,seed:int) -> void:
 	if seed%3==0: return
+	if kind in ["grass","forest"] and seed%7 in [0,1,2]:
+		_draw_landscape_object("flowers_approved",p+Vector2(-0.13,0.19)*side,side*0.40)
+		return
+	if kind in ["grass","forest","mountain"] and seed%7==3:
+		_draw_landscape_object("rock",p+Vector2(0.12,0.15)*side,side*0.28)
+		return
 	if not landscape_objects.has("ground_details"):
 		landscape_objects["ground_details"]=preload("res://assets/landscape/ground_details.svg")
 	var atlas:Texture2D=landscape_objects["ground_details"]
@@ -525,7 +536,7 @@ func _draw() -> void:
 			var house_size: float = 1.75 if i == 0 else 1.48
 			var era: int = clampi(int(world.house_levels(town)[i]), 1, 4)
 			var house_center:Vector2=center+spot*unit
-			scene_depth.append({"y":house_center.y+house_size*unit*0.30,"kind":"house","p":house_center,"size":house_size*unit,"era":era})
+			scene_depth.append({"y":house_center.y+house_size*unit*0.30,"kind":"house","p":house_center,"size":house_size*unit,"era":era,"biome":str(town.get("home_biome","grass"))})
 		var site: Dictionary = town.get("construction", {})
 		if not site.is_empty() and MAP_AREA.grow(-35.0).has_point(center):
 			var kind: String = str(site.get("kind", "house"))
@@ -649,7 +660,11 @@ func _draw_world_sites() -> void:
 		var p:Vector2=_world_to_screen(Vector2(float(site["x"])+0.5,float(site["y"])+0.5))
 		var kind:String=str(site["kind"])
 		if kind=="castle":
-			_draw_landscape_object("castle",p,unit*3.1)
+			var town:Dictionary=world.get_town(int(site.get("town",0)))
+			if not town.is_empty():
+				var level:int=world.castle_level(town)
+				var size:float=unit*[1.95,2.48,3.05][clampi(level-1,0,2)]
+				_draw_building_art(p,size,level+1,str(town.get("home_biome","grass")))
 		elif kind=="campfire":
 			_draw_live_campfire(p,unit)
 		elif kind=="fish":
@@ -716,21 +731,24 @@ func _draw_rivers() -> void:
 				var q:Vector2=p+flow*(phase-0.5)*unit*0.8+Vector2(flow.y,-flow.x)*(float(i)-1.5)*unit*0.14
 				draw_rect(Rect2(q,Vector2(unit*0.12, maxf(1.0,unit*0.027))),Color("#8edbe1",0.6))
 
+const WATERFALL_APPROVED:Texture2D=preload("res://assets/landscape/cachoeira_aprovada.png")
 func _draw_waterfall(p:Vector2,u:float) -> void:
-	if not MAP_AREA.grow(-u*1.3).has_point(p): return
-	# Paredao de rocha com canal aberto no topo e espuma sobre o rio abaixo.
-	_draw_landscape_object("waterfall_cliff",p+Vector2(0,u*0.38),u*2.05)
+	var size:=Vector2(u*2.65,u*2.65*129.0/180.0)
+	var dest:=Rect2(p-size*Vector2(0.50,0.48),size)
+	var clipped:Rect2=dest.intersection(MAP_AREA)
+	if not clipped.has_area(): return
+	var texsize:Vector2=WATERFALL_APPROVED.get_size()
+	draw_texture_rect_region(WATERFALL_APPROVED,clipped,Rect2((clipped.position-dest.position)/size*texsize,clipped.size/size*texsize))
+	if not MAP_AREA.grow(-u).has_point(p): return
 	var time:float=world.swamp_clock
+	for i in range(8):
+		var f:float=fposmod(time*1.0+float(i)*0.179,1.0)
+		var q:Vector2=dest.position+Vector2(size.x*(0.37+float(i)*0.033),size.y*(0.25+f*0.38))
+		draw_rect(Rect2(q.round(),Vector2(maxf(1,u*0.013),maxf(2,u*0.10))),Color(0.84,0.96,1.0,0.22*sin(f*PI)))
 	for i in range(9):
-		var f:float=fposmod(time*1.15+float(i)*0.173,1.0)
-		var q:Vector2=p+Vector2((float(i)-4.0)*u*0.052,-u*0.73+f*u*0.88)
-		var alpha:float=0.25+0.45*sin(f*PI)
-		draw_rect(Rect2(q.round(),Vector2(maxf(1,u*0.018),maxf(2,u*(0.12+float(i%3)*0.045)))),Color(0.78,0.93,1.0,alpha))
-	for i in range(13):
-		var f:float=fposmod(time*0.6+float(i)*0.147,1.0)
-		var q:Vector2=p+Vector2((float(i%7)-3.0)*u*0.075*(1.0+f*0.65),u*(0.17+f*0.48))
-		draw_rect(Rect2(q.round(),Vector2(u*(0.07+f*0.07),maxf(1,u*0.024))),Color(0.87,0.97,0.98,(1.0-f)*0.72))
-
+		var f:float=fposmod(time*0.75+float(i)*0.17,1.0)
+		var q:Vector2=dest.position+Vector2(size.x*(0.35+float(i%5)*0.055),size.y*(0.65+f*0.15))
+		draw_rect(Rect2(q.round(),Vector2(maxf(1,u*0.055),maxf(1,u*0.015))),Color(0.9,0.98,1.0,(1-f)*0.35))
 
 const HUMAN_CELL := 48
 const HUMAN_POSES := 10
@@ -1954,8 +1972,8 @@ func _draw_swamp_creatures() -> void:
 		var p:Vector2=_world_to_screen(Vector2(float(witch["x"])+0.5,float(witch["y"])+0.5))
 		var summon:float=float(witch.get("summon_anim",0))
 		var lift:float=clampf(minf((1.2-summon)/0.30,summon/0.30),0,1) if summon>0 else 0.0
-		var pose:String="witch_summon" if lift>=0.65 else ("witch_lift" if lift>0.15 else "witch")
-		_draw_landscape_object(pose,p,39.0*zoom)
+		var pose:int=2 if lift>=0.65 else (1 if lift>0.15 else 0)
+		_draw_walk_sprite(WITCH_APPROVED,Rect2(pose*64,0,64,64),p,39.0*zoom,1.0,0.0,false,0.0)
 		if MAP_AREA.grow(-30*zoom).has_point(p):
 			var bar:=Rect2(p+Vector2(-16,-37)*zoom,Vector2(32,4)*zoom)
 			draw_rect(bar,Color("#2a202d"))
@@ -1964,20 +1982,14 @@ func _draw_swamp_creatures() -> void:
 		var ancient:Dictionary=world.ancestrals[kind]
 		if not bool(ancient.get("alive",false)): continue
 		var center:Vector2=_world_to_screen(Vector2(float(ancient["x"])+0.5,float(ancient["y"])+0.5))
-		var art:String="golem_angry" if kind=="golem" and int(ancient.get("target_town",-1))>=0 else str(kind)
-		var size:float=(46.0 if kind=="golem" else 32.0)*zoom
+		var size:float=(46.0 if kind=="golem" else 43.0)*zoom
 		var moving:bool=bool(ancient.get("moving",false))
 		var striking:bool=float(ancient.get("hit_anim_until",0))>world.swamp_clock
-		if moving or striking:
-			var walk_key:String=str(kind)+"_walk"
-			if not landscape_objects.has(walk_key): landscape_objects[walk_key]=load("res://assets/landscape/"+walk_key+".svg")
-			var atlas:Texture2D=landscape_objects[walk_key]
-			var phase:float=float(ancient.get("walk_phase",0))
-			var frame:int=2 if striking else int(phase/TAU*4.0)%4
-			if atlas!=null:
-				_draw_walk_sprite(atlas,Rect2(frame*64,0,64,64),center,size,float(ancient.get("face",1.0)),phase,moving,absf(sin(phase))*size*0.05 if kind=="fenrir" and moving else 0.0)
-			else: _draw_landscape_object(art,center,size)
-		else: _draw_landscape_object(art,center,size)
+		var atlas:Texture2D=GOLEM_APPROVED if kind=="golem" else FENRIR_APPROVED
+		var phase:float=float(ancient.get("walk_phase",0))
+		var frame:int=2 if striking else (int(phase/TAU*4.0)%4 if moving else 0)
+		_contact_shadow(center,size*0.28,size*0.07)
+		_draw_walk_sprite(atlas,Rect2(frame*64,0,64,64),center,size,float(ancient.get("face",1.0)),phase,false,absf(sin(phase))*size*0.05 if kind=="fenrir" and moving else 0.0)
 		if striking and MAP_AREA.grow(-20*zoom).has_point(center):
 			var fade:float=clampf((float(ancient["hit_anim_until"])-world.swamp_clock)/0.35,0,1)
 			for i in range(7):
@@ -1992,9 +2004,9 @@ func _draw_swamp_creatures() -> void:
 		var p:Vector2=_world_to_screen(Vector2(float(spider["x"])+0.5,float(spider["y"])+0.5))
 		var emerge:float=float(spider.get("emerge",0))
 		var s:float=12.5*zoom*(1.0-0.35*clampf(emerge/0.6,0,1))
-		var frame:int=int(world.swamp_clock*6+float(spider["id"]))%4
+		var frame:int=int(world.swamp_clock*5+float(spider["id"]))%3
 		if emerge>0: frame=0
-		_draw_landscape_object(["swamp_spider","swamp_spider_walk","swamp_spider_stride","swamp_spider_return"][frame],p,s)
+		_draw_walk_sprite(SPIDERS_APPROVED,Rect2(frame*48,0,48,48),p,s,1.0,0.0,false,0.0)
 	for bolt in world.magic_bolts:
 		var p:Vector2=_world_to_screen(Vector2(float(bolt["x"])+0.5,float(bolt["y"])+0.5))
 		if MAP_AREA.grow(-12).has_point(p):
@@ -2056,8 +2068,8 @@ func _card_portrait(subject: Dictionary, human: bool) -> Texture2D:
 	var row := ANIMAL_ROWS.find(species)
 	if row < 0: return null
 	var portrait := AtlasTexture.new()
-	portrait.atlas = preload("res://assets/landscape/fauna_approved_idle.png")
-	portrait.region = Rect2(0, row * 24, 24, 24)
+	portrait.atlas = FAUNA_APPROVED
+	portrait.region = Rect2(0,row*48,48,48)
 	return portrait
 
 func _open_actor_card(subject: Dictionary, human: bool) -> void:
@@ -2215,6 +2227,15 @@ func _resize_map() -> void:
 	if home_open: _layout_home()
 	queue_redraw()
 
+const BUILDINGS_APPROVED:Texture2D=preload("res://assets/landscape/construcoes_aprovadas.png")
+func _draw_building_art(p:Vector2,size:float,stage:int,biome:String) -> void:
+	var row:int=int({"snow":1,"sand":2,"swamp":3}.get(biome,0))
+	var source:=Rect2(clampi(stage,0,4)*96,row*96,96,96)
+	var dest:=Rect2(p-Vector2(size*0.5,size*0.87),Vector2.ONE*size)
+	var clipped:Rect2=dest.intersection(MAP_AREA)
+	if clipped.has_area():
+		draw_texture_rect_region(BUILDINGS_APPROVED,clipped,Rect2(source.position+(clipped.position-dest.position)/size*96.0,clipped.size/size*96.0))
+
 func _draw_depth_entities() -> void:
 	scene_depth.sort_custom(func(a,b): return float(a["y"])<float(b["y"]))
 	for entry in scene_depth:
@@ -2226,8 +2247,7 @@ func _draw_depth_entities() -> void:
 				# Preserva a arte original de madeira e palha em todos os niveis.
 				# A ampliacao aumenta discretamente o tamanho, sem trocar o estilo.
 				var grown:float=size*(1.0+float(era-1)*0.045)
-				var anchored:Vector2=p-Vector2(0,(grown-size)*0.41)
-				_draw_sprite("tribal_hut" if era==1 else "hut",anchored,Vector2(grown,grown*0.82),true)
+				_draw_building_art(p+Vector2(0,grown*0.28),grown,0 if era==1 else 1,str(entry.get("biome","grass")))
 			"person": _draw_person_variant(entry["actor"],p)
 			"animal": _draw_natural_animal(entry["actor"],p)
 			"beast": _draw_animated_beast(entry["actor"],p,str(entry["key"]))
@@ -2694,35 +2714,35 @@ func _delete_saved_world(path:String) -> void:
 		_remember_world()
 	if home_open: _show_saved_worlds.call_deferred()
 
+const FAUNA_APPROVED:Texture2D=preload("res://assets/landscape/fauna_aprovada.png")
+const WITCH_APPROVED:Texture2D=preload("res://assets/landscape/bruxa_aprovada.png")
+const GOLEM_APPROVED:Texture2D=preload("res://assets/landscape/golem_aprovado.png")
+const FENRIR_APPROVED:Texture2D=preload("res://assets/landscape/fenrir_referencia.png")
+const SPIDERS_APPROVED:Texture2D=preload("res://assets/landscape/aranhas_aprovadas.png")
 func _draw_fauna(animal:Dictionary,p:Vector2,s:float,species:String) -> void:
 	var row:int=ANIMAL_ROWS.find(species)
 	if row<0: return
-	if not landscape_objects.has("fauna_pixel"): landscape_objects["fauna_pixel"]=load("res://assets/landscape/fauna_pixel.svg")
-	var atlas:Texture2D=landscape_objects["fauna_pixel"]
-	if atlas==null: return
 	var motion:Dictionary=visual_motion.get(int(animal["id"]),{})
 	var phase:float=float(motion.get("phase",0))
 	var moving:bool=bool(motion.get("moving",false)) and world.speed>0
 	var face:float=float(motion.get("face",1.0))
-	var frame:int=int(fposmod(phase,TAU)/TAU*4) if moving else 0
+	var cycle:int=int(fposmod(phase,TAU)/TAU*4)
+	var frame:int=cycle if moving else 0
 	var height:float=float(animal.get("flight_height",0))
+	if species in ["deer","cow","cat","bear","chicken","heron"] and moving:
+		frame=[0,1,2,1][cycle]
 	if height>0.01:
 		_contact_shadow(p,s*0.28,s*0.07)
-		frame=5+int(world.swamp_clock*(8 if species=="bat" else 5.0))%4
-		_draw_walk_sprite(atlas,Rect2(frame*32,row*32,32,32),p-Vector2(0,height*36*zoom),s*1.25,face,0,false,0)
+		frame=1+int(world.swamp_clock*(7.0 if species=="bat" else 4.5))%3
+		_draw_walk_sprite(FAUNA_APPROVED,Rect2(frame*48,row*48,48,48),p-Vector2(0,height*36*zoom),s,face,phase,false,0.0)
 		return
 	var depth:float=world.water_depth(Vector2(float(animal["x"]),float(animal["y"])))
 	if depth>0:
-		_draw_water_actor(atlas,Rect2(frame*32,row*32,32,32),p,s,face,depth,species,moving)
+		_draw_water_actor(FAUNA_APPROVED,Rect2(frame*48,row*48,48,48),p,s,face,depth,species,moving)
 		return
 	if not moving and str(animal.get("state","")) in ["Pastando","Fuçando","Bicando","Comendo","Pescando"]:
-		frame=4 if int(world.swamp_clock*2.0)%2==0 else 0
-	var bounce:float=absf(sin(phase))*s*0.10 if moving and species in ["frog","rabbit","snow_hare"] else 0.0
+		frame=3 if int(world.swamp_clock*1.8)%2==0 else 0
+	var bounce:float=absf(sin(phase))*s*0.06 if moving and species in ["frog","rabbit","snow_hare"] else 0.0
 	_contact_shadow(p,s*0.28,s*0.07)
-	# Arte aprovada recortada da prancha original. Quadros antigos permanecem para
-	# caminhada, voo, nado e alimentacao ate os novos ciclos serem validados.
-	if not moving and frame==0:
-		var approved:Texture2D=preload("res://assets/landscape/fauna_approved_idle.png")
-		_draw_walk_sprite(approved,Rect2(0,row*24,24,24),p,s,face,phase,false,0.0)
-	else:
-		_draw_walk_sprite(atlas,Rect2(frame*32,row*32,32,32),p,s,face,phase,false,bounce)
+	_draw_walk_sprite(FAUNA_APPROVED,Rect2(frame*48,row*48,48,48),p,s,face,phase,false,bounce)
+
