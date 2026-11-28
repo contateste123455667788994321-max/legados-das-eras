@@ -80,11 +80,8 @@ func _run() -> void:
 	await _capture("01-vila-tribal",Vector2(7,7),2.1)
 	await _capture("02-vila-castelo-nivel2",Vector2(19,7),2.1)
 	await _capture("03-vila-deserto-nivel3",Vector2(40,7),2.1)
-	for site in w.sites:
-		if str(site["kind"])=="waterfall":
-			w.news="Teste visual - cachoeira"
-			await _capture("04-cachoeira",Vector2(float(site["x"])+0.5,float(site["y"])+1.5),3.0)
-			break
+	w.news="Teste visual - rio sem cachoeira"
+	await _capture("04-rio",Vector2(float(w.river_x(5,0))+0.5,5.5),3.0)
 	# Verifica o mesmo atlas em repouso e movimento, usando a cena real.
 	w.towns.clear()
 	w.people.clear()

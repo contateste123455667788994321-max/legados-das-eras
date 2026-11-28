@@ -441,6 +441,7 @@ func _draw_landscape() -> void:
 		# A copa ainda pode estar visivel quando a base sai da tela.
 		if not MAP_AREA.grow(s*1.35).has_point(p): continue
 		var tree_key:String=_natural_tree_key(tree)
+		if tree_key in ["pine","pine_snow"]: s*=1.20
 		var state: String = str(tree["state"])
 		if state == "stump":
 			draw_ellipse_stump(p,s)
@@ -759,10 +760,8 @@ func _draw_world_sites() -> void:
 			# A margem existente e o ponto de pesca; nao desenhar piscina artificial.
 			continue
 		elif kind=="waterfall":
-			var sx:int=int(site["x"])
-			var sy:int=int(site["y"])
-			if world.is_river_cell(sx,sy-1) and world.is_river_cell(sx,sy) and world.is_river_cell(sx,sy+1):
-				_draw_waterfall(p,unit)
+			# Mundos antigos continuam com o rio, sem a cachoeira decorativa.
+			continue
 		elif kind=="crossing":
 			_draw_landscape_object("bridge",p,unit*1.9)
 		elif kind=="mine" and not bool(site.get("developed",false)):

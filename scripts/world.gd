@@ -751,6 +751,9 @@ func load_world() -> bool:
 		sound_events.clear()
 		wildlife = value.get("wildlife",[])
 		sites = value.get("sites",[])
+		# Migracao: descartar apenas a decoracao retirada, preservando rios e producao.
+		for i in range(sites.size()-1,-1,-1):
+			if str(sites[i].get("kind",""))=="waterfall": sites.remove_at(i)
 		rivers_v58=bool(value.get("rivers_v58",false))
 		if not rivers_v58:
 			_connect_rivers()
@@ -838,7 +841,7 @@ func cut_tree(actor: Dictionary, x: int,y: int) -> bool:
 	tree["state"]="falling"
 	tree["fall"]=0.0
 	tree["regrow"]=day+rng.randf_range(50.0,100.0)
-	tree["stump_until"]=day+rng.randf_range(12.0,24.0)
+	tree["stump_until"]=tree["regrow"]
 	actor["wood"]=int(actor.get("wood",0))+3
 	if resource_drops.size()<180:
 		resource_drops.append({"id":new_id(),"source":-1,"x":float(x),"y":float(y),"items":{"fiber":2},"remaining":180.0})
@@ -924,13 +927,7 @@ func _prepare_sites() -> void:
 						best=d
 						chosen=Vector2(x,y)
 			if chosen.x>=0: sites.append({"kind":kind,"x":chosen.x,"y":chosen.y,"town":town["id"],"developed":false,"work":0.0})
-	# Uma queda por rio, em trecho reto e conectado.
-	for index in range(2):
-		for y in range(2,7):
-			var x:int=river_x(y,index)
-			if is_river_cell(x,y-1) and is_river_cell(x,y) and is_river_cell(x,y+1):
-				sites.append({"kind":"waterfall","x":x,"y":y})
-				break
+	# Rios permanecem naturais; cachoeiras decorativas foram retiradas.
 
 func _seed_wildlife() -> void:
 	for i in range(24):

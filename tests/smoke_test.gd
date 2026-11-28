@@ -50,7 +50,6 @@ func _run_tests() -> void:
 	_check(fauna_image.get_region(Rect2i(0,48,48,48)).get_used_rect().has_area(),"Sprite do veado tem conteudo")
 	var art:Texture2D=preload("res://assets/landscape/construcoes_aprovadas.png")
 	_check(art.get_width()==480 and art.get_height()==384,"Dois niveis de casa e tres castelos em quatro biomas")
-	_check(preload("res://assets/landscape/cachoeira_aprovada.png").get_width()==180,"Cachoeira usa recorte real")
 	var castle_world=World.new()
 	castle_world.generate_world()
 	var city:Dictionary=castle_world.towns[0]
@@ -107,10 +106,7 @@ func _run_tests() -> void:
 			var water:=Vector2(float(bank["water_x"]),float(bank["water_y"]))
 			_check(world.water_depth(shore)==0.0 and world.is_river_cell(int(water.x),int(water.y)) and shore.distance_to(water)==1.0,"Pesca somente em margem de rio real")
 	for site in world.sites:
-		if str(site["kind"])=="waterfall":
-			var x:int=int(site["x"])
-			var y:int=int(site["y"])
-			_check(world.is_river_cell(x,y-1) and world.is_river_cell(x,y+1),"Cachoeira conectada ao rio")
+		_check(str(site["kind"])!="waterfall","Mundo novo nao possui cachoeira decorativa")
 	_check(world.tiles.size() == World.SIZE and world.tiles[0].size()==World.WIDTH, "Mapa largo gerado")
 	var random_map=World.new()
 	random_map.generate_world()
