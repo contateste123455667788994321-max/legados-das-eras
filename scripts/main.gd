@@ -406,6 +406,7 @@ func _draw_landscape() -> void:
 				if MAP_AREA.grow(-side*0.2).has_point(wave):
 					draw_rect(Rect2(wave,Vector2(side*0.12,maxf(1,side*0.018))),Color("#94e4eb",0.66))
 			elif kind == "grass" or kind == "forest":
+				_draw_ground_details(kind,pos,side,seed)
 				for n in range(5):
 					var k: int = posmod(seed*31+n*127,997)
 					var q: Vector2 = pos+Vector2(float(k%23)/23.0-0.5,float(k%17)/17.0-0.5)*side*0.85
@@ -415,13 +416,17 @@ func _draw_landscape() -> void:
 					draw_rect(Rect2(q+Vector2(ss,ss),Vector2(ss,ss)),Color("#91a94e"))
 					if k%7==0: draw_rect(Rect2(q-Vector2(0,ss),Vector2(ss,ss)),Color("#ead0a5"))
 			elif kind == "swamp":
+				_draw_ground_details(kind,pos,side,seed)
 				if seed%3==0: _draw_landscape_object("swamp_reeds",pos,side*(0.44+float(seed%5)*0.07))
 				elif seed%7==0: _draw_landscape_object("swamp_flowers",pos,side*0.55)
 				if seed%13==0: _draw_mosquitoes(pos,seed,side)
 			elif kind == "mountain":
 				if seed%3!=0: _draw_landscape_object("rock", pos, side*(0.7+float(seed%5)*0.14))
-			elif kind == "sand" and seed % 4 == 0:
-				_draw_landscape_object("cactus", pos, side*0.66)
+			elif kind == "sand":
+				_draw_ground_details(kind,pos,side,seed)
+				if seed%4==0: _draw_landscape_object("cactus",pos,side*0.66)
+			elif kind == "snow":
+				_draw_ground_details(kind,pos,side,seed)
 
 	for tree in world.trees.values():
 		var p: Vector2 = _world_to_screen(Vector2(float(tree["x"])+0.5+float(tree["ox"]),float(tree["y"])+0.5+float(tree["oy"])))
@@ -442,6 +447,31 @@ func _draw_landscape() -> void:
 			draw_ellipse_stump(p,s)
 		else:
 			_draw_landscape_object(tree_key,p,s)
+
+# Decoracao pequena e deterministica: sem entidades, colisao, coleta ou alteracao de saves.
+# Um atlas estatico e no maximo dois desenhos por terreno visivel.
+func _draw_ground_details(kind:String,p:Vector2,side:float,seed:int) -> void:
+	if seed%3==0: return
+	if not landscape_objects.has("ground_details"):
+		landscape_objects["ground_details"]=preload("res://assets/landscape/ground_details.svg")
+	var atlas:Texture2D=landscape_objects["ground_details"]
+	var index:int=0
+	match kind:
+		"grass": index=[0,1,2,3,4,5,6][seed%7]
+		"forest": index=[1,3,4,5,6,7,8][seed%7]
+		"swamp": index=[7,8,9,10][seed%4]
+		"sand": index=[11,12,13][seed%3]
+		"snow": index=[14,15,16][seed%3]
+		_: return
+	var size:float=side*(0.23+float(seed%5)*0.035)
+	var anchor:=p+Vector2(-0.25+float(seed%4)*0.12,0.18)*side
+	var dest:=Rect2(anchor-Vector2.ONE*size*0.5,Vector2.ONE*size)
+	if MAP_AREA.encloses(dest):
+		draw_texture_rect_region(atlas,dest,Rect2(index*24,0,24,24))
+	if kind in ["grass","forest"] and seed%5==1:
+		var extra:=Rect2(p+Vector2(0.16,-0.24)*side,Vector2.ONE*side*0.22)
+		if MAP_AREA.encloses(extra):
+			draw_texture_rect_region(atlas,extra,Rect2(3*24,0,24,24))
 
 func draw_ellipse_stump(p:Vector2,s:float) -> void:
 	_draw_landscape_object("stump_detailed",p,s*0.47)
