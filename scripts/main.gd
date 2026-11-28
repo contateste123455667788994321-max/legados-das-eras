@@ -1942,12 +1942,9 @@ func _card_portrait(subject: Dictionary, human: bool) -> Texture2D:
 	var species: String = {"Urso": "bear", "Lobo": "wolf"}.get(key, key)
 	var row := ANIMAL_ROWS.find(species)
 	if row < 0: return null
-	var still_image := "res://assets/landscape/" + species + ".svg"
-	if ResourceLoader.exists(still_image):
-		return load(still_image) as Texture2D
 	var portrait := AtlasTexture.new()
-	portrait.atlas = preload("res://assets/landscape/fauna_pixel.svg")
-	portrait.region = Rect2(0, row * 32, 32, 32)
+	portrait.atlas = preload("res://assets/landscape/fauna_approved_idle.png")
+	portrait.region = Rect2(0, row * 24, 24, 24)
 	return portrait
 
 func _open_actor_card(subject: Dictionary, human: bool) -> void:
@@ -2599,4 +2596,10 @@ func _draw_fauna(animal:Dictionary,p:Vector2,s:float,species:String) -> void:
 		frame=4 if int(world.swamp_clock*2.0)%2==0 else 0
 	var bounce:float=absf(sin(phase))*s*0.10 if moving and species in ["frog","rabbit","snow_hare"] else 0.0
 	_contact_shadow(p,s*0.28,s*0.07)
-	_draw_walk_sprite(atlas,Rect2(frame*32,row*32,32,32),p,s,face,phase,false,bounce)
+	# Arte aprovada recortada da prancha original. Quadros antigos permanecem para
+	# caminhada, voo, nado e alimentacao ate os novos ciclos serem validados.
+	if not moving and frame==0:
+		var approved:Texture2D=preload("res://assets/landscape/fauna_approved_idle.png")
+		_draw_walk_sprite(approved,Rect2(0,row*24,24,24),p,s,face,phase,false,0.0)
+	else:
+		_draw_walk_sprite(atlas,Rect2(frame*32,row*32,32,32),p,s,face,phase,false,bounce)

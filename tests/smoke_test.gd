@@ -44,6 +44,8 @@ func _run_tests() -> void:
 	_check(ancient_world.strike_ancestral(attacker) and not bool(golem["alive"]),"Golem pode ser derrotado")
 	_check(not ancient_world.resource_drops.is_empty() and ancient_world.resource_drops.back()["items"].has("stone"),"Golem deixa recursos recolhiveis")
 	_check(not fenrir.has("hunger") and not golem.has("hunger"),"Ancestrais independentes de fome")
+	var fauna_approved:Texture2D=preload("res://assets/landscape/fauna_approved_idle.png")
+	_check(fauna_approved.get_width()==24 and fauna_approved.get_height()==24*28 and Main.ANIMAL_ROWS.size()==28,"Prancha aprovada possui os 28 animais na ordem do jogo")
 	var world = World.new()
 	world.generate_world()
 	_check(world.tiles.size() == World.SIZE and world.tiles[0].size()==World.WIDTH, "Mapa largo gerado")
