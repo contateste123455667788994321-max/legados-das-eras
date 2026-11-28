@@ -406,6 +406,7 @@ func _draw_landscape() -> void:
 				if MAP_AREA.grow(-side*0.2).has_point(wave):
 					draw_rect(Rect2(wave,Vector2(side*0.12,maxf(1,side*0.018))),Color("#94e4eb",0.66))
 			elif kind == "grass" or kind == "forest":
+				_draw_ground_details(kind,pos,side,seed)
 				for n in range(5):
 					var k: int = posmod(seed*31+n*127,997)
 					var q: Vector2 = pos+Vector2(float(k%23)/23.0-0.5,float(k%17)/17.0-0.5)*side*0.85
@@ -415,13 +416,17 @@ func _draw_landscape() -> void:
 					draw_rect(Rect2(q+Vector2(ss,ss),Vector2(ss,ss)),Color("#91a94e"))
 					if k%7==0: draw_rect(Rect2(q-Vector2(0,ss),Vector2(ss,ss)),Color("#ead0a5"))
 			elif kind == "swamp":
+				_draw_ground_details(kind,pos,side,seed)
 				if seed%3==0: _draw_landscape_object("swamp_reeds",pos,side*(0.44+float(seed%5)*0.07))
 				elif seed%7==0: _draw_landscape_object("swamp_flowers",pos,side*0.55)
 				if seed%13==0: _draw_mosquitoes(pos,seed,side)
 			elif kind == "mountain":
 				if seed%3!=0: _draw_landscape_object("rock", pos, side*(0.7+float(seed%5)*0.14))
-			elif kind == "sand" and seed % 4 == 0:
-				_draw_landscape_object("cactus", pos, side*0.66)
+			elif kind == "sand":
+				_draw_ground_details(kind,pos,side,seed)
+				if seed%4==0: _draw_landscape_object("cactus",pos,side*0.66)
+			elif kind == "snow":
+				_draw_ground_details(kind,pos,side,seed)
 
 	for tree in world.trees.values():
 		var p: Vector2 = _world_to_screen(Vector2(float(tree["x"])+0.5+float(tree["ox"]),float(tree["y"])+0.5+float(tree["oy"])))
@@ -442,6 +447,31 @@ func _draw_landscape() -> void:
 			draw_ellipse_stump(p,s)
 		else:
 			_draw_landscape_object(tree_key,p,s)
+
+# Decoracao pequena e deterministica: sem entidades, colisao, coleta ou alteracao de saves.
+# Um atlas estatico e no maximo dois desenhos por terreno visivel.
+func _draw_ground_details(kind:String,p:Vector2,side:float,seed:int) -> void:
+	if seed%3==0: return
+	if not landscape_objects.has("ground_details"):
+		landscape_objects["ground_details"]=preload("res://assets/landscape/ground_details.svg")
+	var atlas:Texture2D=landscape_objects["ground_details"]
+	var index:int=0
+	match kind:
+		"grass": index=[0,1,2,3,4,5,6][seed%7]
+		"forest": index=[1,3,4,5,6,7,8][seed%7]
+		"swamp": index=[7,8,9,10][seed%4]
+		"sand": index=[11,12,13][seed%3]
+		"snow": index=[14,15,16][seed%3]
+		_: return
+	var size:float=side*(0.23+float(seed%5)*0.035)
+	var anchor:=p+Vector2(-0.25+float(seed%4)*0.12,0.18)*side
+	var dest:=Rect2(anchor-Vector2.ONE*size*0.5,Vector2.ONE*size)
+	if MAP_AREA.encloses(dest):
+		draw_texture_rect_region(atlas,dest,Rect2(index*24,0,24,24))
+	if kind in ["grass","forest"] and seed%5==1:
+		var extra:=Rect2(p+Vector2(0.16,-0.24)*side,Vector2.ONE*side*0.22)
+		if MAP_AREA.encloses(extra):
+			draw_texture_rect_region(atlas,extra,Rect2(3*24,0,24,24))
 
 func draw_ellipse_stump(p:Vector2,s:float) -> void:
 	_draw_landscape_object("stump_detailed",p,s*0.47)
@@ -471,6 +501,7 @@ func _draw() -> void:
 	draw_rect(MAP_AREA, Color("#355943"), true)
 	_draw_landscape()
 	_draw_rivers()
+	_draw_territory_borders()
 	_draw_world_sites()
 	scene_depth.clear()
 	# Quantidade real de casas e fazendas aparece no mapa, conforme o estoque da vila.
@@ -588,6 +619,30 @@ func _draw_dirt_path(a: Vector2,b: Vector2,unit: float) -> void:
 			draw_rect(Rect2(p-Vector2(size*0.2,size*0.25),Vector2(size*0.23,size*0.18)),Color("#d4b477"))
 
 
+func _draw_territory_borders() -> void:
+	var palette:Array[Color]=[Color("#d6b76a"),Color("#79c1df"),Color("#a9cb84"),Color("#d28b83"),Color("#b7a2e0"),Color("#e8b183")]
+	for town in world.towns:
+		if world.active_population(int(town["id"]))<=0: continue
+		var bounds:Rect2=world.territory_bounds(town)
+		var start:Vector2=_world_to_screen(bounds.position+Vector2(0.5,0.5))
+		var finish:Vector2=_world_to_screen(bounds.end+Vector2(0.5,0.5))
+		var color:Color=palette[posmod(world.kingdom_id(town),palette.size())]
+		color.a=0.68 if int(town["id"])==selected_town_id else 0.34
+		for edge in [[start,Vector2(finish.x,start.y)],[Vector2(finish.x,start.y),finish],[finish,Vector2(start.x,finish.y)],[Vector2(start.x,finish.y),start]]:
+			var p:Vector2=edge[0]
+			var q:Vector2=edge[1]
+			var delta:Vector2=q-p
+			var length:float=delta.length()
+			if length<1.0: continue
+			var direction:Vector2=delta/length
+			var dash:float=maxf(4.0,7.0*zoom)
+			var steps:int=ceili(length/(dash*1.75))
+			for n in range(steps):
+				var first:Vector2=p+direction*(float(n)*dash*1.75)
+				var last:Vector2=p+direction*minf(length,float(n)*dash*1.75+dash)
+				if MAP_AREA.has_point(first) and MAP_AREA.has_point(last):
+					draw_line(first,last,color,maxf(1.0,zoom))
+
 func _draw_world_sites() -> void:
 	var unit:float=TILE_SIZE*zoom
 	for site in world.sites:
@@ -597,8 +652,14 @@ func _draw_world_sites() -> void:
 			_draw_landscape_object("castle",p,unit*3.1)
 		elif kind=="campfire":
 			_draw_live_campfire(p,unit)
+		elif kind=="fish":
+			# A margem existente e o ponto de pesca; nao desenhar piscina artificial.
+			continue
 		elif kind=="waterfall":
-			_draw_waterfall(p,unit)
+			var sx:int=int(site["x"])
+			var sy:int=int(site["y"])
+			if world.is_river_cell(sx,sy-1) and world.is_river_cell(sx,sy) and world.is_river_cell(sx,sy+1):
+				_draw_waterfall(p,unit)
 		elif kind=="crossing":
 			_draw_landscape_object("bridge",p,unit*1.9)
 		elif kind=="mine" and not bool(site.get("developed",false)):
@@ -657,19 +718,18 @@ func _draw_rivers() -> void:
 
 func _draw_waterfall(p:Vector2,u:float) -> void:
 	if not MAP_AREA.grow(-u*1.3).has_point(p): return
-	# Cascata encaixada num paredao, com agua continua e espuma no pe.
-	_draw_landscape_object("waterfall_cliff",p+Vector2(0,u*0.34),u*2.25)
-	var base:Vector2=p-Vector2(u*0.33,u*0.76)
+	# Paredao de rocha com canal aberto no topo e espuma sobre o rio abaixo.
+	_draw_landscape_object("waterfall_cliff",p+Vector2(0,u*0.38),u*2.05)
 	var time:float=world.swamp_clock
-	for i in range(14):
-		var x:float=float(i)*u*0.048
-		var f:float=fposmod(time*0.85+float(i)*0.137,1.0)
-		var q:Vector2=base+Vector2(x+sin(f*5.0+float(i))*u*0.018,f*u*0.71)
-		draw_rect(Rect2(q,Vector2(maxf(1,u*0.022),u*(0.09+float(i%3)*0.043))),Color("#b6e9e7",0.45+0.25*sin(float(i))))
-	for i in range(22):
-		var f:float=fposmod(time*0.46+float(i)*0.071,1.0)
-		var q:Vector2=p+Vector2((float(i%7)-3)*u*0.085*(1+f*0.5),u*(0.04+f*0.36))
-		draw_rect(Rect2(q,Vector2(u*(0.08+f*0.07),maxf(1,u*0.026))),Color(0.87,0.98,0.95,(1-f)*0.78))
+	for i in range(9):
+		var f:float=fposmod(time*1.15+float(i)*0.173,1.0)
+		var q:Vector2=p+Vector2((float(i)-4.0)*u*0.052,-u*0.73+f*u*0.88)
+		var alpha:float=0.25+0.45*sin(f*PI)
+		draw_rect(Rect2(q.round(),Vector2(maxf(1,u*0.018),maxf(2,u*(0.12+float(i%3)*0.045)))),Color(0.78,0.93,1.0,alpha))
+	for i in range(13):
+		var f:float=fposmod(time*0.6+float(i)*0.147,1.0)
+		var q:Vector2=p+Vector2((float(i%7)-3.0)*u*0.075*(1.0+f*0.65),u*(0.17+f*0.48))
+		draw_rect(Rect2(q.round(),Vector2(u*(0.07+f*0.07),maxf(1,u*0.024))),Color(0.87,0.97,0.98,(1.0-f)*0.72))
 
 
 const HUMAN_CELL := 48
@@ -703,10 +763,56 @@ func _human_source(person: Dictionary, pose: int = 0) -> Rect2:
 	var identity := posmod(int(person.get("appearance", person.get("id", 0))) + int(person.get("skin", 0)) * 3 + int(person.get("hair", 0)), 4)
 	return Rect2((identity * HUMAN_POSES + pose) * HUMAN_CELL, _human_row(person) * HUMAN_CELL, HUMAN_CELL, HUMAN_CELL)
 
+# A arte original permanece intacta. Cache por quadro e cor, sem substituir atlas.
+const KINGDOM_CLOTH:Array[Color]=[Color("#272b2d"),Color("#456a9b"),Color("#963d37"),Color("#53714b"),Color("#765c92"),Color("#93733e")]
+var kingdom_cloth_cache:Dictionary={}
+var kingdom_source_image:Image
+
+func _kingdom_cloth_index(person:Dictionary) -> int:
+	var town:Dictionary=world.get_town(int(person.get("town",0)))
+	if town.is_empty(): return -1
+	return posmod(world.kingdom_id(town),KINGDOM_CLOTH.size())
+
+func _kingdom_human_frame(person:Dictionary,pose:int) -> Dictionary:
+	var atlas:Texture2D=landscape_objects["habitantes"]
+	var source:Rect2=_human_source(person,pose)
+	var index:int=_kingdom_cloth_index(person)
+	# Quedas e armaduras completas ficam intocadas: sem mascara de tecido aprovada.
+	if index<0 or pose>=8 or (world.is_military(person) and int(person.get("armor",0))>0):
+		return {"atlas":atlas,"source":source}
+	var key:String="%d:%d:%d"%[index,int(source.position.x),int(source.position.y)]
+	if kingdom_cloth_cache.has(key):
+		return {"atlas":kingdom_cloth_cache[key],"source":Rect2(0,0,HUMAN_CELL,HUMAN_CELL)}
+	if kingdom_source_image==null:
+		kingdom_source_image=atlas.get_image()
+		if kingdom_source_image.is_compressed() and kingdom_source_image.decompress()!=OK:
+			kingdom_source_image=null
+			return {"atlas":atlas,"source":source}
+	var frame:Image=kingdom_source_image.get_region(Rect2i(source))
+	var used:Rect2i=frame.get_used_rect()
+	var cloth:Color=KINGDOM_CLOTH[index]
+	for y in range(used.position.y,used.end.y):
+		for x in range(used.position.x,used.end.x):
+			var fy:float=float(y-used.position.y)/maxf(1.0,float(used.size.y))
+			var fx:float=float(x-used.position.x)/maxf(1.0,float(used.size.x))
+			# Apenas o nucleo do tronco e cores frias saturadas; pele, cabelo,
+			# contornos, metal, ferramentas e tons ambiguos ficam como eram.
+			if fy<0.48 or fy>0.72 or fx<0.34 or fx>0.66: continue
+			var pixel:Color=frame.get_pixel(x,y)
+			if pixel.a<0.98 or pixel.s<0.24 or pixel.v<0.20 or pixel.v>0.88: continue
+			if pixel.h<0.24 or pixel.h>0.73: continue
+			var recolored:=Color.from_hsv(cloth.h,cloth.s,clampf(pixel.v*(0.58 if index==0 else 0.94),0.12,0.88),pixel.a)
+			frame.set_pixel(x,y,recolored)
+	var texture:=ImageTexture.create_from_image(frame)
+	if kingdom_cloth_cache.size()>=384: kingdom_cloth_cache.clear()
+	kingdom_cloth_cache[key]=texture
+	return {"atlas":texture,"source":Rect2(0,0,HUMAN_CELL,HUMAN_CELL)}
+
 func _human_portrait(person: Dictionary) -> Texture2D:
 	var portrait := AtlasTexture.new()
-	portrait.atlas = landscape_objects["habitantes"]
-	portrait.region = _human_source(person)
+	var frame:Dictionary=_kingdom_human_frame(person,0)
+	portrait.atlas = frame["atlas"]
+	portrait.region = frame["source"]
 	return portrait
 
 func _draw_person_variant(p:Dictionary,center:Vector2) -> void:
@@ -733,10 +839,12 @@ func _draw_person_variant(p:Dictionary,center:Vector2) -> void:
 	var depth: float = world.water_depth(Vector2(float(p["x"]), float(p["y"])))
 	if depth > 0:
 		var stroke := int(world.swamp_clock * 4.0 + int(p["id"]) % 3) % 4
-		_draw_water_actor(atlas, _human_source(p, stroke), center, s, face, depth, "human", moving)
+		var swim_frame:Dictionary=_kingdom_human_frame(p,stroke)
+		_draw_water_actor(swim_frame["atlas"], swim_frame["source"], center, s, face, depth, "human", moving)
 		return
 	_contact_shadow(center, s * 0.22, s * 0.07)
-	_draw_walk_sprite(atlas, _human_source(p, pose), center, s, face, phase, false, bounce)
+	var cloth_frame:Dictionary=_kingdom_human_frame(p,pose)
+	_draw_walk_sprite(cloth_frame["atlas"], cloth_frame["source"], center, s, face, phase, false, bounce)
 	_draw_equipment(p,center,s,bounce,face)
 	if bool(p.get("witch_staff",false)) and action=="combat":
 		_draw_landscape_object("magic_staff",center+Vector2(face*s*0.27,0),s*0.78)
@@ -1762,7 +1870,12 @@ func _draw_equipment(person: Dictionary, center: Vector2, size: float, bounce: f
 	_draw_held_item(tool, hand, scale_px, face, angle)
 	if action == "fishing" and tool == "rod":
 		var tip := hand + Vector2(0, -22 * scale_px).rotated(angle * face)
-		draw_line(tip, tip + Vector2(face * size * 0.10, size * 0.57), Color("#c6d6cf"), 1.0)
+		if person.has("fishing_water_x") and person.has("fishing_water_y"):
+			var target:=_world_to_screen(Vector2(float(person["fishing_water_x"])+0.5,float(person["fishing_water_y"])+0.5))
+			if MAP_AREA.has_point(target) and target.distance_to(center)<size*3.0:
+				draw_line(tip,target,Color("#d4e0d5"),1.0)
+				draw_rect(Rect2(target-Vector2(1.5,1.5)*zoom,Vector2(3,3)*zoom),Color("#d96f4d"))
+
 
 func _toggle_spawn() -> void:
 	if not spawn_species.is_empty():

@@ -126,6 +126,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 	var home: Dictionary = sim.get_town(int(p["town"]))
 	if home.is_empty():
 		return
+	if sim.border_duty(p,home): return
 	if sim.react_to_hostile_animal(p): return
 	if sim.ancestral_combat_job(p): return
 	if sim.swamp_combat_job(p): return
@@ -397,6 +398,10 @@ func _site_work(sim,p:Dictionary,home:Dictionary,kind:String,task:String) -> boo
 	p["work_goal"]=true
 	p["target_x"]=float(site["x"])
 	p["target_y"]=float(site["y"])
+	if kind=="fish":
+		p["fishing_water_x"]=float(site["water_x"])
+		p["fishing_water_y"]=float(site["water_y"])
+		return Vector2(float(p["x"]),float(p["y"])).distance_to(Vector2(float(site["x"]),float(site["y"])))<0.45 and sim.water_depth(Vector2(float(p["x"]),float(p["y"])))<=0.0
 	return Vector2(float(p["x"]),float(p["y"])).distance_to(Vector2(float(site["x"]),float(site["y"])))<0.6
 
 func _gather_wood(sim,p:Dictionary,home:Dictionary) -> void:
