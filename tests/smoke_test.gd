@@ -15,6 +15,37 @@ func _check(condition: bool, description: String) -> void:
 		push_error("FALHOU: " + description)
 
 func _run_tests() -> void:
+	var ancient_world=World.new()
+	ancient_world.generate_world()
+	ancient_world.ancestrals.clear()
+	ancient_world.tiles[5][5]="grass"
+	_check(ancient_world.spawn_creature("golem",Vector2(5,5)),"Golem disponivel no criador")
+	_check(ancient_world.spawn_creature("fenrir",Vector2(6,5)),"Fenrir disponivel no criador")
+	_check(not ancient_world.spawn_creature("golem",Vector2(5,5)),"Apenas um golem vivo por mundo")
+	var golem:Dictionary=ancient_world.ancestrals["golem"]
+	var fenrir:Dictionary=ancient_world.ancestrals["fenrir"]
+	_check(float(golem["health"])==2000.0 and float(fenrir["health"])==350.0,"Vida dos ancestrais")
+	var attacker:Dictionary=ancient_world.people[0]
+	attacker["x"]=5.0
+	attacker["y"]=5.0
+	var health_before:float=float(golem["health"])
+	ancient_world._update_ancestrals(0.1,0)
+	_check(int(golem["target_town"])==-1 and float(golem["health"])==health_before,"Golem permanece pacifico antes de ser atacado")
+	_check(ancient_world.strike_ancestral(attacker) and int(golem["target_town"])==int(attacker["town"]),"Golem reage contra aldeia do agressor")
+	var home:Dictionary=ancient_world.get_town(int(attacker["town"]))
+	home["houses"]=1
+	home["house_levels"]=[1]
+	ancient_world._golem_smash(home,{"kind":"house"})
+	_check(int(home["houses"])==1,"Casa resiste ao primeiro golpe")
+	ancient_world._golem_smash(home,{"kind":"house"})
+	_check(int(home["houses"])==0 and ancient_world.house_levels(home).is_empty(),"Golem destroi casa e reduz capacidade")
+	golem["health"]=1.0
+	attacker["ancestral_attack_cd"]=0.0
+	_check(ancient_world.strike_ancestral(attacker) and not bool(golem["alive"]),"Golem pode ser derrotado")
+	_check(not ancient_world.resource_drops.is_empty() and ancient_world.resource_drops.back()["items"].has("stone"),"Golem deixa recursos recolhiveis")
+	_check(not fenrir.has("hunger") and not golem.has("hunger"),"Ancestrais independentes de fome")
+	var fauna_approved:Texture2D=preload("res://assets/landscape/fauna_approved_idle.png")
+	_check(fauna_approved.get_width()==24 and fauna_approved.get_height()==24*28 and Main.ANIMAL_ROWS.size()==28,"Prancha aprovada possui os 28 animais na ordem do jogo")
 	var world = World.new()
 	world.generate_world()
 	_check(world.tiles.size() == World.SIZE and world.tiles[0].size()==World.WIDTH, "Mapa largo gerado")

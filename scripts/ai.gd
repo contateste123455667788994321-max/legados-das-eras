@@ -127,6 +127,7 @@ func _decide(sim, p: Dictionary, step: float) -> void:
 	if home.is_empty():
 		return
 	if sim.react_to_hostile_animal(p): return
+	if sim.ancestral_combat_job(p): return
 	if sim.swamp_combat_job(p): return
 	if float(n["hunger"]) >= 55.0:
 		var ration:float=sim.food_ration(p,home)
