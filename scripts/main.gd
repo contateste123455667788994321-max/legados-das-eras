@@ -1432,7 +1432,7 @@ func _character_action() -> void:
 	var biome: String = str(world.tiles[py][px])
 	var facing := Vector2(-sin(look_yaw),-cos(look_yaw))
 	var origin := Vector2(float(actor["x"]),float(actor["y"]))
-	if world.collect_nearby_drop(actor) or world.cast_staff(actor) or world.strike_witch(actor):
+	if world.collect_nearby_drop(actor) or world.cast_staff(actor) or world.strike_witch(actor) or world.strike_ancestral(actor):
 		world.save_world()
 		_refresh_ui()
 		return
@@ -1793,8 +1793,17 @@ func _show_spawn_menu() -> void:
 	grid.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	scroll.add_child(grid)
 	body.add_child(scroll)
-	for species in World.SPAWN_NAMES.keys():
+	var ordered:Array=World.SPAWN_NAMES.keys()
+	for key in World.ANCESTRAL_NAMES.keys(): ordered.erase(key)
+	ordered.append_array(World.ANCESTRAL_NAMES.keys())
+	for species in ordered:
 		var key:String=str(species)
+		if key=="witch":
+			var section:=Label.new()
+			section.text="Ancestrais"
+			grid.add_child(section)
+			grid.add_child(Control.new())
+			grid.add_child(Control.new())
 		var button:=Button.new()
 		button.text=str(World.SPAWN_NAMES[key])
 		button.custom_minimum_size=Vector2(200,47)
@@ -1838,6 +1847,17 @@ func _draw_swamp_creatures() -> void:
 			var bar:=Rect2(p+Vector2(-16,-37)*zoom,Vector2(32,4)*zoom)
 			draw_rect(bar,Color("#2a202d"))
 			draw_rect(Rect2(bar.position,Vector2(bar.size.x*float(witch["health"])/500.0,bar.size.y)),Color("#a16dc7"))
+	for kind in world.ancestrals:
+		var ancient:Dictionary=world.ancestrals[kind]
+		if not bool(ancient.get("alive",false)): continue
+		var center:Vector2=_world_to_screen(Vector2(float(ancient["x"])+0.5,float(ancient["y"])+0.5))
+		var art:String="golem_angry" if kind=="golem" and int(ancient.get("target_town",-1))>=0 else str(kind)
+		var size:float=(64.0 if kind=="golem" else 51.0)*zoom
+		_draw_landscape_object(art,center,size)
+		if MAP_AREA.grow(-30*zoom).has_point(center):
+			var life:=Rect2(center+Vector2(-19,-49)*zoom,Vector2(38,4)*zoom)
+			draw_rect(life,Color("#292b32"))
+			draw_rect(Rect2(life.position,Vector2(life.size.x*clampf(float(ancient["health"])/float(ancient["max_health"]),0,1),life.size.y)),Color("#a3dce7" if kind=="fenrir" else "#c3874c"))
 	for spider in world.swamp_spiders:
 		var p:Vector2=_world_to_screen(Vector2(float(spider["x"])+0.5,float(spider["y"])+0.5))
 		var emerge:float=float(spider.get("emerge",0))
@@ -1862,9 +1882,9 @@ func _draw_swamp_creatures() -> void:
 					var f:float=float(i)/8.0
 					var q:Vector2=(p-direction*f*18*zoom+normal*sin(world.swamp_clock*15.0+float(i))*2.0*zoom*f).round()
 					var side:float=maxf(1.0,(3.0-f*2.0)*zoom)
-					draw_rect(Rect2(q-Vector2.ONE*side*0.5,Vector2.ONE*side),Color(0.66,0.28,0.94,1.0-f))
-				draw_circle(p,5*zoom,Color(0.49,0.16,0.8,0.28))
-				draw_circle(p,3.3*zoom,Color("#a95df3"))
+					draw_rect(Rect2(q-Vector2.ONE*side*0.5,Vector2.ONE*side),Color(0.30,0.95,0.35,1.0-f) if bool(bolt.get("witch_magic",false)) else Color(0.66,0.28,0.94,1.0-f))
+				draw_circle(p,5*zoom,Color(0.32,0.85,0.20,0.28) if bool(bolt.get("witch_magic",false)) else Color(0.49,0.16,0.8,0.28))
+				draw_circle(p,3.3*zoom,Color("#88ff56") if bool(bolt.get("witch_magic",false)) else Color("#a95df3"))
 				draw_rect(Rect2(p-Vector2.ONE*1.5*zoom,Vector2.ONE*3*zoom),Color("#fff0ff"))
 
 func _draw_selected_life(person:Dictionary,center:Vector2) -> void:
