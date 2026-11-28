@@ -449,10 +449,8 @@ func _draw_landscape() -> void:
 			var key: String = tree_key
 			if not landscape_objects.has(key):
 				landscape_objects[key] = load("res://assets/landscape/"+key+".svg")
-			if landscape_objects.get(key) is Texture2D and MAP_AREA.grow(-s*1.2).has_point(p):
-				draw_set_transform(p,float(tree["fall"])*PI*0.5)
-				draw_texture_rect(landscape_objects[key],Rect2(-s*0.5,-s*0.85,s,s),false)
-				draw_set_transform(Vector2.ZERO)
+			if landscape_objects.get(key) is Texture2D:
+				_draw_falling_tree_clipped(landscape_objects[key],p,s,float(tree["fall"])*PI*0.5)
 			draw_ellipse_stump(p,s)
 		else:
 			# Arvores e personagens compartilham a mesma ordenacao pela base.
@@ -489,6 +487,20 @@ func _draw_ground_details(kind:String,p:Vector2,side:float,seed:int) -> void:
 		var extra:=Rect2(p+Vector2(0.16,-0.24)*side,Vector2.ONE*side*0.22)
 		if MAP_AREA.encloses(extra):
 			draw_texture_rect_region(atlas,extra,Rect2(3*24,0,24,24))
+
+# Recorte poligonal da arvore rotacionada: nao desaparece inteira na borda.
+func _draw_falling_tree_clipped(texture:Texture2D,p:Vector2,s:float,angle:float) -> void:
+	var corners:Array[Vector2]=[Vector2(-0.5,-0.85),Vector2(0.5,-0.85),Vector2(0.5,0.15),Vector2(-0.5,0.15)]
+	var polygon:=PackedVector2Array()
+	for corner in corners:
+		polygon.append(p+(corner*s).rotated(angle))
+	var bounds:=PackedVector2Array([MAP_AREA.position,Vector2(MAP_AREA.end.x,MAP_AREA.position.y),MAP_AREA.end,Vector2(MAP_AREA.position.x,MAP_AREA.end.y)])
+	for piece in Geometry2D.intersect_polygons(polygon,bounds):
+		if piece.size()<3: continue
+		var uv:=PackedVector2Array()
+		for point in piece:
+			uv.append((point-p).rotated(-angle)/s+Vector2(0.5,0.85))
+		draw_polygon(piece,PackedColorArray([Color.WHITE]),uv,texture)
 
 func draw_ellipse_stump(p:Vector2,s:float) -> void:
 	_draw_landscape_object("stump_detailed",p,s*0.47)
