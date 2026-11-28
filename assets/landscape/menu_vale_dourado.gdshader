@@ -2,6 +2,7 @@ shader_type canvas_item;
 
 // Retangulo normalizado da arte original, sem deformacao.
 uniform vec4 art_rect = vec4(0.0, 0.0, 1.0, 1.0);
+uniform float pressed_button_top = -100.0;
 
 // Cada máscara cobre um detalhe já pintado na tela de 1280 x 720.
 float spot(vec2 uv, vec2 center, vec2 radius) {
@@ -30,5 +31,19 @@ void fragment() {
 	float torches = spot(p, vec2(0.162, 0.519), vec2(0.009, 0.016))
 			+ spot(p, vec2(0.272, 0.519), vec2(0.009, 0.016));
 	color.rgb += torches * vec3(0.035, 0.018, 0.003) * (0.5 + 0.5 * sin(TIME * 6.3 + p.x * 70.0));
+	// O botao faz parte do PNG original. Afundar sua face, sem mover o fundo.
+	vec2 local = p * vec2(1280.0, 720.0) - vec2(466.0, pressed_button_top);
+	if (pressed_button_top >= 0.0 && local.x >= 5.0 && local.x <= 343.0 && local.y >= 3.0 && local.y <= 55.0) {
+		float corner = min(local.x - 5.0, 343.0 - local.x) + min(local.y - 3.0, 55.0 - local.y);
+		if (corner > 10.0) {
+			vec2 shifted = p - vec2(0.0, 2.0 / 720.0);
+			color = texture(TEXTURE, clamp(shifted, vec2(0.0), vec2(1.0)));
+			color.rgb *= 0.78;
+			float inner_top = 1.0 - smoothstep(4.0, 10.0, local.y);
+			color.rgb *= 1.0 - inner_top * 0.42;
+			float lower_edge = smoothstep(50.0, 55.0, local.y);
+			color.rgb += vec3(0.045, 0.027, 0.012) * lower_edge;
+		}
+	}
 	COLOR = color;
 }

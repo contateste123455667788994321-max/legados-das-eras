@@ -32,6 +32,7 @@ const HOME_ART_SIZE := Vector2(1280, 720)
 const HOME_BUTTON_SIZE := Vector2(348, 58)
 const HOME_BUTTON_TOPS := [270, 338, 407]
 var home_buttons:Array[Button]=[]
+var home_activating:bool=false
 var title_font:SystemFont
 const ANIMAL_ROWS:Array[String]=["chicken","deer","rabbit","frog","capybara","heron","camel","lizard","snow_hare","crocodile","turtle","duck","boar","fox","wolf","bear","cow","sheep","goat","horse","pig","dog","cat","eagle","owl","crow","bat","penguin"]
 var game_hud:Array[Control]=[]
@@ -2645,16 +2646,41 @@ func _open_home(save_first:bool=true) -> void:
 			home_art.material = material
 			home_panel.add_child(home_art)
 	home_buttons.clear()
+	home_activating=false
 	for item in [{"label":"Carregar mundo","action":Callable(self,"_continue_world")},{"label":"Mundos salvos","action":Callable(self,"_show_saved_worlds")},{"label":"Opções","action":Callable(self,"_show_home_options")}]:
-		var button:Button=_button(str(item["label"]),Vector2.ZERO,Vector2(360,62),item["action"])
+		var index:int=home_buttons.size()
+		var action:Callable=item["action"]
+		var button:Button=_button(str(item["label"]),Vector2.ZERO,Vector2(360,62),_activate_home_button.bind(index,action))
 		button.reparent(home_panel,false)
 		button.add_theme_font_size_override("font_size",24)
 		if is_instance_valid(home_art):
 			button.self_modulate = Color.TRANSPARENT
 			button.clip_text = true
+			button.button_down.connect(_set_home_press.bind(index))
+			button.button_up.connect(_release_home_press)
 		home_buttons.append(button)
 	_layout_home()
 	queue_redraw()
+
+func _set_home_press(index:int) -> void:
+	if not is_instance_valid(home_art): return
+	var top:float=-100.0
+	if index>=0 and index<HOME_BUTTON_TOPS.size():
+		top=float(HOME_BUTTON_TOPS[index])
+	(home_art.material as ShaderMaterial).set_shader_parameter("pressed_button_top",top)
+
+func _release_home_press() -> void:
+	if not home_activating: _set_home_press(-1)
+
+func _activate_home_button(index:int,action:Callable) -> void:
+	if home_activating or not home_open: return
+	home_activating=true
+	_set_home_press(index)
+	# Dar retorno visual inclusive em toques rapidos antes de abrir a tela.
+	await get_tree().create_timer(0.085).timeout
+	home_activating=false
+	_set_home_press(-1)
+	if home_open and is_instance_valid(home_panel): action.call()
 
 func _layout_home() -> void:
 	if not is_instance_valid(home_panel): return
