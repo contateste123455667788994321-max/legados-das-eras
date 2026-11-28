@@ -437,8 +437,9 @@ func _draw_landscape() -> void:
 
 	for tree in world.trees.values():
 		var p: Vector2 = _world_to_screen(Vector2(float(tree["x"])+0.5+float(tree["ox"]),float(tree["y"])+0.5+float(tree["oy"])))
-		if not MAP_AREA.grow(-side*0.3).has_point(p): continue
 		var s: float = side*(1.78 if world.swamp_at(Vector2(float(tree["x"]),float(tree["y"]))) else 1.22)*world.tree_scale(tree)
+		# A copa ainda pode estar visivel quando a base sai da tela.
+		if not MAP_AREA.grow(s*1.35).has_point(p): continue
 		var tree_key:String=_natural_tree_key(tree)
 		var state: String = str(tree["state"])
 		if state == "stump":
@@ -530,9 +531,9 @@ func _draw() -> void:
 		var house_spots:Array[Vector2]=world.house_layout(town)
 		var farm_spots:Array[Vector2]=world.farm_layout(town)
 		var center := _world_to_screen(Vector2(float(town["x"]) + 0.5, float(town["y"]) + 0.5))
-		if not MAP_AREA.grow(140.0).has_point(center):
-			continue
 		var unit := TILE_SIZE * zoom
+		# Uma casa pode estar visivel muito longe do centro da vila.
+		# Cada desenho recorta seu proprio retangulo no limite do mapa.
 		for segment in town.get("palisades",[]):
 			var fence_pos:Vector2=_world_to_screen(Vector2(float(segment["x"])+0.5,float(segment["y"])+0.5))
 			_draw_palisade(fence_pos,unit,str(segment.get("axis","h")),segment)
@@ -566,15 +567,14 @@ func _draw() -> void:
 		if not bool(p["alive"]) and world.swamp_clock >= float(p.get("fell_at", -2.0)) + 1.4:
 			continue
 		var center := _world_to_screen(Vector2(float(p["x"]) + 0.5, float(p["y"]) + 0.5))
-		if not MAP_AREA.has_point(center):
-			continue
+		if not MAP_AREA.grow(32.0*zoom).has_point(center): continue
 		scene_depth.append({"y":center.y,"kind":"person","p":center,"actor":p})
 		if not bool(p["alive"]):
 			continue
 		if float(p.get("poison_remaining",0))>0 and MAP_AREA.grow(-12).has_point(center):
 			var pulse:float=0.55+0.25*sin(world.swamp_clock*8.0)
 			draw_arc(center,10.0*zoom,0,TAU,18,Color(0.48,0.78,0.24,pulse),1.5)
-		if int(p["id"]) == selected_person_id:
+		if int(p["id"]) == selected_person_id and MAP_AREA.grow(-18.0*zoom).has_point(center):
 			draw_arc(center, 14.0 * zoom, 0, TAU, 20, Color("#ffe890"), 2.0)
 			var task_name: String = "Nv. %d | %s" % [int(p.get("level",1)),str(p.get("task","Observando"))]
 			_draw_selected_life(p,center)
@@ -583,19 +583,18 @@ func _draw() -> void:
 				draw_rect(tag, Color("#201f16", 0.92), true)
 				draw_rect(tag, Color("#f7d890"), false, 1.0)
 				draw_string(ThemeDB.fallback_font, tag.position + Vector2(3.0, 13.0) * zoom, task_name, HORIZONTAL_ALIGNMENT_CENTER, tag.size.x - 6.0, maxi(10, int(11.0 * zoom)), Color("#ffe1a2"))
-		if int(p["id"]) == controlled_id:
+		if int(p["id"]) == controlled_id and MAP_AREA.grow(-20.0*zoom).has_point(center):
 			draw_arc(center, 18.0 * zoom, 0, TAU, 20, Color("#6cffda"), 3.0)
 	for b in world.beasts:
 		if not bool(b["alive"]):
 			continue
 		var center := _world_to_screen(Vector2(float(b["x"]) + 0.5, float(b["y"]) + 0.5))
-		if not MAP_AREA.has_point(center):
-			continue
+		if not MAP_AREA.grow(40.0*zoom).has_point(center): continue
 		var key := "bear" if str(b["species"]) == "Urso" else "wolf"
 		scene_depth.append({"y":center.y,"kind":"beast","p":center,"actor":b,"key":key})
-		if int(b["id"]) == selected_beast_id:
+		if int(b["id"]) == selected_beast_id and MAP_AREA.grow(-18.0*zoom).has_point(center):
 			draw_arc(center, 15.0 * zoom, 0, TAU, 20, Color("#ffe890"), 2.0)
-		if int(b["id"]) == controlled_id:
+		if int(b["id"]) == controlled_id and MAP_AREA.grow(-21.0*zoom).has_point(center):
 			draw_arc(center, 19.0 * zoom, 0, TAU, 20, Color("#6cffda"), 3.0)
 	_draw_depth_entities()
 	_draw_swamp_creatures()
@@ -2405,11 +2404,20 @@ func _contact_shadow(p:Vector2,rx:float,ry:float) -> void:
 # Separa os pes do corpo para que a passada alterne com a distancia percorrida.
 func _draw_walk_sprite(texture:Texture2D,source:Rect2,p:Vector2,s:float,face:float,phase:float,moving:bool,bounce:float) -> void:
 	# Nao dividir pernas em blocos: a silhueta inteira permanece conectada.
-	var tilt:float=sin(phase)*0.025 if moving else 0.0
 	var dest:=Rect2(-s*0.5,-s*0.91-bounce,s,s)
-	if not MAP_AREA.encloses(Rect2(p+dest.position,dest.size)): return
-	draw_set_transform(p,tilt,Vector2(face,1))
-	draw_texture_rect_region(texture,dest,source)
+	_draw_actor_region_clipped(texture,source,p,dest,face)
+
+# Recortar os pixels visiveis, inclusive quando o ator olha para a esquerda.
+func _draw_actor_region_clipped(texture:Texture2D,source:Rect2,p:Vector2,dest:Rect2,face:float) -> void:
+	if texture==null or not dest.has_area(): return
+	var screen_rect:=Rect2(p+dest.position,dest.size)
+	var clipped:=screen_rect.intersection(MAP_AREA)
+	if not clipped.has_area(): return
+	var local:=Rect2(clipped.position-p,clipped.size)
+	if face<0.0: local.position.x=-(local.position.x+local.size.x)
+	var uv:=Rect2(source.position+(local.position-dest.position)/dest.size*source.size,local.size/dest.size*source.size)
+	draw_set_transform(p,0.0,Vector2(-1.0 if face<0.0 else 1.0,1.0))
+	draw_texture_rect_region(texture,local,uv)
 	draw_set_transform(Vector2.ZERO)
 
 
@@ -2589,7 +2597,7 @@ func _draw_swimming_animal(species:String,indices:Dictionary,p:Vector2,s:float,f
 	if texture!=null: _draw_water_actor(texture,source,p,s,face,depth,species,moving)
 
 func _draw_water_actor(texture:Texture2D,source:Rect2,p:Vector2,s:float,face:float,depth:float,species:String,moving:bool) -> void:
-	if not MAP_AREA.grow(-s).has_point(p): return
+	if not MAP_AREA.grow(s).has_point(p): return
 	var cycle:float=world.swamp_clock*(4.8 if species in ["turtle","camel","bear"] else 7.5)
 	var deep:bool=depth>=0.60
 	# A altura visivel e a remada variam por especie; preserva o rosto e a roupa de cada humano.
@@ -2600,8 +2608,10 @@ func _draw_water_actor(texture:Texture2D,source:Rect2,p:Vector2,s:float,face:flo
 	var bob:float=sin(cycle)*s*0.022 if moving and deep else 0.0
 	var cut:Rect2=Rect2(source.position,Vector2(source.size.x,source.size.y*fraction))
 	var dest:Rect2=Rect2(-s*0.5,-s*fraction+bob,s,s*fraction)
+	_draw_actor_region_clipped(texture,cut,p,dest,face)
+	# Acessorios e ondulacoes nao devem invadir a interface.
+	if not MAP_AREA.grow(-s).has_point(p): return
 	draw_set_transform(p,0,Vector2(face,1))
-	draw_texture_rect_region(texture,dest,cut)
 	if deep and moving:
 		var reach:float=sin(cycle)*s*0.16
 		if species=="human":
