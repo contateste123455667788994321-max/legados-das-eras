@@ -513,8 +513,12 @@ func _draw() -> void:
 	_draw_landscape()
 	_draw_rivers()
 	_draw_territory_borders()
-	_draw_world_sites()
 	scene_depth.clear()
+	# Caminhos sao camada de solo: nunca pintar sobre castelos, oficinas ou personagens.
+	for town in world.towns:
+		var origin:Vector2=_world_to_screen(Vector2(float(town["x"])+0.5,float(town["y"])+0.5))
+		_draw_village_paths(town,origin,TILE_SIZE*zoom,world.house_layout(town),world.farm_layout(town))
+	_draw_world_sites()
 	# Quantidade real de casas e fazendas aparece no mapa, conforme o estoque da vila.
 	for town in world.towns:
 		var house_spots:Array[Vector2]=world.house_layout(town)
@@ -523,7 +527,6 @@ func _draw() -> void:
 		if not MAP_AREA.grow(140.0).has_point(center):
 			continue
 		var unit := TILE_SIZE * zoom
-		_draw_village_paths(town, center, unit, house_spots, farm_spots)
 		for segment in town.get("palisades",[]):
 			var fence_pos:Vector2=_world_to_screen(Vector2(float(segment["x"])+0.5,float(segment["y"])+0.5))
 			_draw_palisade(fence_pos,unit,str(segment.get("axis","h")),segment)
@@ -597,38 +600,64 @@ func _draw() -> void:
 		draw_rect(Rect2(17, 650, 1207, 41), Color("#d1ab6c"), false, 1.0)
 
 func _draw_village_paths(town:Dictionary,center:Vector2,unit:float,houses:Array[Vector2],farms:Array[Vector2]) -> void:
-	if int(town.get("houses",2))==0 and int(town.get("farms",1))==0: return
-	# Ruas retas e estreitas, com ramais para a porta de cada casa e para as hortas.
-	var lane_y:float=1.95
+	if not MAP_AREA.grow(unit*8.0).has_point(center): return
+	var house_count:int=mini(int(town.get("houses",0)),houses.size())
+	var farm_count:int=mini(int(town.get("farms",0)),farms.size())
+	if house_count==0 and farm_count==0: return
+	var lane_y:float=2.05
 	var left:float=0.0
 	var right:float=0.0
-	for i in range(mini(int(town.get("houses",2)),houses.size())):
+	var castle_level:int=world.castle_level(town)
+	var castle_size:float=[0.0,1.95,2.48,3.05][clampi(castle_level,0,3)]
+	# Footprints correspond to the actual anchored sprites, not their transparent padding.
+	var obstacles:Array[Rect2]=[]
+	if castle_level>0:
+		obstacles.append(Rect2(Vector2(-castle_size*0.49,-castle_size*0.82),Vector2(castle_size*0.98,castle_size*0.96)).grow(0.07))
+	for i in range(house_count):
+		var house_size:float=(1.75 if i==0 else 1.48)*(1.0+float(clampi(int(world.house_levels(town)[i]),1,4)-1)*0.045)
+		obstacles.append(Rect2(houses[i]+Vector2(-house_size*0.44,-house_size*0.55),Vector2(house_size*0.88,house_size*0.95)).grow(0.06))
+	for i in range(farm_count):
+		obstacles.append(Rect2(farms[i]-Vector2(0.69,0.43),Vector2(1.38,0.86)))
+	for i in range(house_count):
 		var spot:Vector2=houses[i]
-		left=minf(left,spot.x)
-		right=maxf(right,spot.x)
-		var door:Vector2=spot+Vector2(0,0.36)
-		_draw_dirt_path(center+door*unit,center+Vector2(spot.x,lane_y)*unit,unit)
-	for i in range(mini(int(town.get("farms",1)),farms.size())):
+		var route_x:float=spot.x
+		# Route rear houses around the keep, not through the castle.
+		if castle_level>0 and spot.y<0.0 and absf(route_x)<castle_size*0.5+0.2:
+			route_x=(-1.0 if spot.x<0 else 1.0)*(castle_size*0.5+0.25)
+		left=minf(left,route_x)
+		right=maxf(right,route_x)
+		var door:Vector2=spot+Vector2(0,0.65)
+		var corner:=Vector2(route_x,door.y)
+		_draw_dirt_path(center,door,corner,unit,obstacles)
+		_draw_dirt_path(center,corner,Vector2(route_x,lane_y),unit,obstacles)
+	for i in range(farm_count):
 		var spot:Vector2=farms[i]
 		left=minf(left,spot.x)
 		right=maxf(right,spot.x)
-		_draw_dirt_path(center+Vector2(spot.x,lane_y)*unit,center+(spot-Vector2(0,0.43))*unit,unit)
-	_draw_dirt_path(center+Vector2(left,lane_y)*unit,center+Vector2(right,lane_y)*unit,unit)
+		_draw_dirt_path(center,Vector2(spot.x,lane_y),spot-Vector2(0,0.55),unit,obstacles)
+	_draw_dirt_path(center,Vector2(left,lane_y),Vector2(right,lane_y),unit,obstacles)
+	if castle_level>0:
+		_draw_dirt_path(center,Vector2(0,castle_size*0.15+0.10),Vector2(0,lane_y),unit,obstacles)
 
-
-func _draw_dirt_path(a: Vector2,b: Vector2,unit: float) -> void:
-	var count: int = maxi(2,int(a.distance_to(b)/(unit*0.07)))
+func _draw_dirt_path(center:Vector2,a:Vector2,b:Vector2,unit:float,obstacles:Array[Rect2]) -> void:
+	var count:int=maxi(2,ceili(a.distance_to(b)/0.055))
 	for i in range(count+1):
-		var t: float = float(i)/float(count)
-		var p: Vector2 = a.lerp(b,t)
-		var size: float = unit*(0.13+0.015*sin(t*19.0))
-		var cell:Vector2=_screen_to_world(p)
-		if world.water_depth(cell-Vector2(0.5,0.5))>0.0: continue
-		if not MAP_AREA.grow(-size).has_point(p): continue
-		draw_rect(Rect2(p-Vector2.ONE*size*0.5,Vector2.ONE*size),Color("#a78a4f"))
-		if i%3==0:
-			draw_rect(Rect2(p-Vector2(size*0.2,size*0.25),Vector2(size*0.23,size*0.18)),Color("#d4b477"))
-
+		var t:float=float(i)/float(count)
+		var local:Vector2=a.lerp(b,t)
+		var blocked:bool=false
+		for area in obstacles:
+			if area.grow(0.08).has_point(local):
+				blocked=true
+				break
+		if blocked: continue
+		var p:Vector2=center+local*unit
+		var side:float=unit*(0.19+0.025*sin(local.x*7+local.y*9))
+		if world.water_depth(_screen_to_world(p)-Vector2(0.5,0.5))>0.0: continue
+		if not MAP_AREA.grow(-side).has_point(p): continue
+		draw_rect(Rect2(p-Vector2.ONE*side*0.5,Vector2.ONE*side),Color("#8b794e",0.42))
+		draw_rect(Rect2(p-Vector2.ONE*side*0.39,Vector2.ONE*side*0.78),Color("#b39a67",0.86))
+		if posmod(roundi(local.x*29)+roundi(local.y*23),7)==0:
+			draw_rect(Rect2(p,Vector2.ONE*maxf(1,side*0.12)),Color("#d6bc87",0.7))
 
 func _draw_territory_borders() -> void:
 	var palette:Array[Color]=[Color("#bbb7a8"),Color("#69cafa"),Color("#f36d68"),Color("#a9cb84"),Color("#b7a2e0"),Color("#e8b183")]
@@ -664,7 +693,7 @@ func _draw_world_sites() -> void:
 			if not town.is_empty():
 				var level:int=world.castle_level(town)
 				var size:float=unit*[1.95,2.48,3.05][clampi(level-1,0,2)]
-				_draw_building_art(p,size,level+1,str(town.get("home_biome","grass")))
+				scene_depth.append({"y":p.y+size*0.13,"kind":"castle","p":p,"size":size,"stage":level+1,"biome":str(town.get("home_biome","grass"))})
 		elif kind=="campfire":
 			_draw_live_campfire(p,unit)
 		elif kind=="fish":
@@ -1982,7 +2011,7 @@ func _draw_swamp_creatures() -> void:
 		var ancient:Dictionary=world.ancestrals[kind]
 		if not bool(ancient.get("alive",false)): continue
 		var center:Vector2=_world_to_screen(Vector2(float(ancient["x"])+0.5,float(ancient["y"])+0.5))
-		var size:float=(46.0 if kind=="golem" else 43.0)*zoom
+		var size:float=(92.0 if kind=="golem" else 52.0)*zoom
 		var moving:bool=bool(ancient.get("moving",false))
 		var striking:bool=float(ancient.get("hit_anim_until",0))>world.swamp_clock
 		var atlas:Texture2D=GOLEM_APPROVED if kind=="golem" else FENRIR_APPROVED
@@ -2247,6 +2276,7 @@ func _draw_depth_entities() -> void:
 				# Dois desenhos distintos recortados da referencia de casas aprovada.
 				var grown:float=size*(1.0+float(era-1)*0.045)
 				_draw_building_art(p+Vector2(0,grown*0.28),grown,0 if era==1 else 1,str(entry.get("biome","grass")))
+			"castle": _draw_building_art(p,float(entry["size"]),int(entry["stage"]),str(entry["biome"]))
 			"person": _draw_person_variant(entry["actor"],p)
 			"animal": _draw_natural_animal(entry["actor"],p)
 			"beast": _draw_animated_beast(entry["actor"],p,str(entry["key"]))
