@@ -46,6 +46,8 @@ func _run_tests() -> void:
 	_check(not fenrir.has("hunger") and not golem.has("hunger"),"Ancestrais independentes de fome")
 	var fauna_approved:Texture2D=preload("res://assets/landscape/fauna_approved_idle.png")
 	_check(fauna_approved.get_width()==24 and fauna_approved.get_height()==24*28 and Main.ANIMAL_ROWS.size()==28,"Prancha aprovada possui os 28 animais na ordem do jogo")
+	var ground_atlas:Texture2D=preload("res://assets/landscape/ground_details.svg")
+	_check(ground_atlas.get_width()==408 and ground_atlas.get_height()==24,"Atlas com 17 detalhes naturais dos biomas")
 	var world = World.new()
 	world.generate_world()
 	_check(world.tiles.size() == World.SIZE and world.tiles[0].size()==World.WIDTH, "Mapa largo gerado")
