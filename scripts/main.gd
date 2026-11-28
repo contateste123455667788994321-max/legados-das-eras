@@ -384,6 +384,8 @@ func _make_landscape() -> void:
 			col = col.lightened(shade) if shade > 0.0 else col.darkened(-shade)
 			img.set_pixel(px, py, col)
 	landscape_texture = ImageTexture.create_from_image(img)
+	landscape_render_image=img
+	waterfall_cache.clear()
 
 func _draw_landscape() -> void:
 	_make_landscape()
@@ -451,7 +453,9 @@ func _draw_landscape() -> void:
 				draw_set_transform(Vector2.ZERO)
 			draw_ellipse_stump(p,s)
 		else:
-			_draw_landscape_object(tree_key,p,s)
+			# Arvores e personagens compartilham a mesma ordenacao pela base.
+			var variation:float=0.91+float(posmod(int(tree["x"])*19+int(tree["y"])*13,9))*0.025
+			scene_depth.append({"y":p.y,"kind":"tree","p":p,"size":s*variation,"key":tree_key})
 
 # Decoracao pequena e deterministica: sem entidades, colisao, coleta ou alteracao de saves.
 # Um atlas estatico e no maximo dois desenhos por terreno visivel.
@@ -510,13 +514,14 @@ func _draw() -> void:
 	draw_line(Vector2(0, 74), Vector2(screen_width, 74), Color("#ae8c54"), 2.0)
 	_draw_clock()
 	draw_rect(MAP_AREA, Color("#355943"), true)
+	scene_depth.clear()
 	_draw_landscape()
 	_draw_rivers()
 	_draw_territory_borders()
-	scene_depth.clear()
 	# Caminhos sao camada de solo: nunca pintar sobre castelos, oficinas ou personagens.
 	for town in world.towns:
 		var origin:Vector2=_world_to_screen(Vector2(float(town["x"])+0.5,float(town["y"])+0.5))
+		_draw_village_ground(town,origin,TILE_SIZE*zoom)
 		_draw_village_paths(town,origin,TILE_SIZE*zoom,world.house_layout(town),world.farm_layout(town))
 	_draw_world_sites()
 	# Quantidade real de casas e fazendas aparece no mapa, conforme o estoque da vila.
@@ -598,6 +603,47 @@ func _draw() -> void:
 	if info_label != null and info_label.visible:
 		draw_rect(Rect2(17, 650, 1207, 41), Color("#172219", 0.86), true)
 		draw_rect(Rect2(17, 650, 1207, 41), Color("#d1ab6c"), false, 1.0)
+
+# Base irregular de terra pisada. A textura do bioma permanece visivel entre os pixels.
+func _draw_structure_ground(p:Vector2,size:float,biome:String,seed:int) -> void:
+	if not MAP_AREA.grow(size).has_point(p): return
+	var ground:Color=Color("#ac925a")
+	match biome:
+		"snow": ground=Color("#a5aba4")
+		"sand": ground=Color("#bd9c65")
+		"swamp": ground=Color("#5e6242")
+	var step:float=maxf(1.0,size/30.0)
+	var extent:=Vector2(size*0.51,size*0.16)
+	for iy in range(-6,7):
+		for ix in range(-16,17):
+			var d:=Vector2(float(ix)/16.0,float(iy)/6.0)
+			var h:int=posmod(ix*71+iy*131+seed*29,97)
+			var edge:float=1.0+float(h%7-3)*0.055
+			if d.length_squared()>edge: continue
+			var q:Vector2=p+Vector2(d.x*extent.x,d.y*extent.y)
+			var rect:=Rect2(q,Vector2.ONE*step).intersection(MAP_AREA)
+			if not rect.has_area(): continue
+			if world.water_depth(_screen_to_world(q)-Vector2(0.5,0.5))>0.1: continue
+			var tone:Color=ground.darkened(float(h%5)*0.045)
+			tone.a=0.12+0.27*(1.0-clampf(d.length(),0.0,1.0))
+			draw_rect(rect,tone)
+
+func _draw_village_ground(town:Dictionary,center:Vector2,unit:float) -> void:
+	if not MAP_AREA.grow(unit*8).has_point(center): return
+	var biome:String=str(town.get("home_biome","grass"))
+	var houses:Array[Vector2]=world.house_layout(town)
+	var castle:int=world.castle_level(town)
+	if castle>0:
+		var size:float=unit*[1.95,2.48,3.05][castle-1]
+		_draw_structure_ground(center+Vector2(0,size*0.10),size,biome,int(town["id"]))
+	for i in range(mini(int(town.get("houses",0)),houses.size())):
+		var size:float=unit*(1.75 if i==0 else 1.48)*(1.0+float(clampi(int(world.house_levels(town)[i]),1,4)-1)*0.045)
+		_draw_structure_ground(center+houses[i]*unit+Vector2(0,size*0.38),size,biome,int(town["id"])*17+i)
+
+# Sombra de contato e ponto de apoio das raizes, sem achatar o desenho.
+func _draw_rooted_tree(key:String,p:Vector2,size:float) -> void:
+	_contact_shadow(p+Vector2(size*0.035,size*0.08),size*0.26,size*0.085)
+	_draw_landscape_object(key,p-Vector2(0,size*0.06),size)
 
 func _draw_village_paths(town:Dictionary,center:Vector2,unit:float,houses:Array[Vector2],farms:Array[Vector2]) -> void:
 	if not MAP_AREA.grow(unit*8.0).has_point(center): return
@@ -761,23 +807,82 @@ func _draw_rivers() -> void:
 				draw_rect(Rect2(q,Vector2(unit*0.12, maxf(1.0,unit*0.027))),Color("#8edbe1",0.6))
 
 const WATERFALL_APPROVED:Texture2D=preload("res://assets/landscape/cachoeira_aprovada.png")
+var waterfall_cache:Dictionary={}
+var landscape_render_image:Image
+# Adaptar a arte ao rio de verdade: combinar as margens, retirar a borda oval,
+# misturar a agua superior/inferior com a cor e a profundidade do terreno local.
+func _waterfall_for_site(site:Vector2,extent:Vector2) -> Texture2D:
+	var key:=Vector2i(site.floor())
+	if waterfall_cache.has(key): return waterfall_cache[key]
+	var src:Image=WATERFALL_APPROVED.get_image()
+	if src.is_compressed() and src.decompress()!=OK: return WATERFALL_APPROVED
+	src.convert(Image.FORMAT_RGBA8)
+	var image:Image=src.duplicate()
+	var width:int=src.get_width()
+	var height:int=src.get_height()
+	for y in range(height):
+		for x in range(width):
+			var c:Color=src.get_pixel(x,y)
+			if c.a<0.01: continue
+			var uv:=Vector2((float(x)+0.5)/float(width),(float(y)+0.5)/float(height))
+			var pos:Vector2=site+(uv-Vector2(0.50,0.48))*extent
+			var ground:Color=Color("#104567")
+			if landscape_render_image!=null:
+				var px:int=clampi(floori(pos.x*24.0),0,landscape_render_image.get_width()-1)
+				var py:int=clampi(floori(pos.y*24.0),0,landscape_render_image.get_height()-1)
+				ground=landscape_render_image.get_pixel(px,py)
+			var is_water:bool=c.b>c.r*1.13 and c.g>c.r*1.04
+			var river_pixel:bool=ground.b>ground.r*1.10 and ground.g>ground.r*1.05
+			# A queda vertical permanece opaca. Apenas o rio no topo e a piscina
+			# recortada do rodape se misturam ao rio existente.
+			if is_water and (uv.y<0.22 or uv.y>0.73):
+				var end_fade:float=smoothstep(0.0,0.21,uv.y) if uv.y<0.22 else 1.0-smoothstep(0.72,1.0,uv.y)
+				c.a*=end_fade
+				if not river_pixel:
+					c.a*=smoothstep(0.73,0.88,1.0-absf(uv.x-0.5))*0.22
+				if c.v<0.66:
+					var tint:Color=ground if river_pixel else Color("#226881")
+					c=c.lerp(tint,0.34)
+					c.a*=end_fade
+			# Transicao de 4 pixels na silhueta, preserva os detalhes internos.
+			var distance:int=5
+			for radius in range(1,5):
+				var edge:bool=false
+				for off in [Vector2i(radius,0),Vector2i(-radius,0),Vector2i(0,radius),Vector2i(0,-radius)]:
+					var q:=Vector2i(x,y)+off
+					if q.x<0 or q.y<0 or q.x>=width or q.y>=height or src.get_pixelv(q).a<0.1:
+						edge=true
+						break
+				if edge:
+					distance=radius
+					break
+			c.a*=smoothstep(0.0,4.5,float(distance))
+			image.set_pixel(x,y,c)
+	var tex:Texture2D=ImageTexture.create_from_image(image)
+	waterfall_cache[key]=tex
+	return tex
+
 func _draw_waterfall(p:Vector2,u:float) -> void:
-	var size:=Vector2(u*2.65,u*2.65*129.0/180.0)
+	var extent:=Vector2(2.65,2.65*129.0/180.0)
+	var size:Vector2=extent*u
 	var dest:=Rect2(p-size*Vector2(0.50,0.48),size)
 	var clipped:Rect2=dest.intersection(MAP_AREA)
 	if not clipped.has_area(): return
-	var texsize:Vector2=WATERFALL_APPROVED.get_size()
-	draw_texture_rect_region(WATERFALL_APPROVED,clipped,Rect2((clipped.position-dest.position)/size*texsize,clipped.size/size*texsize))
+	var texture:Texture2D=_waterfall_for_site(_screen_to_world(p),extent)
+	var texsize:Vector2=texture.get_size()
+	draw_texture_rect_region(texture,clipped,Rect2((clipped.position-dest.position)/size*texsize,clipped.size/size*texsize))
 	if not MAP_AREA.grow(-u).has_point(p): return
 	var time:float=world.swamp_clock
+	# Espuma dispersa acompanha somente os pontos de agua abaixo da queda.
+	for i in range(12):
+		var f:float=fposmod(time*0.75+float(i)*0.173,1.0)
+		var q:Vector2=p+Vector2((float(i%7)-3.0)*0.10*(1.0+f*0.45),0.25+f*0.65)*u
+		if world.water_depth(_screen_to_world(q)-Vector2(0.5,0.5))<=0.15: continue
+		draw_rect(Rect2(q.round(),Vector2(u*(0.065+f*0.05),maxf(1,u*0.022))),Color(0.83,0.96,0.98,(1.0-f)*0.65))
 	for i in range(8):
-		var f:float=fposmod(time*1.0+float(i)*0.179,1.0)
+		var f:float=fposmod(time+float(i)*0.179,1.0)
 		var q:Vector2=dest.position+Vector2(size.x*(0.37+float(i)*0.033),size.y*(0.25+f*0.38))
 		draw_rect(Rect2(q.round(),Vector2(maxf(1,u*0.013),maxf(2,u*0.10))),Color(0.84,0.96,1.0,0.22*sin(f*PI)))
-	for i in range(9):
-		var f:float=fposmod(time*0.75+float(i)*0.17,1.0)
-		var q:Vector2=dest.position+Vector2(size.x*(0.35+float(i%5)*0.055),size.y*(0.65+f*0.15))
-		draw_rect(Rect2(q.round(),Vector2(maxf(1,u*0.055),maxf(1,u*0.015))),Color(0.9,0.98,1.0,(1-f)*0.35))
 
 const HUMAN_CELL := 48
 const HUMAN_POSES := 10
@@ -2261,6 +2366,7 @@ func _draw_building_art(p:Vector2,size:float,stage:int,biome:String) -> void:
 	var row:int=int({"snow":1,"sand":2,"swamp":3}.get(biome,0))
 	var source:=Rect2(clampi(stage,0,4)*96,row*96,96,96)
 	var dest:=Rect2(p-Vector2(size*0.5,size*0.87),Vector2.ONE*size)
+	_contact_shadow(p+Vector2(size*0.03,size*0.075),size*0.42,size*0.095)
 	var clipped:Rect2=dest.intersection(MAP_AREA)
 	if clipped.has_area():
 		draw_texture_rect_region(BUILDINGS_APPROVED,clipped,Rect2(source.position+(clipped.position-dest.position)/size*96.0,clipped.size/size*96.0))
@@ -2277,6 +2383,7 @@ func _draw_depth_entities() -> void:
 				var grown:float=size*(1.0+float(era-1)*0.045)
 				_draw_building_art(p+Vector2(0,grown*0.28),grown,0 if era==1 else 1,str(entry.get("biome","grass")))
 			"castle": _draw_building_art(p,float(entry["size"]),int(entry["stage"]),str(entry["biome"]))
+			"tree": _draw_rooted_tree(str(entry["key"]),p,float(entry["size"]))
 			"person": _draw_person_variant(entry["actor"],p)
 			"animal": _draw_natural_animal(entry["actor"],p)
 			"beast": _draw_animated_beast(entry["actor"],p,str(entry["key"]))
