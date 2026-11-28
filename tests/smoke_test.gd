@@ -63,10 +63,10 @@ func _run_tests() -> void:
 	_check(castle_world.start_construction(city_id,"tribal_castle"),"Fortificacao tribal pode iniciar antes da era 4")
 	var project:Dictionary=city["construction"]
 	_check(project["x"]==city["x"] and project["y"]==city["y"],"Castelo no centro da aldeia")
-	var worker:Dictionary=castle_world.people[0]
-	worker["task"]="Construindo"
-	worker["x"]=city["x"]
-	worker["y"]=city["y"]
+	var castle_worker:Dictionary=castle_world.people[0]
+	castle_worker["task"]="Construindo"
+	castle_worker["x"]=city["x"]
+	castle_worker["y"]=city["y"]
 	project["delivered"]=project["required"].duplicate()
 	project["progress"]=float(project["duration"])-0.1
 	castle_world.progress_construction(city,1.0)
