@@ -763,10 +763,56 @@ func _human_source(person: Dictionary, pose: int = 0) -> Rect2:
 	var identity := posmod(int(person.get("appearance", person.get("id", 0))) + int(person.get("skin", 0)) * 3 + int(person.get("hair", 0)), 4)
 	return Rect2((identity * HUMAN_POSES + pose) * HUMAN_CELL, _human_row(person) * HUMAN_CELL, HUMAN_CELL, HUMAN_CELL)
 
+# A arte original permanece intacta. Cache por quadro e cor, sem substituir atlas.
+const KINGDOM_CLOTH:Array[Color]=[Color("#272b2d"),Color("#456a9b"),Color("#963d37"),Color("#53714b"),Color("#765c92"),Color("#93733e")]
+var kingdom_cloth_cache:Dictionary={}
+var kingdom_source_image:Image
+
+func _kingdom_cloth_index(person:Dictionary) -> int:
+	var town:Dictionary=world.get_town(int(person.get("town",0)))
+	if town.is_empty(): return -1
+	return posmod(world.kingdom_id(town),KINGDOM_CLOTH.size())
+
+func _kingdom_human_frame(person:Dictionary,pose:int) -> Dictionary:
+	var atlas:Texture2D=landscape_objects["habitantes"]
+	var source:Rect2=_human_source(person,pose)
+	var index:int=_kingdom_cloth_index(person)
+	# Quedas e armaduras completas ficam intocadas: sem mascara de tecido aprovada.
+	if index<0 or pose>=8 or (world.is_military(person) and int(person.get("armor",0))>0):
+		return {"atlas":atlas,"source":source}
+	var key:String="%d:%d:%d"%[index,int(source.position.x),int(source.position.y)]
+	if kingdom_cloth_cache.has(key):
+		return {"atlas":kingdom_cloth_cache[key],"source":Rect2(0,0,HUMAN_CELL,HUMAN_CELL)}
+	if kingdom_source_image==null:
+		kingdom_source_image=atlas.get_image()
+		if kingdom_source_image.is_compressed() and kingdom_source_image.decompress()!=OK:
+			kingdom_source_image=null
+			return {"atlas":atlas,"source":source}
+	var frame:Image=kingdom_source_image.get_region(Rect2i(source))
+	var used:Rect2i=frame.get_used_rect()
+	var cloth:Color=KINGDOM_CLOTH[index]
+	for y in range(used.position.y,used.end.y):
+		for x in range(used.position.x,used.end.x):
+			var fy:float=float(y-used.position.y)/maxf(1.0,float(used.size.y))
+			var fx:float=float(x-used.position.x)/maxf(1.0,float(used.size.x))
+			# Apenas o nucleo do tronco e cores frias saturadas; pele, cabelo,
+			# contornos, metal, ferramentas e tons ambiguos ficam como eram.
+			if fy<0.48 or fy>0.72 or fx<0.34 or fx>0.66: continue
+			var pixel:Color=frame.get_pixel(x,y)
+			if pixel.a<0.98 or pixel.s<0.24 or pixel.v<0.20 or pixel.v>0.88: continue
+			if pixel.h<0.24 or pixel.h>0.73: continue
+			var recolored:=Color.from_hsv(cloth.h,cloth.s,clampf(pixel.v*(0.58 if index==0 else 0.94),0.12,0.88),pixel.a)
+			frame.set_pixel(x,y,recolored)
+	var texture:=ImageTexture.create_from_image(frame)
+	if kingdom_cloth_cache.size()>=384: kingdom_cloth_cache.clear()
+	kingdom_cloth_cache[key]=texture
+	return {"atlas":texture,"source":Rect2(0,0,HUMAN_CELL,HUMAN_CELL)}
+
 func _human_portrait(person: Dictionary) -> Texture2D:
 	var portrait := AtlasTexture.new()
-	portrait.atlas = landscape_objects["habitantes"]
-	portrait.region = _human_source(person)
+	var frame:Dictionary=_kingdom_human_frame(person,0)
+	portrait.atlas = frame["atlas"]
+	portrait.region = frame["source"]
 	return portrait
 
 func _draw_person_variant(p:Dictionary,center:Vector2) -> void:
@@ -793,10 +839,12 @@ func _draw_person_variant(p:Dictionary,center:Vector2) -> void:
 	var depth: float = world.water_depth(Vector2(float(p["x"]), float(p["y"])))
 	if depth > 0:
 		var stroke := int(world.swamp_clock * 4.0 + int(p["id"]) % 3) % 4
-		_draw_water_actor(atlas, _human_source(p, stroke), center, s, face, depth, "human", moving)
+		var swim_frame:Dictionary=_kingdom_human_frame(p,stroke)
+		_draw_water_actor(swim_frame["atlas"], swim_frame["source"], center, s, face, depth, "human", moving)
 		return
 	_contact_shadow(center, s * 0.22, s * 0.07)
-	_draw_walk_sprite(atlas, _human_source(p, pose), center, s, face, phase, false, bounce)
+	var cloth_frame:Dictionary=_kingdom_human_frame(p,pose)
+	_draw_walk_sprite(cloth_frame["atlas"], cloth_frame["source"], center, s, face, phase, false, bounce)
 	_draw_equipment(p,center,s,bounce,face)
 	if bool(p.get("witch_staff",false)) and action=="combat":
 		_draw_landscape_object("magic_staff",center+Vector2(face*s*0.27,0),s*0.78)
