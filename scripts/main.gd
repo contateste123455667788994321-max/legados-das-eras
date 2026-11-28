@@ -599,7 +599,7 @@ func _draw() -> void:
 func _draw_village_paths(town:Dictionary,center:Vector2,unit:float,houses:Array[Vector2],farms:Array[Vector2]) -> void:
 	if int(town.get("houses",2))==0 and int(town.get("farms",1))==0: return
 	# Ruas retas e estreitas, com ramais para a porta de cada casa e para as hortas.
-	var lane_y:float=0.58
+	var lane_y:float=1.95
 	var left:float=0.0
 	var right:float=0.0
 	for i in range(mini(int(town.get("houses",2)),houses.size())):
@@ -2109,7 +2109,7 @@ func _inspect_building(point:Vector2) -> bool:
 			if key=="camp": continue
 			if point.distance_to(world.storage_position(town,str(key)))>(1.25 if key=="castle" else 0.60): continue
 			var dialog:=AcceptDialog.new()
-			dialog.title="Castelo" if key=="castle" else "Casa "+str(int(str(key).trim_prefix("house_"))+1)
+			dialog.title="Castelo nível "+str(world.castle_level(town)) if key=="castle" else "Casa "+str(int(str(key).trim_prefix("house_"))+1)
 			var lines:Array[String]=[str(town["name"]),"Estoque desta construcao"]
 			if key!="castle":
 				var levels:Array=world.house_levels(town)
@@ -2244,8 +2244,7 @@ func _draw_depth_entities() -> void:
 			"house":
 				var size:float=float(entry["size"])
 				var era:int=int(entry["era"])
-				# Preserva a arte original de madeira e palha em todos os niveis.
-				# A ampliacao aumenta discretamente o tamanho, sem trocar o estilo.
+				# Dois desenhos distintos recortados da referencia de casas aprovada.
 				var grown:float=size*(1.0+float(era-1)*0.045)
 				_draw_building_art(p+Vector2(0,grown*0.28),grown,0 if era==1 else 1,str(entry.get("biome","grass")))
 			"person": _draw_person_variant(entry["actor"],p)
