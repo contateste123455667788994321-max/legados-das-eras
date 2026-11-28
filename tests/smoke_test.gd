@@ -50,6 +50,17 @@ func _run_tests() -> void:
 	_check(ground_atlas.get_width()==408 and ground_atlas.get_height()==24,"Atlas com 17 detalhes naturais dos biomas")
 	var world = World.new()
 	world.generate_world()
+	for town in world.towns:
+		var bank:Dictionary=world.fishing_position(town)
+		if not bank.is_empty():
+			var shore:=Vector2(float(bank["x"]),float(bank["y"]))
+			var water:=Vector2(float(bank["water_x"]),float(bank["water_y"]))
+			_check(world.water_depth(shore)==0.0 and world.is_river_cell(int(water.x),int(water.y)) and shore.distance_to(water)==1.0,"Pesca somente em margem de rio real")
+	for site in world.sites:
+		if str(site["kind"])=="waterfall":
+			var x:int=int(site["x"])
+			var y:int=int(site["y"])
+			_check(world.is_river_cell(x,y-1) and world.is_river_cell(x,y+1),"Cachoeira conectada ao rio")
 	_check(world.tiles.size() == World.SIZE and world.tiles[0].size()==World.WIDTH, "Mapa largo gerado")
 	var random_map=World.new()
 	random_map.generate_world()
