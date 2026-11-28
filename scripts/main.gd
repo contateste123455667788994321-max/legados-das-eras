@@ -620,28 +620,28 @@ func _draw_dirt_path(a: Vector2,b: Vector2,unit: float) -> void:
 
 
 func _draw_territory_borders() -> void:
-	var palette:Array[Color]=[Color("#d6b76a"),Color("#79c1df"),Color("#a9cb84"),Color("#d28b83"),Color("#b7a2e0"),Color("#e8b183")]
-	for town in world.towns:
-		if world.active_population(int(town["id"]))<=0: continue
-		var bounds:Rect2=world.territory_bounds(town)
-		var start:Vector2=_world_to_screen(bounds.position+Vector2(0.5,0.5))
-		var finish:Vector2=_world_to_screen(bounds.end+Vector2(0.5,0.5))
-		var color:Color=palette[posmod(world.kingdom_id(town),palette.size())]
-		color.a=0.68 if int(town["id"])==selected_town_id else 0.34
-		for edge in [[start,Vector2(finish.x,start.y)],[Vector2(finish.x,start.y),finish],[finish,Vector2(start.x,finish.y)],[Vector2(start.x,finish.y),start]]:
-			var p:Vector2=edge[0]
-			var q:Vector2=edge[1]
-			var delta:Vector2=q-p
-			var length:float=delta.length()
-			if length<1.0: continue
-			var direction:Vector2=delta/length
-			var dash:float=maxf(4.0,7.0*zoom)
-			var steps:int=ceili(length/(dash*1.75))
-			for n in range(steps):
-				var first:Vector2=p+direction*(float(n)*dash*1.75)
-				var last:Vector2=p+direction*minf(length,float(n)*dash*1.75+dash)
-				if MAP_AREA.has_point(first) and MAP_AREA.has_point(last):
-					draw_line(first,last,color,maxf(1.0,zoom))
+	var palette:Array[Color]=[Color("#d6b76a"),Color("#69cafa"),Color("#a9cb84"),Color("#f36d68"),Color("#b7a2e0"),Color("#e8b183")]
+	var cells:Dictionary=world.border_cells
+	var grid:float=World.BORDER_GRID
+	var edge_width:float=clampf(zoom*1.65,1.4,4.0)
+	for key in cells:
+		var cell:Vector2i=key
+		var town:Dictionary=world.get_town(int(cells[cell]))
+		if town.is_empty(): continue
+		var realm:int=world.kingdom_id(town)
+		var color:Color=palette[posmod(realm,palette.size())]
+		var p:Vector2=(Vector2(cell)*grid)+Vector2(0.5,0.5)
+		var corners:Array[Vector2]=[p,p+Vector2(grid,0),p+Vector2(grid,grid),p+Vector2(0,grid)]
+		var offsets:Array[Vector2i]=[Vector2i(0,-1),Vector2i(1,0),Vector2i(0,1),Vector2i(-1,0)]
+		for i in range(4):
+			var neighbor:Dictionary=world.get_town(int(cells.get(cell+offsets[i],0)))
+			if not neighbor.is_empty() and world.kingdom_id(neighbor)==realm: continue
+			var start:Vector2=_world_to_screen(corners[i])
+			var finish:Vector2=_world_to_screen(corners[(i+1)%4])
+			if not MAP_AREA.has_point(start) or not MAP_AREA.has_point(finish): continue
+			draw_line(start,finish,Color(color.r,color.g,color.b,0.18),edge_width*3.1)
+			draw_line(start,finish,Color("#24312d",0.72),edge_width+1.5)
+			draw_line(start,finish,Color(color.r,color.g,color.b,0.94),edge_width)
 
 func _draw_world_sites() -> void:
 	var unit:float=TILE_SIZE*zoom
@@ -1965,7 +1965,7 @@ func _draw_swamp_creatures() -> void:
 		if not bool(ancient.get("alive",false)): continue
 		var center:Vector2=_world_to_screen(Vector2(float(ancient["x"])+0.5,float(ancient["y"])+0.5))
 		var art:String="golem_angry" if kind=="golem" and int(ancient.get("target_town",-1))>=0 else str(kind)
-		var size:float=(64.0 if kind=="golem" else 51.0)*zoom
+		var size:float=(46.0 if kind=="golem" else 32.0)*zoom
 		var moving:bool=bool(ancient.get("moving",false))
 		var striking:bool=float(ancient.get("hit_anim_until",0))>world.swamp_clock
 		if moving or striking:
@@ -1985,7 +1985,7 @@ func _draw_swamp_creatures() -> void:
 				var particle:Vector2=center+Vector2(cos(angle),sin(angle)*0.45)*(12.0+18.0*(1.0-fade))*zoom
 				draw_rect(Rect2(particle,Vector2.ONE*maxf(1.0,3.0*zoom*fade)),Color(0.65,0.55,0.42,fade) if kind=="golem" else Color(0.65,0.88,1.0,fade))
 		if MAP_AREA.grow(-30*zoom).has_point(center):
-			var life:=Rect2(center+Vector2(-19,-49)*zoom,Vector2(38,4)*zoom)
+			var life:=Rect2(center+Vector2(-size*0.31,-size*0.98),Vector2(size*0.62,maxf(2,zoom*2)))
 			draw_rect(life,Color("#292b32"))
 			draw_rect(Rect2(life.position,Vector2(life.size.x*clampf(float(ancient["health"])/float(ancient["max_health"]),0,1),life.size.y)),Color("#a3dce7" if kind=="fenrir" else "#c3874c"))
 	for spider in world.swamp_spiders:
@@ -2249,14 +2249,24 @@ func _draw_combat_feedback() -> void:
 		if remaining<=0: continue
 		var p:Vector2=_world_to_screen(Vector2(float(event["x"])+0.5,float(event["y"])+0.5))
 		if not MAP_AREA.grow(-35).has_point(p): continue
-		if remaining>0.88:
-			draw_arc(p,10*zoom,0,TAU,20,Color(1.0,0.30,0.22,0.85),2.0)
-			draw_circle(p-Vector2(0,12*zoom),7*zoom,Color(1.0,0.12,0.08,0.30))
-		var text:String="-%d"%maxi(1,roundi(float(event["amount"])))
-		var label_pos:Vector2=p+Vector2(-12,-20-(1.1-remaining)*22)*zoom
-		var font_size:int=maxi(12,int(14*zoom))
-		draw_string(ThemeDB.fallback_font,label_pos+Vector2(1,1),text,HORIZONTAL_ALIGNMENT_LEFT,-1,font_size,Color(0.1,0.06,0.05,clampf(remaining*3,0,1)))
-		draw_string(ThemeDB.fallback_font,label_pos,text,HORIZONTAL_ALIGNMENT_LEFT,-1,font_size,Color(1.0,0.46,0.37,clampf(remaining*3,0,1)))
+		var age:float=1.1-remaining
+		if remaining>0.85:
+			var fade:float=clampf((remaining-0.85)/0.25,0,1)
+			var impact:Vector2=p-Vector2(0,10*zoom)
+			for i in range(5):
+				var angle:float=float(i)*TAU/5.0+0.45
+				var ray:=Vector2(cos(angle),sin(angle))
+				var start:Vector2=impact+ray*(4+age*20)*zoom
+				var finish:Vector2=start+ray*(3+fade*4)*zoom
+				draw_line(start,finish,Color(1.0,0.38,0.22,fade),maxf(1,zoom*1.5))
+		var amount:int=maxi(1,roundi(float(event["amount"])))
+		var damage_text:String="-%d"%amount
+		var font_size:int=maxi(12,int(15*zoom))
+		var alpha:float=clampf(remaining*3,0,1)
+		var width:float=ThemeDB.fallback_font.get_string_size(damage_text,HORIZONTAL_ALIGNMENT_LEFT,-1,font_size).x
+		var label_pos:Vector2=p+Vector2(-width*0.5,-(24+age*19)*zoom)
+		draw_string_outline(ThemeDB.fallback_font,label_pos,damage_text,HORIZONTAL_ALIGNMENT_LEFT,-1,font_size,maxi(2,int(zoom*2)),Color(0.12,0.08,0.05,alpha))
+		draw_string(ThemeDB.fallback_font,label_pos,damage_text,HORIZONTAL_ALIGNMENT_LEFT,-1,font_size,Color(1.0,0.94,0.76,alpha))
 
 func _draw_swimming_animal(species:String,indices:Dictionary,p:Vector2,s:float,face:float,depth:float,moving:bool) -> void:
 	var texture:Texture2D
