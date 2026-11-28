@@ -627,8 +627,14 @@ func _draw_world_sites() -> void:
 			_draw_landscape_object("castle",p,unit*3.1)
 		elif kind=="campfire":
 			_draw_live_campfire(p,unit)
+		elif kind=="fish":
+			# A margem existente e o ponto de pesca; nao desenhar piscina artificial.
+			continue
 		elif kind=="waterfall":
-			_draw_waterfall(p,unit)
+			var sx:int=int(site["x"])
+			var sy:int=int(site["y"])
+			if world.is_river_cell(sx,sy-1) and world.is_river_cell(sx,sy) and world.is_river_cell(sx,sy+1):
+				_draw_waterfall(p,unit)
 		elif kind=="crossing":
 			_draw_landscape_object("bridge",p,unit*1.9)
 		elif kind=="mine" and not bool(site.get("developed",false)):
@@ -687,19 +693,18 @@ func _draw_rivers() -> void:
 
 func _draw_waterfall(p:Vector2,u:float) -> void:
 	if not MAP_AREA.grow(-u*1.3).has_point(p): return
-	# Cascata encaixada num paredao, com agua continua e espuma no pe.
-	_draw_landscape_object("waterfall_cliff",p+Vector2(0,u*0.34),u*2.25)
-	var base:Vector2=p-Vector2(u*0.33,u*0.76)
+	# Paredao de rocha com canal aberto no topo e espuma sobre o rio abaixo.
+	_draw_landscape_object("waterfall_cliff",p+Vector2(0,u*0.38),u*2.05)
 	var time:float=world.swamp_clock
-	for i in range(14):
-		var x:float=float(i)*u*0.048
-		var f:float=fposmod(time*0.85+float(i)*0.137,1.0)
-		var q:Vector2=base+Vector2(x+sin(f*5.0+float(i))*u*0.018,f*u*0.71)
-		draw_rect(Rect2(q,Vector2(maxf(1,u*0.022),u*(0.09+float(i%3)*0.043))),Color("#b6e9e7",0.45+0.25*sin(float(i))))
-	for i in range(22):
-		var f:float=fposmod(time*0.46+float(i)*0.071,1.0)
-		var q:Vector2=p+Vector2((float(i%7)-3)*u*0.085*(1+f*0.5),u*(0.04+f*0.36))
-		draw_rect(Rect2(q,Vector2(u*(0.08+f*0.07),maxf(1,u*0.026))),Color(0.87,0.98,0.95,(1-f)*0.78))
+	for i in range(9):
+		var f:float=fposmod(time*1.15+float(i)*0.173,1.0)
+		var q:Vector2=p+Vector2((float(i)-4.0)*u*0.052,-u*0.73+f*u*0.88)
+		var alpha:float=0.25+0.45*sin(f*PI)
+		draw_rect(Rect2(q.round(),Vector2(maxf(1,u*0.018),maxf(2,u*(0.12+float(i%3)*0.045)))),Color(0.78,0.93,1.0,alpha))
+	for i in range(13):
+		var f:float=fposmod(time*0.6+float(i)*0.147,1.0)
+		var q:Vector2=p+Vector2((float(i%7)-3.0)*u*0.075*(1.0+f*0.65),u*(0.17+f*0.48))
+		draw_rect(Rect2(q.round(),Vector2(u*(0.07+f*0.07),maxf(1,u*0.024))),Color(0.87,0.97,0.98,(1.0-f)*0.72))
 
 
 const HUMAN_CELL := 48
@@ -1792,7 +1797,12 @@ func _draw_equipment(person: Dictionary, center: Vector2, size: float, bounce: f
 	_draw_held_item(tool, hand, scale_px, face, angle)
 	if action == "fishing" and tool == "rod":
 		var tip := hand + Vector2(0, -22 * scale_px).rotated(angle * face)
-		draw_line(tip, tip + Vector2(face * size * 0.10, size * 0.57), Color("#c6d6cf"), 1.0)
+		if person.has("fishing_water_x") and person.has("fishing_water_y"):
+			var target:=_world_to_screen(Vector2(float(person["fishing_water_x"])+0.5,float(person["fishing_water_y"])+0.5))
+			if MAP_AREA.has_point(target) and target.distance_to(center)<size*3.0:
+				draw_line(tip,target,Color("#d4e0d5"),1.0)
+				draw_rect(Rect2(target-Vector2(1.5,1.5)*zoom,Vector2(3,3)*zoom),Color("#d96f4d"))
+
 
 func _toggle_spawn() -> void:
 	if not spawn_species.is_empty():
