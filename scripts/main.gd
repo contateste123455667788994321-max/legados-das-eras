@@ -631,7 +631,7 @@ func _draw_dirt_path(a: Vector2,b: Vector2,unit: float) -> void:
 
 
 func _draw_territory_borders() -> void:
-	var palette:Array[Color]=[Color("#d6b76a"),Color("#69cafa"),Color("#a9cb84"),Color("#f36d68"),Color("#b7a2e0"),Color("#e8b183")]
+	var palette:Array[Color]=[Color("#bbb7a8"),Color("#69cafa"),Color("#f36d68"),Color("#a9cb84"),Color("#b7a2e0"),Color("#e8b183")]
 	var cells:Dictionary=world.border_cells
 	var grid:float=World.BORDER_GRID
 	var edge_width:float=clampf(zoom*1.65,1.4,4.0)
