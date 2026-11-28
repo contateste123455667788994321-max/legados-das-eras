@@ -457,24 +457,58 @@ func food_ration(person:Dictionary,town:Dictionary) -> float:
 	# Rações menores para moradores comuns durante escassez.
 	return minf(0.2,maxf(0.0,available-reserve))
 
-func fishing_position(town:Dictionary) -> Dictionary:
-	var site:Dictionary=local_site("fish",int(town["id"]))
-	if not blockade_active(town): return site
-	var origin:=Vector2(float(town["x"]),float(town["y"]))
+# Pesca somente nas margens dos dois rios reais, nunca em pocoes do brejo.
+func is_river_cell(x:int,y:int) -> bool:
+	if x<0 or y<0 or x>=WIDTH or y>=SIZE: return false
+	if str(tiles[y][x])!="water": return false
+	for index in range(2):
+		var a:int=river_x(y,index)
+		var b:int=river_x(maxi(0,y-1),index)
+		if x>=mini(a,b) and x<=maxi(a,b): return true
+	return false
+
+func fishing_water(bank:Vector2) -> Vector2:
+	var x:int=roundi(bank.x)
+	var y:int=roundi(bank.y)
+	if x<1 or y<1 or x>=WIDTH-1 or y>=SIZE-1: return Vector2(-1,-1)
+	if str(tiles[y][x]) in ["water","mountain"] or water_depth(Vector2(x,y))>0.0: return Vector2(-1,-1)
+	for offset in [Vector2i(1,0),Vector2i(-1,0),Vector2i(0,1),Vector2i(0,-1)]:
+		if is_river_cell(x+offset.x,y+offset.y): return Vector2(x+offset.x,y+offset.y)
+	return Vector2(-1,-1)
+
+func _nearest_river_bank(origin:Vector2,radius:float=INF) -> Dictionary:
 	var best:Dictionary={}
 	var distance:float=INF
-	for y in range(maxi(1,int(origin.y)-5),mini(SIZE-1,int(origin.y)+6)):
-		for x in range(maxi(1,int(origin.x)-5),mini(WIDTH-1,int(origin.x)+6)):
-			var q:=Vector2(x,y)
-			if q.distance_to(origin)>4.8 or water_depth(q)>0.0: continue
-			if str(tiles[y][x])=="mountain": continue
-			var near_water:bool=false
-			for offset in [Vector2i(1,0),Vector2i(-1,0),Vector2i(0,1),Vector2i(0,-1)]:
-				if str(tiles[y+offset.y][x+offset.x])=="water": near_water=true
-			if near_water and q.distance_squared_to(origin)<distance:
-				distance=q.distance_squared_to(origin)
-				best={"x":x,"y":y,"kind":"fish"}
+	for y in range(1,SIZE-1):
+		for index in range(2):
+			var a:int=river_x(y,index)
+			var b:int=river_x(y-1,index)
+			for x in range(maxi(1,mini(a,b)-2),mini(WIDTH-1,maxi(a,b)+3)):
+				var q:=Vector2(x,y)
+				var d:float=q.distance_squared_to(origin)
+				if d>=distance or d>radius*radius: continue
+				var water:Vector2=fishing_water(q)
+				if water.x<0: continue
+				distance=d
+				best={"x":x,"y":y,"kind":"fish","water_x":water.x,"water_y":water.y}
 	return best
+
+func fishing_position(town:Dictionary) -> Dictionary:
+	var origin:=Vector2(float(town["x"]),float(town["y"]))
+	if blockade_active(town): return _nearest_river_bank(origin,4.8)
+	var site:Dictionary=local_site("fish",int(town["id"]))
+	if not site.is_empty():
+		var water:Vector2=fishing_water(Vector2(float(site["x"]),float(site["y"])))
+		if water.x>=0:
+			site["water_x"]=water.x
+			site["water_y"]=water.y
+			return site
+	var replacement:Dictionary=_nearest_river_bank(origin)
+	if not replacement.is_empty():
+		replacement["town"]=town["id"]
+		if not site.is_empty(): sites.erase(site)
+		sites.append(replacement)
+	return replacement
 
 func _grow_economies() -> void:
 	for town in towns:
@@ -835,7 +869,11 @@ func _prepare_sites() -> void:
 			if bool(town.get(kind,false)):
 				var pos:Vector2=workshop_position(town,kind)
 				sites.append({"kind":kind,"x":pos.x,"y":pos.y,"town":town["id"]})
-		for kind in ["fish","mine"]:
+		var bank:Dictionary=_nearest_river_bank(origin)
+		if not bank.is_empty():
+			bank["town"]=town["id"]
+			sites.append(bank)
+		for kind in ["mine"]:
 			var best: float=10000.0
 			var chosen:=Vector2(-1,-1)
 			for y in range(1,SIZE-1):
@@ -851,10 +889,13 @@ func _prepare_sites() -> void:
 						best=d
 						chosen=Vector2(x,y)
 			if chosen.x>=0: sites.append({"kind":kind,"x":chosen.x,"y":chosen.y,"town":town["id"],"developed":false,"work":0.0})
-	for x in range(1,WIDTH-1):
-		if str(tiles[2][x])=="water" and str(tiles[3][x])=="water":
-			sites.append({"kind":"waterfall","x":x,"y":2})
-			if x>20: break
+	# Uma queda por rio, em trecho reto e conectado.
+	for index in range(2):
+		for y in range(2,7):
+			var x:int=river_x(y,index)
+			if is_river_cell(x,y-1) and is_river_cell(x,y) and is_river_cell(x,y+1):
+				sites.append({"kind":"waterfall","x":x,"y":y})
+				break
 
 func _seed_wildlife() -> void:
 	for i in range(24):
@@ -1951,7 +1992,11 @@ func _found_empty_town(p:Vector2) -> Dictionary:
 	var town:Dictionary={"id":id,"name":"Nova tribo "+str(id),"x":int(p.x),"y":int(p.y),"hostile":false,"leader":0,"food":10.0,"wood":0.0,"stone":0.0,"water":8.0,"knowledge":0.0,"level":1,"law":"merito","home_biome":str(tiles[int(p.y)][int(p.x)]),"clothing":0.0,"drought_preparation":false,"houses":0,"house_levels":[],"farms":0,"campfire":false,"oven":false,"forge":false,"crossing":false,"castle":false,"construction":{},"historical_events":[]}
 	towns.append(town)
 	# Novas tribos recebem locais naturais de coleta, nao estruturas prontas.
-	for kind in ["fish","mine"]:
+	var bank:Dictionary=_nearest_river_bank(p)
+	if not bank.is_empty():
+		bank["town"]=id
+		sites.append(bank)
+	for kind in ["mine"]:
 		var best:float=10000.0
 		var chosen:=Vector2(-1,-1)
 		var wanted:String="water" if kind=="fish" else "mountain"
