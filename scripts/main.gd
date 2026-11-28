@@ -1853,7 +1853,24 @@ func _draw_swamp_creatures() -> void:
 		var center:Vector2=_world_to_screen(Vector2(float(ancient["x"])+0.5,float(ancient["y"])+0.5))
 		var art:String="golem_angry" if kind=="golem" and int(ancient.get("target_town",-1))>=0 else str(kind)
 		var size:float=(64.0 if kind=="golem" else 51.0)*zoom
-		_draw_landscape_object(art,center,size)
+		var moving:bool=bool(ancient.get("moving",false))
+		var striking:bool=float(ancient.get("hit_anim_until",0))>world.swamp_clock
+		if moving or striking:
+			var walk_key:String=str(kind)+"_walk"
+			if not landscape_objects.has(walk_key): landscape_objects[walk_key]=load("res://assets/landscape/"+walk_key+".svg")
+			var atlas:Texture2D=landscape_objects[walk_key]
+			var phase:float=float(ancient.get("walk_phase",0))
+			var frame:int=2 if striking else int(phase/TAU*4.0)%4
+			if atlas!=null:
+				_draw_walk_sprite(atlas,Rect2(frame*64,0,64,64),center,size,float(ancient.get("face",1.0)),phase,moving,absf(sin(phase))*size*0.05 if kind=="fenrir" and moving else 0.0)
+			else: _draw_landscape_object(art,center,size)
+		else: _draw_landscape_object(art,center,size)
+		if striking and MAP_AREA.grow(-20*zoom).has_point(center):
+			var fade:float=clampf((float(ancient["hit_anim_until"])-world.swamp_clock)/0.35,0,1)
+			for i in range(7):
+				var angle:float=float(i)*TAU/7.0
+				var particle:Vector2=center+Vector2(cos(angle),sin(angle)*0.45)*(12.0+18.0*(1.0-fade))*zoom
+				draw_rect(Rect2(particle,Vector2.ONE*maxf(1.0,3.0*zoom*fade)),Color(0.65,0.55,0.42,fade) if kind=="golem" else Color(0.65,0.88,1.0,fade))
 		if MAP_AREA.grow(-30*zoom).has_point(center):
 			var life:=Rect2(center+Vector2(-19,-49)*zoom,Vector2(38,4)*zoom)
 			draw_rect(life,Color("#292b32"))
