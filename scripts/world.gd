@@ -2997,6 +2997,8 @@ func _ancestral_step(actor:Dictionary,goal:Vector2,dt:float,pace:float) -> void:
 	if absf(n.x-p.x)>0.001: actor["face"]=signf(n.x-p.x)
 	actor["x"]=n.x
 	actor["y"]=n.y
+	actor["moving"]=p.distance_squared_to(n)>0.000001
+	actor["walk_phase"]=fposmod(float(actor.get("walk_phase",0.0))+p.distance_to(n)*TAU/0.6,TAU)
 
 func _golem_structure(town:Dictionary,p:Vector2) -> Dictionary:
 	var best:Dictionary={}
@@ -3070,6 +3072,7 @@ func _update_ancestrals(dt:float,controlled_id:int) -> void:
 		var actor:Dictionary=ancestrals[kind]
 		if not bool(actor.get("alive",false)): continue
 		var p:=Vector2(float(actor["x"]),float(actor["y"]))
+		actor["moving"]=false
 		actor["attack_cd"]=maxf(0,float(actor["attack_cd"])-dt)
 		var town_id:int=int(actor.get("target_town",-1))
 		if kind=="golem" and town_id<0: continue
@@ -3088,6 +3091,7 @@ func _update_ancestrals(dt:float,controlled_id:int) -> void:
 			if best<=0.75 and float(actor["attack_cd"])<=0:
 				_swamp_damage(target,70.0 if kind=="golem" else 30.0)
 				actor["attack_cd"]=2.5 if kind=="golem" else 1.2
+				actor["hit_anim_until"]=swamp_clock+0.35
 			elif best>0.75: _ancestral_step(actor,q,dt,0.42 if kind=="golem" else 1.45)
 		elif kind=="golem":
 			var town:Dictionary=get_town(town_id)
@@ -3099,6 +3103,7 @@ func _update_ancestrals(dt:float,controlled_id:int) -> void:
 				if p.distance_to(goal)<1.1 and float(actor["attack_cd"])<=0:
 					_golem_smash(town,structure)
 					actor["attack_cd"]=2.5
+					actor["hit_anim_until"]=swamp_clock+0.35
 			_ancestral_step(actor,goal,dt,0.42)
 		else:
 			actor["state"]="Patrulhando"
