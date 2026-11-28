@@ -2211,7 +2211,7 @@ func _draw_swamp_creatures() -> void:
 		var summon:float=float(witch.get("summon_anim",0))
 		var lift:float=clampf(minf((1.2-summon)/0.30,summon/0.30),0,1) if summon>0 else 0.0
 		var pose:int=2 if lift>=0.65 else (1 if lift>0.15 else 0)
-		_draw_walk_sprite(WITCH_APPROVED,Rect2(pose*96,0,96,96),p,43.0*zoom,1.0,0.0,false,0.0)
+		_draw_walk_sprite(WITCH_APPROVED,Rect2(pose*64,0,64,64),p,43.0*zoom,1.0,0.0,false,0.0)
 		if MAP_AREA.grow(-30*zoom).has_point(p):
 			var bar:=Rect2(p+Vector2(-16,-37)*zoom,Vector2(32,4)*zoom)
 			draw_rect(bar,Color("#2a202d"))
@@ -2227,7 +2227,7 @@ func _draw_swamp_creatures() -> void:
 		var phase:float=float(ancient.get("walk_phase",0))
 		var frame:int=2 if striking else (int(phase/TAU*4.0)%4 if moving else 0)
 		_contact_shadow(center,size*0.28,size*0.07)
-		_draw_walk_sprite(atlas,Rect2(frame*96,0,96,96),center,size,float(ancient.get("face",1.0)),phase,false,absf(sin(phase))*size*0.05 if kind=="fenrir" and moving else 0.0)
+		_draw_walk_sprite(atlas,Rect2(frame*64,0,64,64),center,size,float(ancient.get("face",1.0)),phase,false,absf(sin(phase))*size*0.05 if kind=="fenrir" and moving else 0.0)
 		if striking and MAP_AREA.grow(-20*zoom).has_point(center):
 			var fade:float=clampf((float(ancient["hit_anim_until"])-world.swamp_clock)/0.35,0,1)
 			for i in range(7):
@@ -2956,9 +2956,9 @@ func _delete_saved_world(path:String) -> void:
 	if home_open: _show_saved_worlds.call_deferred()
 
 const FAUNA_APPROVED:Texture2D=preload("res://assets/landscape/fauna_aprovada.png")
-const WITCH_APPROVED:Texture2D=preload("res://assets/landscape/bruxa_nativa.svg")
-const GOLEM_APPROVED:Texture2D=preload("res://assets/landscape/golem_nativo.svg")
-const FENRIR_APPROVED:Texture2D=preload("res://assets/landscape/fenrir_nativo.svg")
+const WITCH_APPROVED:Texture2D=preload("res://assets/landscape/bruxa_aprovada.png")
+const GOLEM_APPROVED:Texture2D=preload("res://assets/landscape/golem_aprovado.png")
+const FENRIR_APPROVED:Texture2D=preload("res://assets/landscape/fenrir_referencia.png")
 const SPIDERS_APPROVED:Texture2D=preload("res://assets/landscape/aranhas_aprovadas.png")
 func _draw_fauna(animal:Dictionary,p:Vector2,s:float,species:String) -> void:
 	var row:int=ANIMAL_ROWS.find(species)
